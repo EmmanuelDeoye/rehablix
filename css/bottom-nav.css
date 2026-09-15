@@ -1,0 +1,90 @@
+/* css/bottom-nav.css — persistent glass bottom nav: Lixa | Workspace */
+
+:root {
+  --bottom-nav-h: calc(60px + env(safe-area-inset-bottom));
+}
+
+body.has-bottom-nav {
+  padding-bottom: var(--bottom-nav-h);
+}
+
+.app-bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 900;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0;
+  height: var(--bottom-nav-h);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--card-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border-light);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.06);
+}
+
+.app-bottom-nav-inner {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  align-items: stretch;
+}
+
+.bottom-nav-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.4rem 0.5rem;
+  transition: color 0.2s ease;
+  position: relative;
+}
+
+.bottom-nav-tab svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  transition: transform 0.2s ease;
+}
+
+.bottom-nav-tab:hover {
+  color: var(--accent);
+}
+
+.bottom-nav-tab.active {
+  color: var(--accent);
+}
+
+.bottom-nav-tab.active svg {
+  transform: translateY(-1px);
+}
+
+.bottom-nav-tab.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: var(--accent);
+}
+
+[data-theme="dark"] .app-bottom-nav {
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
+}

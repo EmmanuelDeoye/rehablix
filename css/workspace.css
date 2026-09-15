@@ -1,0 +1,95 @@
+/* css/workspace.css — Workspace page extras: feedback footer */
+
+.site-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+  padding-top: 2rem;
+}
+
+.feedback-footer {
+  width: 100%;
+  max-width: 420px;
+  background: var(--card-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-light);
+  border-radius: 1.4rem;
+  padding: 1.5rem 1.4rem;
+  box-shadow: var(--shadow-sm);
+  text-align: center;
+}
+
+.feedback-heading {
+  margin: 0 0 0.9rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.feedback-stars {
+  display: flex;
+  justify-content: center;
+  gap: 0.35rem;
+  margin-bottom: 0.9rem;
+}
+
+.feedback-star {
+  background: none;
+  border: none;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--border-light);
+  cursor: pointer;
+  transition: color 0.15s ease, transform 0.15s ease;
+  padding: 0;
+}
+
+.feedback-star:hover,
+.feedback-star.hovered {
+  transform: scale(1.15);
+}
+
+.feedback-star.selected,
+.feedback-star.hovered {
+  color: #f59e0b;
+}
+
+.feedback-comment {
+  width: 100%;
+  resize: vertical;
+  min-height: 44px;
+  border: 1px solid var(--border-light);
+  border-radius: 0.8rem;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.8rem;
+  outline: none;
+}
+.feedback-comment:focus { border-color: var(--accent); }
+
+.feedback-submit-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 2rem;
+  padding: 0.55rem 1.6rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+.feedback-submit-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.feedback-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.feedback-thanks {
+  margin: 0.8rem 0 0;
+  font-size: 0.82rem;
+  color: var(--accent);
+  font-weight: 600;
+}

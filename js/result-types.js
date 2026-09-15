@@ -188,7 +188,7 @@
       ],
       getContentHtml: (data) => fallbackContent(data, 'resultsHtml', 'resultsMarkdown'),
       buildSaveUpdates: ({ html, markdown }) => ({ resultsMarkdown: markdown, resultsHtml: html }),
-      closeUrl: 'ask.html',
+      closeUrl: 'index.html',
       showPptExport: false,
       shareSubject: (data) => data.question ? `AI answer: ${data.question}` : 'AI Response',
       printMeta: (data) => [

@@ -18,7 +18,8 @@
 
     // Define all available tools
     const tools = [
-      { name: 'Home', url: 'index.html', icon: '🏠' },
+      { name: 'Lixa', url: 'index.html', icon: '✨' },
+      { name: 'Workspace', url: 'workspace.html', icon: '🧰' },
       { name: 'Format Generator', url: 'format.html', icon: '📋' },
       { name: 'Standardized Tools', url: 'standardized.html', icon: '⚖️' },
       { name: 'Smart EMR', url: 'doc.html', icon: '🗂️' },
@@ -28,8 +29,7 @@
       { name: 'Assignment Maker', url: 'assignment.html', icon: '📝' },
       { name: 'Project Maker', url: 'project.html', icon: '📚' },
       { name: 'Study Buddy', url: 'study.html', icon: '🧠' },
-      { name: 'Exam Simulator', url: 'exam.html', icon: '⏱️' },
-      { name: 'Ask Me', url: 'ask.html', icon: '💬' }
+      { name: 'Exam Simulator', url: 'exam.html', icon: '⏱️' }
     ];
 
     const currentPath = window.location.pathname.split('/').pop() || 'index.html';

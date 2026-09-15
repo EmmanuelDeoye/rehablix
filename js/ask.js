@@ -64,8 +64,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       : 'Shift+Enter for a new line · Enter to send';
   }
 
-  const TOOL_PAGES = ['format.html', 'standardized.html', 'doc.html', 'rom.html', 'audio.html',
-    'presentation.html', 'assignment.html', 'project.html', 'study.html', 'exam.html', 'ask.html'];
+  const TOOL_PAGES = ['doc.html', 'rom.html', 'project.html', 'exam.html', 'workspace.html'];
 
   // =========================================================================
   // Helpers
@@ -157,28 +156,48 @@ document.addEventListener('DOMContentLoaded', async () => {
     return wrapper.innerHTML;
   }
 
+  // Generic renderer for a Lixa-generated file result card. `card` shape:
+  // { icon, title, meta, snippet, actions:[{type:'link'|'button', href?, id?, label, primary?, external?}] }
+  function renderFileCard(card) {
+    const wrap = document.createElement('div');
+    wrap.className = 'lixa-file-card';
+    const actionsHtml = (card.actions || []).map(a => {
+      const cls = 'lixa-file-action' + (a.primary ? ' lixa-file-primary-action' : '');
+      if (a.type === 'button') {
+        return `<button type="button" class="${cls}" data-file-action="${escapeHtml(a.id || '')}"><i class="fas ${a.icon || 'fa-arrow-up-right-from-square'}"></i> ${escapeHtml(a.label)}</button>`;
+      }
+      const target = a.external ? ' target="_blank" rel="noopener noreferrer"' : '';
+      return `<a class="${cls}" href="${a.href}"${target}><i class="fas ${a.icon || 'fa-arrow-up-right-from-square'}"></i> ${escapeHtml(a.label)}</a>`;
+    }).join('');
+    wrap.innerHTML = `
+      <div class="lixa-file-icon">${card.icon || '📄'}</div>
+      <div class="lixa-file-body">
+        <div class="lixa-file-title">${escapeHtml(card.title || 'Generated file')}</div>
+        ${card.meta ? `<div class="lixa-file-meta">${escapeHtml(card.meta)}</div>` : ''}
+        ${card.snippet ? `<div class="lixa-file-snippet">${escapeHtml(card.snippet)}</div>` : ''}
+        <div class="lixa-file-actions">${actionsHtml}</div>
+      </div>
+    `;
+    return wrap;
+  }
+
   // =========================================================================
   // Site & company knowledge baked into the system prompt (feature 7 & 8)
   // =========================================================================
   function buildSystemPrompt() {
-    return `You are the "Ask AI" assistant embedded inside rehablix (rehablix.com), an AI toolkit for rehabilitation professionals and healthcare students. You provide accurate, evidence-based answers about rehabilitation, medical conditions, treatments, clinical reasoning, and academic work. Use clear language and markdown formatting (headings, bullet points, bold, tables) to keep answers readable. Be concise but thorough.
+    return `You are "Lixa", the AI copilot embedded as the home page of rehablix (rehablix.com), an AI toolkit for rehabilitation professionals and healthcare students. You provide accurate, evidence-based answers about rehabilitation, medical conditions, treatments, clinical reasoning, and academic work. Use clear language and markdown formatting (headings, bullet points, bold, tables) to keep answers readable. Be concise but thorough.
 
-You know the rehablix website well and should proactively recommend/redirect the user to the right internal page (as a markdown link, using the exact relative path below) whenever their request matches a dedicated tool — that tool will do a much better job than a chat answer alone, and clicking the link automatically carries over what the user already told you. Available pages:
+Unlike a typical chatbot, you can also personally CREATE things for the user directly in this conversation — an assessment format, a standardized assessment tool, an audio transcript, a presentation/report, a study set (flashcards/quiz), or an academic assignment. That routing happens automatically outside of you (by keyword detection or the user typing "@toolname"), so you never need to tell the user to go to a separate page for any of those six things — if they ask for one, the app will already be handling it as a generation request, not a chat question. Never suggest visiting format.html, standardized.html, audio.html, presentation.html, study.html, or assignment.html — you ARE that functionality now.
 
-- [Assessment Format Generator](format.html) – builds structured assessment write-ups from patient data and clinical guidelines.
-- [Standardized Tools](standardized.html) – generates full copies of standardized assessments (MMSE, Berg Balance Scale, etc.) as downloadable PDFs.
-- [Documentation Assistant](doc.html) – dictate, upload files, or upload recorded sessions; AI transcribes and organizes clinical notes.
-- [Audio Transcription](audio.html) – records a live assessment/therapy session or transcribes an uploaded audio file.
-- [Motion & Gait Analyzer](rom.html) – a voice-guided video scan that measures joint range of motion (rom.html?mode=rom) or analyzes a patient's gait (rom.html?mode=gait), with AI tracking positioning automatically.
-- [Presentation Maker](presentation.html) – turns notes/research into a case presentation, clinical report, or documentation with AI-generated slides.
-- [Assignment Maker](assignment.html) – generates full academic assignments with references and a chosen tone (for students).
+A few things genuinely still live on separate pages (in the "Workspace" tab, reachable via the bottom nav) because they're too complex for chat — only recommend these, and only when truly relevant:
+- [Smart EMR](doc.html) – AI-powered workspace for documentation, patient management, treatment planning, progress tracking.
+- [Motion & Gait Analyzer](rom.html) – a voice-guided video scan that measures joint range of motion (rom.html?mode=rom) or analyzes gait (rom.html?mode=gait).
 - [Project Maker](project.html) – builds an academic project chapter by chapter (literature review, methodology, references, defense prep).
-- [Study Buddy](study.html) – turns notes/textbooks/slides into flashcards, summaries, and quizzes.
 - [Exam Simulator](exam.html) – timed, AI-generated practice exams with performance analytics.
 
-When a user's need clearly matches one of these, say so directly and link to it, e.g. "You'll get a much more complete result from the [Motion & Gait Analyzer](rom.html?mode=gait) — it's built exactly for this." Don't link a page unless it's actually relevant.
+When a user's need clearly matches one of these four, say so directly and link to it. Don't link a page unless it's actually relevant.
 
-STRICT RULE: most messages do NOT need a page recommendation. Do not mention or link ANY of these pages in greetings, small talk, general knowledge questions, or when you're already able to fully answer the question yourself in chat. Only bring one up when the user is explicitly trying to DO something (generate a document, analyze a video/image, build a study set, etc.) that one of these tools is specifically built for — and even then, mention at most one page per response. If in doubt, don't mention a page at all.
+STRICT RULE: most messages do NOT need a page recommendation. Do not mention or link ANY of these pages in greetings, small talk, general knowledge questions, or when you're already able to fully answer the question yourself in chat. Only bring one up when the user is explicitly trying to do something one of these four tools is specifically built for — and even then, mention at most one page per response. If in doubt, don't mention a page at all.
 
 About rehablix itself: rehablix was built by rehabverve enterprise, founded by Emmanuel Adeoye — an occupational therapist by profession and a programmer by passion. Only share this if asked about the creator, company, or "who made this."
 
@@ -608,9 +627,9 @@ If the user's message includes content extracted from an uploaded file, an image
     if (messages.length === 0) {
       chatMessages.innerHTML = `
         <div class="empty-chat">
-          <div class="empty-chat-icon">💬</div>
-          <p>Ask me anything about rehabilitation, conditions, assignments, or clinical reasoning.</p>
-          <p class="empty-chat-hint">Your conversation will be saved automatically when you're logged in.</p>
+          <div class="empty-chat-icon">✨</div>
+          <p>Hi, I'm Lixa. Ask me anything, or tell me what to build — an assessment format, a standardized tool, a transcript, a presentation, a study set, or an assignment.</p>
+          <p class="empty-chat-hint">Type <strong>@</strong> to jump straight to a tool, or just describe what you need.</p>
         </div>
       `;
       return;
@@ -632,6 +651,10 @@ If the user's message includes content extracted from an uploaded file, an image
         bubble.textContent = msg.displayContent || msg.content;
       }
       msgDiv.appendChild(bubble);
+
+      if (msg.role === 'assistant' && msg.fileCard) {
+        bubble.appendChild(renderFileCard(msg.fileCard));
+      }
 
       if (msg.role === 'user') {
         const editBox = document.createElement('div');
@@ -811,6 +834,15 @@ If the user's message includes content extracted from an uploaded file, an image
     if (link) {
       e.preventDefault();
       handoffAndNavigate(link);
+    }
+
+    // --- File-result card button action (e.g. "Export to PPTX") ---
+    const fileActionBtn = e.target.closest('[data-file-action]');
+    if (fileActionBtn && window.LixaOrchestrator) {
+      const msgDiv = fileActionBtn.closest('.message.assistant');
+      const idx = msgDiv ? parseInt(msgDiv.getAttribute('data-index'), 10) : -1;
+      const card = idx >= 0 && messages[idx] ? messages[idx].fileCard : null;
+      window.LixaOrchestrator.handleFileAction(fileActionBtn.dataset.fileAction, card);
     }
   });
 
@@ -1276,6 +1308,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       content: m.content,
       displayContent: m.displayContent || null,
       attachmentMeta: m.attachmentMeta || null,
+      fileCard: m.fileCard || null,
       timestamp: m.timestamp || Date.now()
     }));
 
@@ -1481,6 +1514,20 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
 
     if (!currentUser) showToast('Log in to save your conversation', 'info');
 
+    // Lixa tool routing: an "@tool" prefix, an in-progress slot-filling
+    // conversation, or a confidently-detected intent takes over the turn
+    // instead of going to the general chat model.
+    if (window.LixaOrchestrator) {
+      const handled = await window.LixaOrchestrator.tryHandle(text, attachedFiles);
+      if (handled) {
+        messageInput.value = '';
+        messageInput.style.height = 'auto';
+        attachedFiles = [];
+        renderAttachmentsStrip();
+        return;
+      }
+    }
+
     isWaiting = true;
     sendBtn.disabled = true;
     messageInput.disabled = true;
@@ -1597,7 +1644,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       messageInput.value = q.trim();
       messageInput.dispatchEvent(new Event('input'));
       // Clean the URL so a refresh doesn't resend the same question.
-      window.history.replaceState({}, '', 'ask.html');
+      window.history.replaceState({}, '', 'index.html');
       setTimeout(() => handleSend(), 300);
     }
   })();
@@ -1662,6 +1709,33 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       historyNavBtn.style.display = 'none';
     }
   });
+
+  // =========================================================================
+  // Expose a small surface for js/lixa.js to drive the same chat core
+  // (append tool-generated messages/file-cards, trigger saves, etc.)
+  // without duplicating the message state or the save/render logic here.
+  // =========================================================================
+  window.LixaCore = {
+    getMessages: () => messages,
+    pushMessage: (msg) => messages.push(msg),
+    render: () => renderMessages(),
+    save: () => saveConversation(),
+    getCurrentUser: () => currentUser,
+    getDatabase: () => database,
+    showToast,
+    escapeHtml,
+    renderFileCard,
+    showTyping,
+    removeTyping,
+    setWaiting: (waiting) => {
+      isWaiting = waiting;
+      sendBtn.disabled = waiting;
+      messageInput.disabled = waiting;
+    },
+    isWaiting: () => isWaiting,
+    scrollToBottom: () => { chatMessages.scrollTop = chatMessages.scrollHeight; },
+    refreshHistoryList: () => loadHistoryList()
+  };
 
   async function initialize() {
     await fetchTokens();
