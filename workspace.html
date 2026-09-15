@@ -1,0 +1,333 @@
+<!-- workspace.html — the complex tools Lixa can't handle inline, plus plan/FAQ/feedback -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script>
+    (function() {
+      var stored = localStorage.getItem('rehab-theme');
+      var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (stored === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      } else if (stored === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+      } else {
+        document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+      }
+    })();
+  </script>
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5">
+
+  <title>Workspace | rehablix — Smart EMR, Motion Analysis, Project Maker &amp; Exam Simulator</title>
+  <meta name="description" content="The rehablix Workspace: Smart EMR, Motion & Gait Analyzer, Project Maker, and Exam Simulator — plus your subscription plan and FAQs.">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <link rel="canonical" href="https://rehablix.com/workspace.html">
+
+  <meta name="theme-color" content="#0f172a">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/assets/img/logo.png" type="image/png">
+  <link rel="apple-touch-icon" href="/assets/img/logo.png">
+
+  <link rel="preconnect" href="https://www.gstatic.com">
+  <link rel="preconnect" href="https://js.paystack.co">
+  <link rel="preconnect" href="https://checkout.flutterwave.com">
+
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js" defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js" defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js" defer></script>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/auth.css">
+  <link rel="stylesheet" href="css/bottom-nav.css">
+  <link rel="stylesheet" href="css/workspace.css">
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js');
+    }
+  </script>
+  <link rel="stylesheet" href="css/invite-modal.css">
+</head>
+<body data-page="workspace">
+  <nav class="navbar">
+    <div class="nav-container">
+      <div class="nav-left">
+        <div class="logo-text">
+          <span class="logo-lop">rehablix</span>
+          <span class="logo-full">workspace</span>
+        </div>
+      </div>
+      <div class="nav-right">
+        <div class="workspace-switcher" id="workspaceSwitcher" style="display:none;">
+          <button class="workspace-switcher-btn" id="workspaceSwitcherBtn" type="button" aria-label="Switch workspace">
+            <svg class="workspace-switcher-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="4" y="3" width="16" height="18" rx="1"></rect>
+              <line x1="9" y1="7" x2="9" y2="7.01"></line>
+              <line x1="15" y1="7" x2="15" y2="7.01"></line>
+              <line x1="9" y1="11" x2="9" y2="11.01"></line>
+              <line x1="15" y1="11" x2="15" y2="11.01"></line>
+              <line x1="9" y1="15" x2="9" y2="15.01"></line>
+              <line x1="15" y1="15" x2="15" y2="15.01"></line>
+              <path d="M10 21v-3a2 2 0 0 1 4 0v3"></path>
+            </svg>
+            <span class="workspace-switcher-text">
+              <span id="workspaceSwitcherLabel">Personal Account</span>
+              <span class="workspace-switcher-caret" aria-hidden="true">▾</span>
+            </span>
+          </button>
+          <div class="workspace-switcher-menu" id="workspaceSwitcherMenu"></div>
+        </div>
+        <button class="icon-btn theme-toggle" id="themeToggle" aria-label="theme mode">
+          <svg class="sun-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+          <svg class="moon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </button>
+        <!-- Auth elements will be injected by auth.js -->
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <div class="hero-content">
+        <div id="centerContextBanner" class="center-context-banner" style="display:none;"></div>
+        <h1>Your <span class="hero-accent">Workspace</span></h1>
+        <p class="hero-sub">The specialized tools, your plan, and everything else</p>
+      </div>
+    </header>
+
+    <section class="search-section">
+      <div class="search-wrapper">
+        <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="search" id="searchInput" class="search-bar" placeholder="Search workspace tools…" aria-label="Search workspace tools">
+      </div>
+    </section>
+
+    <section class="tool-grid-section" aria-labelledby="toolsHeading">
+      <div id="toolGrid" class="tool-grid">
+        <a href="doc.html" class="tool-card-link" data-tool="documentation">
+          <article class="tool-card">
+            <div class="tool-icon" aria-hidden="true">🗂️</div>
+            <h3 class="tool-title">Smart EMR</h3>
+            <p class="tool-description">An AI-powered workspace for documentation, patient management, treatment planning, progress tracking, and professional reports.</p>
+            <div class="tool-meta"><span>⚡ AI EMR · Patients · Reports</span></div>
+          </article>
+        </a>
+
+        <a href="rom.html" class="tool-card-link" data-tool="rom">
+          <article class="tool-card">
+            <div class="tool-icon" aria-hidden="true">🦵</div>
+            <h3 class="tool-title">Motion & Gait Analyzer</h3>
+            <p class="tool-description">Record a guided movement assessment and let AI measure joint angles, analyze gait, detect movement limitations, and generate clinical insights.</p>
+            <div class="tool-meta"><span>⚡ AI · Voice-guided scan</span></div>
+          </article>
+        </a>
+
+        <a href="project.html" class="tool-card-link" data-tool="project">
+          <article class="tool-card">
+            <div class="tool-icon" aria-hidden="true">📚</div>
+            <h3 class="tool-title">Project Maker</h3>
+            <p class="tool-description">Build your academic project from Chapter 1 to 5 with AI assistance. Literature review, methodology, references, and defense prep all in one workspace.</p>
+            <div class="tool-meta"><span>⚡ AI · Chapters · Export</span></div>
+          </article>
+        </a>
+
+        <a href="exam.html" class="tool-card-link" data-tool="exam">
+          <article class="tool-card">
+            <div class="tool-icon" aria-hidden="true">📝</div>
+            <h3 class="tool-title">Exam Simulator</h3>
+            <p class="tool-description">Practice with timed, AI-generated exam questions from your course materials. Get instant feedback and performance analytics.</p>
+            <div class="tool-meta"><span>⚡ AI · Timed · Analytics</span></div>
+          </article>
+        </a>
+      </div>
+
+      <div id="emptyMessage" class="empty-state hidden">No matching tools found. <a href="index.html">Ask Lixa instead →</a></div>
+    </section>
+
+    <!-- Current Plan Card Section -->
+    <section class="current-plan-section" id="currentPlanSection">
+      <div class="plan-glass-card" id="planGlassCard">
+        <div class="plan-shimmer"></div>
+        <div class="plan-glow-orb"></div>
+        <div class="plan-card-inner">
+          <div class="plan-info-side">
+            <div class="plan-icon-wrapper" id="planIconWrapper">
+              <span class="plan-icon-large" aria-hidden="true">🚀</span>
+            </div>
+          </div>
+          <div class="plan-details-side">
+            <div class="plan-badge-row">
+              <span class="plan-status-badge free" id="planStatusBadge">Free Plan</span>
+              <span class="plan-renewal-badge" id="planRenewalBadge" style="display:none;">
+                <i class="fas fa-sync-alt"></i> Auto-renews
+              </span>
+            </div>
+            <h3 class="plan-name-display" id="planNameDisplay">Free Plan</h3>
+            <p class="plan-description-display" id="planDescriptionDisplay">Basic access with monthly usage limits</p>
+            <div class="plan-expiry" id="planExpiry" style="display:none;">
+              <i class="fas fa-calendar-alt"></i>
+              <span>Expires: <strong id="planExpiryDate">--</strong></span>
+              <span class="expiry-days" id="planExpiryDays"></span>
+            </div>
+          </div>
+          <div class="plan-action-side">
+            <a href="sub.html" class="plan-upgrade-btn" id="planUpgradeBtn">
+              <span class="btn-text">Upgrade Plan</span>
+              <span class="btn-arrow">→</span>
+            </a>
+            <p class="plan-manage-link"><a href="sub.html">Manage subscription</a></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="modal" id="subscriptionModal">
+      <div class="modal-content" id="subscriptionModalContent"></div>
+    </div>
+
+    <!-- FAQ Section -->
+    <section class="faq-section" id="faq" itemscope itemtype="https://schema.org/FAQPage">
+      <div class="faq-container">
+        <div class="faq-header">
+          <h2 class="faq-heading">Frequently Asked Questions</h2>
+          <p class="faq-subtitle">Honest answers about pricing, plans, and what you get.</p>
+        </div>
+
+        <div class="faq-list">
+          <details class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+            <summary class="faq-question" itemprop="name">What's included in the Free plan?<span class="faq-icon"></span></summary>
+            <div class="faq-answer" itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+              <div itemprop="text">
+                <p>The <strong>Free plan</strong> gives you access to core tools with monthly usage limits:</p>
+                <p>
+                  • <strong>5 assignments</strong> per month<br>
+                  • <strong>3 ROM analyses</strong> per month (Full Joint Assessment only)<br>
+                  • <strong>3 gait analyses</strong> per month (video not saved)<br>
+                  • <strong>1 project</strong> per month (Chapter 1 generation only)<br>
+                  • Basic documentation tools<br>
+                  • Report and Documentation modes<br><br>
+                  No credit card required — just sign up and start using the tools.
+                </p>
+              </div>
+            </div>
+          </details>
+
+          <details class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+            <summary class="faq-question" itemprop="name">What do I get with the Student plan?<span class="faq-icon"></span></summary>
+            <div class="faq-answer" itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+              <div itemprop="text">
+                <p>The <strong>Student plan</strong> is designed for healthcare students who need more:</p>
+                <p>
+                  • <strong>Unlimited assignments</strong> generation<br>
+                  • <strong>10 ROM analyses</strong> per month (Isolate Joint + Full Assessment)<br>
+                  • <strong>10 gait analyses</strong> per month with video auto-save<br>
+                  • <strong>Unlimited projects</strong> with all 5 chapters<br>
+                  • <strong>AI Supervisor</strong> for guidance on your work<br>
+                  • Custom outlines for reports and documentation<br>
+                  • Moderate output detail level (3500 tokens)<br><br>
+                  Perfect for coursework, clinical placements, and research projects.
+                </p>
+              </div>
+            </div>
+          </details>
+
+          <details class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+            <summary class="faq-question" itemprop="name">Why should I upgrade to Pro?<span class="faq-icon"></span></summary>
+            <div class="faq-answer" itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+              <div itemprop="text">
+                <p>The <strong>Pro plan</strong> removes all limits and adds premium features:</p>
+                <p>
+                  • <strong>Unlimited everything</strong> — no caps on any tool<br>
+                  • <strong>Presentation Maker</strong> with export options<br>
+                  • <strong>Flexible AI mode</strong> for more natural, detailed output<br>
+                  • <strong>Detailed output</strong> (5000 tokens) for comprehensive results<br>
+                  • <strong>Priority AI processing</strong> — faster generation times<br>
+                  • <strong>Unlimited cloud storage</strong> for all your work<br>
+                  • <strong>Team collaboration</strong> features<br><br>
+                  Built for practicing clinicians, researchers, and power users who need the full toolkit.
+                </p>
+              </div>
+            </div>
+          </details>
+
+          <details class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+            <summary class="faq-question" itemprop="name">How does billing work? Can I pay in my local currency?<span class="faq-icon"></span></summary>
+            <div class="faq-answer" itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+              <div itemprop="text">
+                <p>Yes! Prices are <strong>automatically converted</strong> to your local currency based on your location. We support:</p>
+                <p>
+                  • <strong>Paystack</strong> — Nigeria, Ghana, South Africa (Card, Bank, USSD)<br>
+                  • <strong>Flutterwave</strong> — Kenya, Tanzania, Uganda, Rwanda, Cameroon, and more<br>
+                  • <strong>Google Pay</strong> — US, UK, India, Canada, Australia, and Europe<br><br>
+                  Choose between <strong>monthly</strong> or <strong>yearly</strong> billing. Yearly plans save you 20%. You can cancel anytime from your account settings — no long-term contracts.
+                </p>
+              </div>
+            </div>
+          </details>
+
+          <details class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+            <summary class="faq-question" itemprop="name">Is my data safe? What about patient confidentiality?<span class="faq-icon"></span></summary>
+            <div class="faq-answer" itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+              <div itemprop="text">
+                <p>Your privacy is our priority:</p>
+                <p>
+                  • All data is <strong>encrypted in transit</strong> (TLS 1.3) and <strong>at rest</strong> (AES-256).<br>
+                  • We <strong>never share, sell, or train AI models</strong> on your uploaded content.<br>
+                  • Your work is stored securely on Firebase with strict access controls.<br>
+                  • We recommend <strong>de-identifying patient information</strong> before uploading.<br>
+                  • You can delete your data anytime from your account.<br><br>
+                  <strong>Important:</strong> rehablix tools are <strong>assistive decision support</strong> — they are not diagnostic instruments. Every AI-generated output should be reviewed by a qualified professional before clinical use.
+                </p>
+              </div>
+            </div>
+          </details>
+
+          <details class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+            <summary class="faq-question" itemprop="name">Can I use rehablix on my phone?<span class="faq-icon"></span></summary>
+            <div class="faq-answer" itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+              <div itemprop="text">
+                <p>Yes! rehablix is fully <strong>mobile-responsive</strong> and works on any modern browser. You can <strong>install rehablix as a PWA</strong> for quick access — look for the "Install App" prompt or use your browser's Add to Home Screen option.</p>
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="feedback-footer" id="feedbackFooter">
+      <h3 class="feedback-heading">How's rehablix working for you?</h3>
+      <div class="feedback-stars" id="feedbackStars">
+        <button type="button" class="feedback-star" data-value="1" aria-label="1 star">★</button>
+        <button type="button" class="feedback-star" data-value="2" aria-label="2 stars">★</button>
+        <button type="button" class="feedback-star" data-value="3" aria-label="3 stars">★</button>
+        <button type="button" class="feedback-star" data-value="4" aria-label="4 stars">★</button>
+        <button type="button" class="feedback-star" data-value="5" aria-label="5 stars">★</button>
+      </div>
+      <textarea id="feedbackComment" class="feedback-comment" placeholder="Anything you'd like us to know? (optional)" rows="2"></textarea>
+      <button type="button" class="feedback-submit-btn" id="feedbackSubmitBtn">Send Feedback</button>
+      <p class="feedback-thanks" id="feedbackThanks" hidden>🙏 Thanks for the feedback — it genuinely helps.</p>
+    </div>
+    <p>© rehablix — Clinical co‑pilot for rehab professionals</p>
+  </footer>
+
+  <script src="https://js.paystack.co/v1/inline.js" defer></script>
+  <script src="https://checkout.flutterwave.com/v3.js" defer></script>
+
+  <script src="js/config.js" defer></script>
+  <script src="js/plan.js" defer></script>
+  <script src="js/modal.js" defer></script>
+  <script src="js/center.js" defer></script>
+  <script src="js/invite-modal.js" defer></script>
+  <script src="js/auth.js" defer></script>
+  <script src="js/theme.js" defer></script>
+  <script src="js/tools.js" defer></script>
+  <script src="js/index-center.js" defer></script>
+  <script src="js/workspace.js" defer></script>
+  <script src="js/bottom-nav.js" defer></script>
+</body>
+</html>
