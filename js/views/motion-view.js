@@ -601,7 +601,7 @@
 
     editBtn.addEventListener('click', () => {
       if (!lastResult?.historyKey) { showToast('Log in to open this in the editor', 'info'); return; }
-      window.open(`result.html?type=${lastResult.type}&id=${lastResult.historyKey}`, '_blank');
+      window.open(`index.html?type=${lastResult.type}&id=${lastResult.historyKey}#/result`, '_blank');
     });
     shareBtn.addEventListener('click', async () => {
       if (!lastResult) return;
