@@ -73,6 +73,7 @@
     if (route.title) document.title = route.title;
     currentView = name;
     window.scrollTo(0, 0);
+    appRoot.scrollTop = 0; // #appRoot (not window) is the actual scroll container
 
     if (window.RehablixViews && window.RehablixViews[name] && typeof window.RehablixViews[name].mount === 'function') {
       try { window.RehablixViews[name].mount(); } catch (err) { console.error('[router] mount error:', err); }
