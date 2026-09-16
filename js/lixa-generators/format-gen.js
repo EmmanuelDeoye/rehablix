@@ -1,8 +1,9 @@
 // js/lixa-generators/format-gen.js — Lixa's "Assessment Format" tool.
 // Adapted from js/format.js's buildPrompt/callAIWithValidation/saveToHistory
 // so the chat flow produces the same shape of record as the standalone
-// Assessment Format Generator page (and shows up correctly in
-// formatresult.html and the Files tab).
+// Assessment Format Generator page (and shows up correctly in the shared
+// result.html editor — via RESULT_TYPES.format in js/result-types.js — and
+// the Files tab).
 
 (function () {
   function buildPrompt(data) {
@@ -115,7 +116,7 @@ Return ONLY the HTML.`;
         toolId: 'format',
         recordId: ref.key,
         actions: [
-          { type: 'link', href: `index.html?id=${ref.key}#/formatresult`, label: 'Open & Edit', primary: true, external: true, icon: 'fa-pen-to-square' }
+          { type: 'link', href: `index.html?type=format&id=${ref.key}#/result`, label: 'Open & Edit', primary: true, external: true, icon: 'fa-pen-to-square' }
         ]
       }
     };

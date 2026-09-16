@@ -11,7 +11,7 @@
     return data.api_key;
   }
 
-  async function callAI(systemPrompt, userPrompt, token, maxTokens) {
+  async function callAIOnce(systemPrompt, userPrompt, token, maxTokens) {
     const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -24,7 +24,19 @@
     });
     if (!response.ok) throw new Error(`AI service error (${response.status})`);
     const data = await response.json();
-    return data.choices[0].message.content;
+    return (data.choices?.[0]?.message?.content || '').trim();
+  }
+
+  // Empty completions happen intermittently with this provider (a 200 OK
+  // with no visible content) — this used to go straight into JSON.parse('')
+  // and surface as "Unexpected end of JSON input" with no retry, unlike the
+  // main chat flow (js/ask.js) which already retries once on the same
+  // failure mode.
+  async function callAI(systemPrompt, userPrompt, token, maxTokens) {
+    let content = await callAIOnce(systemPrompt, userPrompt, token, maxTokens);
+    if (!content) content = await callAIOnce(systemPrompt, userPrompt, token, maxTokens);
+    if (!content) throw new Error('The AI returned an empty response. Please try again.');
+    return content;
   }
 
   function parseAIJson(text) {
@@ -32,7 +44,12 @@
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start !== -1 && end !== -1) cleaned = cleaned.slice(start, end + 1);
-    return JSON.parse(cleaned);
+    if (!cleaned) throw new Error('The AI returned an empty response. Please try again.');
+    try {
+      return JSON.parse(cleaned);
+    } catch (err) {
+      throw new Error('The AI response was not in the expected format. Please try again.');
+    }
   }
 
   async function getOrCreateSubject(uid, name) {
@@ -66,7 +83,12 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
     const userPrompt = `Subject: ${subjectName}\n\nMaterial:\n${notes.slice(0, 12000)}`;
 
     const token = await fetchDeepSeekToken();
-    const response = await callAI(systemPrompt, userPrompt, token, 4000);
+    // 15 flashcards + 8 quiz questions (each with 4 options + an
+    // explanation) + a 200-400 word summary, all as one JSON blob, routinely
+    // runs past 4000 tokens — the model would hit that ceiling mid-object
+    // and cut the JSON off incomplete, which is what "Unexpected end of
+    // JSON input" / "not in the expected format" actually was.
+    const response = await callAI(systemPrompt, userPrompt, token, 8000);
     const parsed = parseAIJson(response);
     if (!parsed.flashcards || !parsed.quiz || !parsed.topics) throw new Error('The AI response was missing required fields.');
 
