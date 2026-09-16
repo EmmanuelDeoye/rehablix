@@ -142,6 +142,12 @@ Return ONLY the HTML.`;
       if (genderMatch) collected.gender = /^m/i.test(genderMatch[1]) ? 'Male' : 'Female';
       return collected;
     },
+    statusStages: [
+      'Reviewing the clinical scenario…',
+      'Structuring the assessment sections…',
+      'Adding relevant standardized tools…',
+      'Formatting for printing…'
+    ],
     generate
   };
 })();

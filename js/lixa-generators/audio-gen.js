@@ -135,6 +135,11 @@
       keywords: ['transcribe', 'transcript', 'transcription', 'record a session', 'audio recording']
     },
     requiredFields: [],
+    statusStages: [
+      'Uploading audio…',
+      'Transcribing speech…',
+      'Writing the session narrative…'
+    ],
     generate,
     handleAction(actionId, card) {
       if (actionId === 'view-transcript') viewTranscript(card.title, card.fullText);

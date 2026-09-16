@@ -108,7 +108,7 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
         toolId: 'study',
         recordId: setRef.key,
         actions: [
-          { type: 'link', href: `study.html?subject=${subjectId}`, label: 'Open Study Buddy', primary: true, external: true, icon: 'fa-book-open' }
+          { type: 'link', href: `index.html?subject=${subjectId}#/study`, label: 'Open Study Buddy', primary: true, external: true, icon: 'fa-book-open' }
         ]
       }
     };
@@ -136,10 +136,16 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
       }
       return collected;
     },
+    statusStages: [
+      'Analyzing your material…',
+      'Identifying key topics…',
+      'Writing flashcards…',
+      'Building the quiz…'
+    ],
     generate,
     openFromRecord(record, id, item) {
       const subjectId = record && record.subjectId;
-      if (subjectId) window.open(`study.html?subject=${subjectId}`, '_blank');
+      if (subjectId) window.open(`index.html?subject=${subjectId}#/study`, '_blank');
     }
   };
 })();

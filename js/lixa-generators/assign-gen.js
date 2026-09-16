@@ -103,6 +103,12 @@
       if (text && text.trim()) collected.topic = text.trim();
       return collected;
     },
+    statusStages: [
+      'Researching the topic…',
+      'Drafting the assignment…',
+      'Refining the writing style…',
+      'Final polish…'
+    ],
     generate
   };
 })();
