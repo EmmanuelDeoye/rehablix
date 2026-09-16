@@ -1,4 +1,6 @@
-<!-- formatresult.html — now rendered by the SPA shell at index.html?...#/formatresult. Kept for old bookmarks/links. -->
+<!-- formatresult.html — format results now render in the shared result.html
+     editor (RESULT_TYPES.format) at index.html?type=format&id=...#/result,
+     not their own page. Kept only to redirect old bookmarks/links. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,7 +8,9 @@
   <title>Redirecting…</title>
   <script>
     (function () {
-      window.location.replace('index.html' + window.location.search + '#/formatresult');
+      const params = new URLSearchParams(window.location.search);
+      if (!params.has('type')) params.set('type', 'format');
+      window.location.replace('index.html?' + params.toString() + '#/result');
     })();
   </script>
 </head>

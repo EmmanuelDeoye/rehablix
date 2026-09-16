@@ -51,11 +51,6 @@
   <script src="https://unpkg.com/docx@7.8.2/build/index.js" defer></script>
   <!-- html2pdf for PDF export (Presentation view) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
-  <!-- TinyMCE rich text editor (Format Result view) -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tinymce/6.8.3/skins/ui/oxide/skin.min.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/tinymce/6.8.3/tinymce.min.js" defer></script>
-  <!-- FileSaver.js (Format Result view) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
   <!-- File-reading helpers for attachments (loaded on demand, listed here for caching) -->
   <link rel="preload" as="script" href="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js">
   <!-- Loaded directly (not lazily) since the Study view's file-import code expects these globals already present -->
@@ -95,7 +90,6 @@
   <link rel="stylesheet" href="css/sets.css">
   <link rel="stylesheet" href="css/sub.css">
   <link rel="stylesheet" href="css/result.css">
-  <link rel="stylesheet" href="css/formatresult.css">
   <link rel="stylesheet" href="css/docresult.css">
 
   <script>
@@ -176,7 +170,6 @@
   <script src="js/upgrade.js" defer></script>
   <script src="js/result-types.js" defer></script>
   <script src="js/result.js" defer></script>
-  <script src="js/formatresult.js" defer></script>
   <script src="js/docresult.js" defer></script>
 
   <!-- Shell chrome + router (router boots last, after every view has registered) -->
