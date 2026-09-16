@@ -1,0 +1,87 @@
+<main>
+  <header class="hero">
+    <div class="hero-content">
+      <h1>Standardized <span class="hero-accent">Tools Generator</span></h1>
+      <p class="hero-sub">Enter the name of a standardized assessment and get a ready‑to‑use PDF.</p>
+    </div>
+  </header>
+
+  <div class="standardized-disclaimer">
+    <span class="standardized-disclaimer-icon">⚠️</span>
+    <p>
+      AI-generated tools are provided for quick reference and drafting only. Standardized assessments
+      are often copyrighted/licensed instruments — always verify items, scoring, and cutoffs against
+      the original licensed version before clinical or documented use.
+    </p>
+  </div>
+
+  <section class="tool-section">
+    <div class="tool-container">
+      <!-- Form Card -->
+      <div class="tool-card">
+        <h2>Generate a Standardized Tool</h2>
+        <form id="toolForm">
+          <div class="form-group">
+            <label for="toolName">Tool Name *</label>
+            <input type="text" id="toolName" class="form-input" placeholder="e.g. MOHOST, COTE Scale, MMSE" required>
+          </div>
+
+          <div class="form-group checkbox">
+            <input type="checkbox" id="includeGuides">
+            <label for="includeGuides">Include guides</label>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn-primary" id="generateBtn">
+              <span class="btn-text">Generate Tool</span>
+              <span class="loading-spinner-small" style="display: none;"></span>
+            </button>
+            <button type="button" class="btn-secondary" id="clearBtn">Clear</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Result Card (initially hidden) -->
+      <div class="result-card" id="resultCard" style="display: none;">
+        <div class="result-header">
+          <h3>Generated Tool</h3>
+          <span class="result-badge">New</span>
+        </div>
+        <div class="result-content-wrapper">
+          <div id="resultContent"></div>
+        </div>
+        <div class="result-footer">
+          <button class="btn-primary" id="downloadPdfBtn">⬇️ Download PDF</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- History Section -->
+  <section class="history-section" id="historySection">
+    <div class="history-container">
+      <div class="history-header">
+        <h3>Your Generated Tools</h3>
+        <div class="history-stats">
+          <span class="stat-item">📊 Total: <span id="totalCount">0</span></span>
+          <span class="stat-item">📅 Latest: <span id="latestDate">-</span></span>
+        </div>
+      </div>
+
+      <div class="history-list" id="historyList">
+        <div class="empty-history">
+          <p>No history yet</p>
+          <small>Generate your first standardized tool to see it here</small>
+        </div>
+      </div>
+
+      <div class="history-footer">
+        <button class="btn-secondary" id="clearHistoryBtn">Clear All History</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <p>© rehablix — AI tools for rehabilitation</p>
+</footer>

@@ -1,0 +1,86 @@
+<!-- Relocated into #navbarViewSlot by js/ask.js's mount() -->
+<button class="icon-btn history-nav-btn" id="historyNavBtn" aria-label="History" style="display:none;">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+    <path d="M12 8V12L15 15M12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12C21 16.9706 16.9706 21 12 21Z" stroke="currentColor" fill="none"/>
+  </svg>
+</button>
+
+<main class="ask-main">
+  <div class="ask-container">
+    <div class="chat-messages" id="chatMessages">
+      <div class="empty-chat">
+        <div class="empty-chat-icon">✨</div>
+        <p>Hi, I'm Lixa. Ask me anything, or tell me what to build — an assessment format, a standardized tool, a transcript, a presentation, a study set, or an assignment.</p>
+        <p class="empty-chat-hint">Type <strong>@</strong> to jump straight to a tool, or just describe what you need.</p>
+      </div>
+    </div>
+
+    <div class="chat-input-area">
+      <div class="attachments-strip" id="attachmentsStrip" hidden></div>
+      <div id="lixaToolBanner" class="lixa-tool-banner" hidden></div>
+      <div class="composer-wrap">
+        <div class="attach-menu" id="attachMenu" hidden>
+          <button type="button" data-mode="camera"><i class="fas fa-camera"></i> Camera</button>
+          <button type="button" data-mode="photos"><i class="fas fa-image"></i> Photos</button>
+          <button type="button" data-mode="videos"><i class="fas fa-video"></i> Videos</button>
+          <button type="button" data-mode="files"><i class="fas fa-folder-open"></i> Files</button>
+        </div>
+        <div class="mention-popup" id="mentionPopup" hidden></div>
+        <div class="composer">
+          <input type="file" id="fileInput" hidden multiple
+                 accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip,.csv,.md">
+          <textarea id="messageInput" rows="1" placeholder="Ask Lixa anything, or type @ for a tool..." aria-label="Message"></textarea>
+          <div class="composer-controls">
+            <button id="attachBtn" class="plus-btn" aria-label="Add" title="Add">
+              <i class="fas fa-plus"></i>
+            </button>
+            <div class="composer-controls-right">
+              <button id="micBtn" class="icon-round-btn" aria-label="Voice input" title="Voice input">
+                <i class="fas fa-microphone"></i>
+              </button>
+              <button id="sendBtn" aria-label="Send message"><i class="fas fa-paper-plane"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="input-hint" id="inputHint" style="display:none">Shift+Enter for a new line · Enter to send</p>
+    </div>
+  </div>
+</main>
+
+<!-- History Drawer: Chats / Files -->
+<aside class="history-drawer" id="historyDrawer">
+  <div class="drawer-header">
+    <h3><i class='bx bx-time-five'></i> History</h3>
+    <button id="closeDrawerBtn" class="drawer-close-btn"><i class='bx bx-x'></i></button>
+  </div>
+  <div class="drawer-switch" id="drawerSwitch">
+    <button type="button" class="drawer-switch-btn active" data-view="chats">Chats</button>
+    <button type="button" class="drawer-switch-btn" data-view="files">Files</button>
+  </div>
+  <div class="drawer-actions" id="chatsView">
+    <button id="newChatBtn" class="new-chat-btn"><i class="fas fa-plus"></i> New Chat</button>
+  </div>
+  <div class="history-search" id="chatsSearchWrap">
+    <i class="fas fa-search"></i>
+    <input type="text" id="historySearchInput" placeholder="Search conversations...">
+  </div>
+  <div class="history-content" id="historyList">
+    <div class="empty-state">
+      <i class='bx bx-folder-open'></i>
+      <p>No conversations yet</p>
+    </div>
+  </div>
+
+  <div class="history-search" id="filesSearchWrap" hidden>
+    <i class="fas fa-search"></i>
+    <input type="text" id="filesSearchInput" placeholder="Search files...">
+  </div>
+  <div class="file-filter-chips" id="fileFilterChips" hidden></div>
+  <div class="history-content" id="filesList" hidden>
+    <div class="empty-state">
+      <i class='bx bx-file-blank'></i>
+      <p>No files yet</p>
+    </div>
+  </div>
+</aside>

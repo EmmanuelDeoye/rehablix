@@ -136,6 +136,26 @@ body {
   color: var(--text-primary);
 }
 
+/* While a reply is still streaming in, content is set via textContent (raw
+   text, not yet markdown-parsed) — preserve line breaks until the final
+   render swaps this class out for properly parsed HTML. */
+.message.assistant .message-bubble.streaming-text {
+  white-space: pre-wrap;
+}
+.message.assistant .message-bubble.streaming-text::after {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 2px;
+  background: var(--accent);
+  vertical-align: text-bottom;
+  animation: streamCursorBlink 0.9s steps(1) infinite;
+}
+@keyframes streamCursorBlink {
+  50% { opacity: 0; }
+}
+
 .message-time {
   font-size: 0.7rem;
   color: var(--text-secondary);

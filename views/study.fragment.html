@@ -1,0 +1,153 @@
+<!-- Relocated into #navbarViewSlot by js/study.js's mount() -->
+<button class="icon-btn history-nav-btn" id="historyNavBtn" aria-label="History" style="display:none;">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+    <path d="M12 8V12L15 15M12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12C21 16.9706 16.9706 21 12 21Z" stroke="currentColor" fill="none"/>
+  </svg>
+</button>
+
+<main class="study-main">
+  <div class="study-container">
+
+    <section id="viewDashboard" class="study-view">
+      <div class="study-header">
+        <div>
+          <h1>Study <em>Buddy</em></h1>
+          <p class="study-sub">Turn any notes into flashcards, summaries, and quizzes — with real spaced repetition, not just a pile of cards.</p>
+        </div>
+        <button class="btn-primary" id="newSubjectBtn"><i class="fas fa-plus"></i> New Study Set</button>
+      </div>
+
+      <div class="glass-card due-banner" id="dueBanner" style="display:none;">
+        <div class="due-banner-icon"><i class="fas fa-bolt"></i></div>
+        <div class="due-banner-text"><strong id="dueCount">0</strong> card<span id="duePlural">s</span> due for review right now</div>
+        <button class="btn-primary" id="dueReviewBtn">Review Now</button>
+      </div>
+
+      <div id="subjectsGrid" class="subjects-grid">
+        <div class="empty-state">
+          <i class="fas fa-book-open"></i>
+          <p>No subjects yet — create your first study set to get started.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="viewCreate" class="study-view" style="display:none;">
+      <div class="glass-card create-card">
+        <div class="card-header">
+          <div class="card-header-icon"><i class="fas fa-layer-group"></i></div>
+          <div>
+            <h2>Create a Study Set</h2>
+            <p class="card-subtitle">Paste your notes or upload a file — the AI extracts topics, flashcards, a summary, and a quiz automatically.</p>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Subject</label>
+          <input type="text" id="subjectInput" placeholder="e.g., Neuroanatomy, Pharmacology, Orthopedic Assessment…" list="existingSubjectsList">
+          <datalist id="existingSubjectsList"></datalist>
+        </div>
+
+        <div class="form-group">
+          <label>Notes / Material</label>
+          <div class="textarea-wrapper">
+            <textarea id="notesInput" rows="8" placeholder="Paste your notes, lecture content, or textbook excerpt here…"></textarea>
+            <button class="attach-btn" id="attachBtn" title="Attach a file instead"><i class="fas fa-paperclip"></i></button>
+            <input type="file" id="fileInput" accept=".pdf,.docx,.doc,.txt,image/*" hidden>
+          </div>
+          <div id="fileInfo" class="file-chip" style="display:none;"></div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Number of Flashcards</label>
+            <input type="number" id="flashcardCount" min="5" max="40" value="15">
+          </div>
+          <div class="form-group">
+            <label>Quiz Length</label>
+            <input type="number" id="quizCount" min="3" max="20" value="8">
+          </div>
+        </div>
+
+        <div class="create-actions">
+          <button class="btn-secondary" id="cancelCreateBtn">Cancel</button>
+          <button class="btn-primary" id="generateSetBtn"><i class="fas fa-magic"></i> Generate Study Set</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="viewSubject" class="study-view" style="display:none;">
+      <div class="study-header">
+        <div>
+          <button class="back-link" id="backToDashboardBtn"><i class="fas fa-arrow-left"></i> All Subjects</button>
+          <h1 id="subjectTitle">Subject</h1>
+        </div>
+        <button class="btn-primary" id="practiceExamBtn"><i class="fas fa-stopwatch"></i> Practice Exam</button>
+      </div>
+
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="overview">Overview</button>
+        <button class="tab-btn" data-tab="flashcards">Flashcards</button>
+        <button class="tab-btn" data-tab="quiz">Quiz</button>
+        <button class="tab-btn" data-tab="summary">Summary</button>
+      </div>
+
+      <div class="tab-pane active" data-pane="overview">
+        <div class="glass-card">
+          <h3><i class="fas fa-chart-pie"></i> Topic Mastery</h3>
+          <div id="topicMasteryList" class="topic-mastery-list"></div>
+        </div>
+        <div class="glass-card" style="margin-top:1rem;">
+          <h3><i class="fas fa-history"></i> Study Sets in this Subject</h3>
+          <div id="subjectSetsList"></div>
+        </div>
+      </div>
+
+      <div class="tab-pane" data-pane="flashcards">
+        <div class="flashcard-toolbar">
+          <div class="flashcard-stats" id="flashcardStats">0 due · 0 total</div>
+          <div style="display:flex;gap:0.5rem;">
+            <select id="flashcardFilter" class="filter-select">
+              <option value="due">Due for Review</option>
+              <option value="all">All Cards</option>
+            </select>
+            <button class="btn-secondary" id="shuffleCardsBtn"><i class="fas fa-random"></i> Shuffle</button>
+          </div>
+        </div>
+        <div id="flashcardArea" class="flashcard-area">
+          <div class="empty-state"><i class="fas fa-check-circle"></i><p>Nothing due right now — nice work!</p></div>
+        </div>
+      </div>
+
+      <div class="tab-pane" data-pane="quiz">
+        <div id="quizArea"></div>
+      </div>
+
+      <div class="tab-pane" data-pane="summary">
+        <div class="glass-card">
+          <div id="summaryContent" class="summary-content"></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<div id="loadingOverlay" class="loading-overlay" style="display:none;">
+  <div class="loading-box">
+    <div class="loading-spinner"></div>
+    <p id="loadingText">Generating your study set…</p>
+  </div>
+</div>
+
+<aside class="history-drawer" id="historyDrawer">
+  <div class="drawer-header">
+    <h3><i class='bx bx-time-five'></i> Study History</h3>
+    <button id="closeDrawerBtn" class="drawer-close-btn"><i class='bx bx-x'></i></button>
+  </div>
+  <div class="history-content" id="historyList">
+    <div class="empty-state">
+      <i class='bx bx-folder-open'></i>
+      <p>No study sets yet</p>
+    </div>
+  </div>
+</aside>
