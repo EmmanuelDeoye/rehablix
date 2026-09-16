@@ -8,6 +8,13 @@ body.has-bottom-nav {
   padding-bottom: var(--bottom-nav-h);
 }
 
+/* The class selector below beats the UA [hidden] default (author styles
+   always win over UA styles regardless of source order), so nav.hidden alone
+   wouldn't actually hide it — this reasserts it explicitly. */
+.app-bottom-nav[hidden] { display: none !important; }
+
+.back-btn[hidden] { display: none !important; }
+
 .app-bottom-nav {
   position: fixed;
   left: 0;

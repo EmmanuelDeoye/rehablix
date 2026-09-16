@@ -67,6 +67,111 @@
   text-align: center;
 }
 
+/* ===== Model picker (composer) ===== */
+.model-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: 2rem;
+  padding: 0 0.7rem;
+  height: 36px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  max-width: 140px;
+}
+.model-picker-btn:hover,
+.model-picker-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.model-picker-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-picker-btn .model-picker-caret {
+  font-size: 0.65rem;
+  margin-left: -0.1rem;
+}
+
+.model-picker-popup {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 0;
+  min-width: 280px;
+  max-width: 340px;
+  background: var(--card-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-light);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-hover, 0 12px 30px rgba(0,0,0,0.18));
+  padding: 0.4rem;
+  z-index: 40;
+  max-height: 340px;
+  overflow-y: auto;
+  animation: popoverIn 0.15s ease;
+}
+.model-picker-popup[hidden] { display: none !important; }
+
+.model-option {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 0.6rem 0.65rem;
+  border-radius: 0.7rem;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text-primary);
+}
+.model-option:hover,
+.model-option.selected {
+  background: var(--accent-soft);
+}
+.model-option.locked {
+  opacity: 0.55;
+  cursor: pointer; /* still clickable — shows the upgrade toast */
+}
+.model-option .model-option-rank {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.6rem;
+  background: var(--accent-soft);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+.model-option.locked .model-option-rank {
+  background: var(--border-light);
+  color: var(--text-secondary);
+}
+.model-option-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.model-option-name { font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.35rem; }
+.model-option-desc { font-size: 0.72rem; color: var(--text-secondary); }
+.model-option-plan {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+}
+.model-option .fa-lock { font-size: 0.7rem; color: var(--text-secondary); }
+
 /* ===== Active tool banner (above composer) ===== */
 .lixa-tool-banner {
   display: flex;
@@ -194,75 +299,95 @@
   color: #fff;
 }
 
-/* ===== Chats / Files drawer switch ===== */
-.drawer-switch {
+/* ===== Drawer header: History title + files-toggle + close ===== */
+.drawer-header-actions {
   display: flex;
-  gap: 0.25rem;
-  margin: 0.75rem 1.2rem 0;
-  padding: 0.25rem;
-  background: var(--surface);
-  border: 1px solid var(--border-light);
-  border-radius: 2rem;
-  flex-shrink: 0;
-}
-.drawer-switch-btn {
-  flex: 1;
-  background: transparent;
-  border: none;
-  border-radius: 1.6rem;
-  padding: 0.45rem 0.5rem;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-family: inherit;
-  transition: all 0.15s ease;
-}
-.drawer-switch-btn.active {
-  background: var(--accent);
-  color: #fff;
-}
-
-/* ===== File filter chips ===== */
-.file-filter-chips {
-  display: flex;
+  align-items: center;
   gap: 0.4rem;
-  overflow-x: auto;
-  padding: 0.75rem 1.2rem 0;
-  flex-shrink: 0;
 }
-.file-filter-chips[hidden] { display: none !important; }
-.file-filter-chip {
-  flex-shrink: 0;
-  background: var(--surface);
+.drawer-header-icon-btn {
+  background: transparent;
   border: 1px solid var(--border-light);
-  border-radius: 1.5rem;
-  padding: 0.35rem 0.85rem;
-  font-size: 0.75rem;
-  font-weight: 600;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-secondary);
   cursor: pointer;
-  white-space: nowrap;
-  font-family: inherit;
+  font-size: 0.85rem;
   transition: all 0.15s ease;
 }
-.file-filter-chip.active {
-  background: var(--accent);
+.drawer-header-icon-btn:hover,
+.drawer-header-icon-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
   border-color: var(--accent);
-  color: #fff;
 }
 
-/* ===== File history item (reuses .history-item shape) ===== */
-.file-item .history-title { display: flex; align-items: center; gap: 0.4rem; }
-.file-item .file-type-badge {
-  font-size: 0.65rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--accent);
+/* ===== File filter dropdown (replaces the old horizontally-scrolling chips) ===== */
+.file-filter-select {
+  margin: 0.75rem 1.2rem 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: 0.7rem;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+.file-filter-select[hidden] { display: none !important; }
+
+/* ===== Files list items — project-maker-resources style: icon + name only ===== */
+.history-file-item {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.history-file-item:hover {
+  border-color: var(--accent);
   background: var(--accent-soft);
-  border-radius: 0.4rem;
-  padding: 0.1rem 0.4rem;
+}
+.history-file-item .file-icon {
+  font-size: 1.1rem;
+  color: var(--accent);
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+.history-file-item .file-info { flex: 1; min-width: 0; }
+.history-file-item .file-name {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== Drawer loading skeleton ===== */
+.drawer-loading[hidden] { display: none !important; }
+.drawer-loading { display: flex; flex-direction: column; gap: 0.6rem; }
+.drawer-skeleton {
+  height: 46px;
+  border-radius: 0.75rem;
+  background: linear-gradient(90deg, var(--surface) 25%, var(--border-light) 50%, var(--surface) 75%);
+  background-size: 200% 100%;
+  animation: drawerSkeletonShimmer 1.3s ease-in-out infinite;
+}
+@keyframes drawerSkeletonShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 /* ===== Inline audio recorder widget ===== */
