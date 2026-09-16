@@ -41,7 +41,7 @@
         <article class="tool-card">
           <div class="tool-icon" aria-hidden="true">🗂️</div>
           <h3 class="tool-title">Smart EMR</h3>
-          <p class="tool-description">An AI-powered workspace for documentation, patient management, treatment planning, progress tracking, and professional reports.</p>
+          <p class="tool-description">AI-powered documentation, patient management, and treatment planning.</p>
           <div class="tool-meta"><span>⚡ AI EMR · Patients · Reports</span></div>
         </article>
       </a>
@@ -50,7 +50,7 @@
         <article class="tool-card">
           <div class="tool-icon" aria-hidden="true">🦵</div>
           <h3 class="tool-title">Motion & Gait Analyzer</h3>
-          <p class="tool-description">Record a guided movement assessment and let AI measure joint angles, analyze gait, detect movement limitations, and generate clinical insights.</p>
+          <p class="tool-description">AI-guided movement assessment — joint angles, gait, and clinical insights.</p>
           <div class="tool-meta"><span>⚡ AI · Voice-guided scan</span></div>
         </article>
       </a>
@@ -59,7 +59,7 @@
         <article class="tool-card">
           <div class="tool-icon" aria-hidden="true">📚</div>
           <h3 class="tool-title">Project Maker</h3>
-          <p class="tool-description">Build your academic project from Chapter 1 to 5 with AI assistance. Literature review, methodology, references, and defense prep all in one workspace.</p>
+          <p class="tool-description">Build your academic project, Chapter 1–5, with AI assistance.</p>
           <div class="tool-meta"><span>⚡ AI · Chapters · Export</span></div>
         </article>
       </a>
@@ -68,10 +68,69 @@
         <article class="tool-card">
           <div class="tool-icon" aria-hidden="true">📝</div>
           <h3 class="tool-title">Exam Simulator</h3>
-          <p class="tool-description">Practice with timed, AI-generated exam questions from your course materials. Get instant feedback and performance analytics.</p>
+          <p class="tool-description">Timed, AI-generated exam questions with instant feedback.</p>
           <div class="tool-meta"><span>⚡ AI · Timed · Analytics</span></div>
         </article>
       </a>
+    </div>
+
+    <!-- More tools already embedded in Lixa, for anyone who'd rather open
+         the dedicated page than chat with Lixa about it. -->
+    <div class="more-tools-section">
+      <button type="button" class="more-tools-toggle" id="moreToolsToggle" aria-expanded="false" aria-controls="moreToolsGrid">
+        <span><i class="fas fa-layer-group"></i> More tools (also in Lixa)</span>
+        <i class="fas fa-chevron-down more-tools-caret"></i>
+      </button>
+      <div class="tool-grid more-tools-grid" id="moreToolsGrid" hidden>
+        <a href="index.html#/format" class="tool-card-link" data-tool="format">
+          <article class="tool-card">
+            <div class="tool-icon" aria-hidden="true">📋</div>
+            <h3 class="tool-title">Assessment Format</h3>
+            <p class="tool-description">Structured clinical assessment forms for a patient/diagnosis.</p>
+            <div class="tool-meta"><span>⚡ AI · Clinical templates</span></div>
+          </article>
+        </a>
+        <a href="index.html#/standardized" class="tool-card-link" data-tool="standardized">
+          <article class="tool-card">
+            <div class="tool-icon" aria-hidden="true">⚖️</div>
+            <h3 class="tool-title">Standardized Tools</h3>
+            <p class="tool-description">Full copies of standardized assessments (MMSE, Berg, and more).</p>
+            <div class="tool-meta"><span>⚡ AI · Outcome measures</span></div>
+          </article>
+        </a>
+        <a href="index.html#/audio" class="tool-card-link" data-tool="audio">
+          <article class="tool-card">
+            <div class="tool-icon" aria-hidden="true">🎧</div>
+            <h3 class="tool-title">Audio Transcription</h3>
+            <p class="tool-description">Transcribe a recorded session or an uploaded audio file.</p>
+            <div class="tool-meta"><span>⚡ AI · Transcripts</span></div>
+          </article>
+        </a>
+        <a href="index.html#/presentation" class="tool-card-link" data-tool="presentation">
+          <article class="tool-card">
+            <div class="tool-icon" aria-hidden="true">📑</div>
+            <h3 class="tool-title">Presentation Maker</h3>
+            <p class="tool-description">Case presentations, clinical reports, or documentation slides.</p>
+            <div class="tool-meta"><span>⚡ AI · Slides &amp; reports</span></div>
+          </article>
+        </a>
+        <a href="index.html#/assignment" class="tool-card-link" data-tool="assignment">
+          <article class="tool-card">
+            <div class="tool-icon" aria-hidden="true">📝</div>
+            <h3 class="tool-title">Assignment Maker</h3>
+            <p class="tool-description">Structured write-ups with references for coursework.</p>
+            <div class="tool-meta"><span>⚡ AI · Academic writing</span></div>
+          </article>
+        </a>
+        <a href="index.html#/study" class="tool-card-link" data-tool="study">
+          <article class="tool-card">
+            <div class="tool-icon" aria-hidden="true">🧠</div>
+            <h3 class="tool-title">Study Buddy</h3>
+            <p class="tool-description">Flashcards, summaries, and quizzes from your notes.</p>
+            <div class="tool-meta"><span>⚡ AI · Flashcards &amp; quizzes</span></div>
+          </article>
+        </a>
+      </div>
     </div>
 
     <div id="emptyMessage" class="empty-state hidden">No matching tools found. <a href="index.html#/lixa">Ask Lixa instead →</a></div>
