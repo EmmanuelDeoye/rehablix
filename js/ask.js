@@ -24,6 +24,9 @@
   // an element inside the fragment needs no cleanup, it's GC'd when the
   // router replaces #appRoot's content on the next navigation.
   let cleanupFns = [];
+  // Assigned inside mount() (needs its closure over navbarSlot/currentUser/
+  // etc.) but exposed from this outer scope — see window.RehablixAskView.
+  let onShow = function () {};
 
   async function mount() {
 
@@ -58,13 +61,10 @@
   const historyList = document.getElementById('historyList');
   const historySearchInput = document.getElementById('historySearchInput');
   const historyLoading = document.getElementById('historyLoading');
-  const filesToggleBtn = document.getElementById('filesToggleBtn');
-  const filesList = document.getElementById('filesList');
-  const filesLoading = document.getElementById('filesLoading');
-  const chatsSearchWrap = document.getElementById('chatsSearchWrap');
-  const filesSearchWrap = document.getElementById('filesSearchWrap');
-  const filesSearchInput = document.getElementById('filesSearchInput');
-  const fileFilterSelect = document.getElementById('fileFilterSelect');
+  // Files tab (toggle button, search, filter, list) is owned by js/lixa.js
+  // — it reads from each tool's own native Firebase history path, which is
+  // a more complete/accurate source than anything scoped to ask.js's own
+  // conversation records.
 
   const toastContainer = document.getElementById('toast-container');
 
@@ -1799,8 +1799,6 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   // History list
   // =========================================================================
   let allConversations = [];
-  let showingFiles = false;
-  let fileFilterExt = 'all';
 
   // "3:45 PM" for anything within the last 24h, "Sep 14" beyond that.
   function formatRelative(ts) {
@@ -1817,7 +1815,6 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       return;
     }
     if (historyLoading) historyLoading.hidden = false;
-    if (filesLoading) filesLoading.hidden = false;
     try {
       console.log('[loadHistoryList] Fetching conversations for user:', currentUser.uid);
       const snap = await database.ref(`history/${currentUser.uid}/askConversations`).orderByChild('updatedAt').once('value');
@@ -1831,13 +1828,10 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
         console.log('[loadHistoryList] No conversations found');
       }
       renderHistoryList(allConversations);
-      renderFileFilterOptions();
-      renderFilesList();
     } catch (error) {
       console.error('[loadHistoryList] Error:', error);
     } finally {
       if (historyLoading) historyLoading.hidden = true;
-      if (filesLoading) filesLoading.hidden = true;
     }
   }
 
@@ -1888,77 +1882,6 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       });
       div.querySelector('.delete-btn').addEventListener('click', (e) => deleteConversation(conv.id, e));
       historyList.appendChild(div);
-    });
-  }
-
-  // ---- Files tab: every attachment ever sent to Lixa, aggregated across
-  // conversations. No raw file bytes are persisted anywhere (only
-  // {name, icon} per attachment), so a row deep-links to the conversation it
-  // came from rather than previewing/downloading the original file.
-  function collectAllFiles() {
-    const files = [];
-    allConversations.forEach(conv => {
-      (conv.messages || []).forEach(msg => {
-        (msg.attachmentMeta || []).forEach(att => {
-          files.push({ name: att.name, icon: att.icon, conversationId: conv.id, ts: msg.timestamp || conv.updatedAt || conv.createdAt });
-        });
-      });
-    });
-    // De-dupe by name, keeping the most recent reference.
-    const byName = new Map();
-    files.forEach(f => {
-      const existing = byName.get(f.name);
-      if (!existing || f.ts > existing.ts) byName.set(f.name, f);
-    });
-    return Array.from(byName.values()).sort((a, b) => b.ts - a.ts);
-  }
-
-  function fileExt(name) {
-    const m = /\.([a-z0-9]+)$/i.exec(name || '');
-    return m ? m[1].toLowerCase() : 'other';
-  }
-
-  function renderFileFilterOptions() {
-    if (!fileFilterSelect) return;
-    const exts = Array.from(new Set(collectAllFiles().map(f => fileExt(f.name)))).sort();
-    const current = fileFilterSelect.value || 'all';
-    fileFilterSelect.innerHTML = `<option value="all">All files</option>` +
-      exts.map(ext => `<option value="${ext}">${ext.toUpperCase()}</option>`).join('');
-    fileFilterSelect.value = exts.includes(current) || current === 'all' ? current : 'all';
-    fileFilterExt = fileFilterSelect.value;
-  }
-
-  function renderFilesList() {
-    if (!filesList) return;
-    filesList.querySelectorAll(':scope > *:not(#filesLoading)').forEach(el => el.remove());
-    const searchTerm = filesSearchInput?.value.toLowerCase().trim() || '';
-    const files = collectAllFiles().filter(f =>
-      (fileFilterExt === 'all' || fileExt(f.name) === fileFilterExt) &&
-      (!searchTerm || f.name.toLowerCase().includes(searchTerm))
-    );
-
-    if (files.length === 0) {
-      filesList.insertAdjacentHTML('beforeend', `
-        <div class="empty-state">
-          <i class='bx bx-file-blank'></i>
-          <p>No files yet</p>
-        </div>
-      `);
-      return;
-    }
-
-    files.forEach(f => {
-      const div = document.createElement('div');
-      div.className = 'history-file-item';
-      div.innerHTML = `
-        <i class="fas ${f.icon || 'fa-file-lines'} file-icon"></i>
-        <span class="file-info"><span class="file-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span></span>
-      `;
-      div.addEventListener('click', () => {
-        loadConversation(f.conversationId);
-        historyDrawer.classList.remove('active');
-      });
-      filesList.appendChild(div);
     });
   }
 
@@ -2138,23 +2061,8 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     });
   }
 
-  // Single toggle between the Chats and Files views (mirrors Project
-  // Maker's resources panel — one icon button, not a two-way switch).
-  if (filesToggleBtn) {
-    filesToggleBtn.addEventListener('click', () => {
-      showingFiles = !showingFiles;
-      filesToggleBtn.classList.toggle('active', showingFiles);
-      filesToggleBtn.setAttribute('aria-pressed', String(showingFiles));
-      filesToggleBtn.setAttribute('aria-label', showingFiles ? 'Show chats' : 'Show files');
-      filesToggleBtn.title = showingFiles ? 'Chats' : 'Files';
-      if (chatsSearchWrap) chatsSearchWrap.hidden = showingFiles;
-      if (historyList) historyList.hidden = showingFiles;
-      if (filesSearchWrap) filesSearchWrap.hidden = !showingFiles;
-      if (fileFilterSelect) fileFilterSelect.hidden = !showingFiles;
-      if (filesList) filesList.hidden = !showingFiles;
-      if (showingFiles) renderFilesList();
-    });
-  }
+  // The Chats/Files toggle button itself is wired by js/lixa.js (it owns
+  // the Files data source).
 
   const onDocClickCloseHistoryDrawer = (e) => {
     if (historyDrawer?.classList.contains('active') &&
@@ -2178,15 +2086,6 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
 
   if (historySearchInput) {
     historySearchInput.addEventListener('input', () => renderHistoryList(allConversations));
-  }
-  if (filesSearchInput) {
-    filesSearchInput.addEventListener('input', () => renderFilesList());
-  }
-  if (fileFilterSelect) {
-    fileFilterSelect.addEventListener('change', () => {
-      fileFilterExt = fileFilterSelect.value;
-      renderFilesList();
-    });
   }
 
   // =========================================================================
@@ -2238,6 +2137,23 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   }
 
   initialize();
+
+  // Lixa is a kept-alive view (js/router.js) — mount() runs once, and every
+  // later visit just re-shows the already-live DOM/state instead of
+  // rebuilding it. resetSharedNavbar() still clears #navbarViewSlot on every
+  // navigation (so other views don't inherit stale controls), so this only
+  // needs to re-attach the buttons and their current visibility — the node
+  // references themselves, and everything else (messages, scroll position,
+  // draft text), are untouched since nothing was ever torn down. Assigned
+  // to the outer `onShow` variable so window.RehablixAskView.onShow (bound
+  // once, below, outside mount()) always delegates to this mount's closure.
+  onShow = function () {
+    if (navbarSlot && newChatNavBtn) navbarSlot.appendChild(newChatNavBtn);
+    if (navbarSlot && historyNavBtn) navbarSlot.appendChild(historyNavBtn);
+    const display = currentUser ? 'block' : 'none';
+    if (historyNavBtn) historyNavBtn.style.display = display;
+    if (newChatNavBtn) newChatNavBtn.style.display = display;
+  };
   } // end mount()
 
   function unmount() {
@@ -2249,5 +2165,5 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   // js/lixa.js is the one that registers the "lixa" route, and calls into
   // this mount()/unmount() pair first before wiring up its own @mention/
   // intent-routing layer on top of the chat core this sets up.
-  window.RehablixAskView = { mount, unmount };
+  window.RehablixAskView = { mount, unmount, onShow: () => onShow() };
 })();

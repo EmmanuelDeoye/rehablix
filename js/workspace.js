@@ -5,12 +5,21 @@
 
 (function () {
   let cleanupFns = [];
+  // Assigned inside mount() (needs its closure) but exposed from this outer
+  // scope — see window.RehablixViews.workspace.
+  let onShow = function () {};
 
   function mount() {
-    const toolCards = document.querySelectorAll('.tool-card-link');
+    // Scoped to #toolGrid only — the collapsible "more tools" section below
+    // it is a static list of links, not part of the searchable/filterable
+    // main grid (its cards would otherwise "match" a search while staying
+    // invisible behind the collapsed toggle).
+    const toolCards = document.querySelectorAll('#toolGrid .tool-card-link');
     const emptyMessage = document.getElementById('emptyMessage');
     const searchInput = document.getElementById('searchInput');
     const searchToggle = document.getElementById('searchToggle');
+    const moreToolsToggle = document.getElementById('moreToolsToggle');
+    const moreToolsGrid = document.getElementById('moreToolsGrid');
 
     function filterTools(searchText) {
       const searchTerm = searchText.trim().toLowerCase();
@@ -38,6 +47,16 @@
     }
     if (searchToggle && searchInput) {
       searchToggle.addEventListener('click', () => searchInput.focus());
+    }
+
+    // ----- "More tools" collapsible section -----
+    if (moreToolsToggle && moreToolsGrid) {
+      moreToolsToggle.addEventListener('click', () => {
+        const willOpen = moreToolsGrid.hidden;
+        moreToolsGrid.hidden = !willOpen;
+        moreToolsToggle.setAttribute('aria-expanded', String(willOpen));
+        moreToolsToggle.classList.toggle('open', willOpen);
+      });
     }
 
     // ----- FAQ accordion: one open at a time -----
@@ -264,6 +283,16 @@
     cleanupFns.push(() => { if (centerInitTimer) clearTimeout(centerInitTimer); });
     const unsubCenterAuth = firebase.auth().onAuthStateChanged(() => initCenterContext());
     cleanupFns.push(unsubCenterAuth);
+
+    // Workspace is kept alive by js/router.js — mount() only runs on the
+    // first visit. Every later visit calls onShow() instead: re-attach the
+    // switcher (the router clears #navbarViewSlot on every navigation) and
+    // refresh its content, without re-running the rest of mount() or losing
+    // scroll position/search text/anything else already on screen.
+    onShow = function () {
+      if (navbarSlot && switcherWrap) navbarSlot.appendChild(switcherWrap);
+      initCenterContext();
+    };
   }
 
   function unmount() {
@@ -272,5 +301,5 @@
   }
 
   window.RehablixViews = window.RehablixViews || {};
-  window.RehablixViews.workspace = { mount, unmount };
+  window.RehablixViews.workspace = { mount, unmount, onShow: () => onShow() };
 })();

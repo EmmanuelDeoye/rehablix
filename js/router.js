@@ -2,6 +2,16 @@
 // Each route fetches a static HTML fragment into #appRoot, then calls the
 // matching window.RehablixViews[name].mount()/.unmount() (registered by
 // that view's own script, loaded once up front like every other script).
+//
+// Lixa and Workspace are the two primary bottom-nav tabs users flip between
+// constantly, so they're kept alive: mounted once, then just shown/hidden on
+// every later visit (scroll position, search text, in-progress chat, etc.
+// all survive) instead of being torn down and rebuilt from scratch — that
+// rebuild was also the source of the "Workspace lags for a moment on first
+// open" complaint, since its Firebase reads + DOM build only ever happen
+// once now instead of on every single visit. Every other route keeps the
+// original destroy-and-rebuild behavior (some, like Motion, genuinely need
+// to release camera/mic on navigating away).
 
 (function () {
   const routes = {
@@ -22,7 +32,10 @@
     docresult: { fragment: 'views/docresult.fragment.html', title: 'rehablix · Documentation Result' }
   };
 
+  const KEEP_ALIVE = new Set(['lixa', 'workspace']);
+
   const fragmentCache = {};
+  const keepAliveWrappers = {}; // routeName -> wrapper element, once mounted
   let currentView = null;
   let navToken = 0; // guards against a slow fetch resolving after a newer navigation started
 
@@ -43,20 +56,75 @@
   // Shared navbar affordances that individual views opt into during their
   // own mount() (e.g. ask.js shows #historyNavBtn once logged in) — reset
   // them before every navigation so a leftover control from the previous
-  // view never lingers into a view that doesn't use it.
+  // view never lingers into a view that doesn't use it. A kept-alive view
+  // being re-shown re-attaches its own controls itself, right after this.
   function resetSharedNavbar() {
     const historyBtn = document.getElementById('historyNavBtn');
     if (historyBtn) historyBtn.style.display = 'none';
+    const newChatBtn = document.getElementById('newChatNavBtn');
+    if (newChatBtn) newChatBtn.style.display = 'none';
     const switcher = document.getElementById('workspaceSwitcher');
     if (switcher) switcher.style.display = 'none';
     const slot = document.getElementById('navbarViewSlot');
     if (slot) slot.innerHTML = '';
   }
 
+  function getHosts() {
+    const appRoot = document.getElementById('appRoot');
+    let keepAliveHost = document.getElementById('keepAliveHost');
+    let transientHost = document.getElementById('transientHost');
+    if (!keepAliveHost) {
+      keepAliveHost = document.createElement('div');
+      keepAliveHost.id = 'keepAliveHost';
+      appRoot.appendChild(keepAliveHost);
+    }
+    if (!transientHost) {
+      transientHost = document.createElement('div');
+      transientHost.id = 'transientHost';
+      appRoot.appendChild(transientHost);
+    }
+    return { appRoot, keepAliveHost, transientHost };
+  }
+
   async function navigate(routeName) {
     const name = routes[routeName] ? routeName : 'lixa';
     const route = routes[name];
     const myToken = ++navToken;
+    const { keepAliveHost, transientHost } = getHosts();
+    const isKeepAlive = KEEP_ALIVE.has(name);
+    const alreadyMounted = isKeepAlive && !!keepAliveWrappers[name];
+
+    // Tear down whatever was previously active, unless it's a kept-alive
+    // view being merely hidden (its unmount() never runs while switching
+    // between Lixa/Workspace/elsewhere — only a real page unload ends it).
+    if (currentView && currentView !== name) {
+      const wasKeepAlive = KEEP_ALIVE.has(currentView);
+      if (wasKeepAlive) {
+        const prevWrapper = keepAliveWrappers[currentView];
+        if (prevWrapper) prevWrapper.hidden = true;
+      } else if (window.RehablixViews && window.RehablixViews[currentView] && typeof window.RehablixViews[currentView].unmount === 'function') {
+        try { window.RehablixViews[currentView].unmount(); } catch (err) { console.error('[router] unmount error:', err); }
+      }
+    }
+
+    if (alreadyMounted) {
+      // Fast path: already-visited keep-alive route — just show it again,
+      // no re-fetch, no re-mount, no reset state.
+      resetSharedNavbar();
+      transientHost.hidden = true;
+      transientHost.innerHTML = '';
+      keepAliveHost.hidden = false;
+      Object.keys(keepAliveWrappers).forEach(r => { keepAliveWrappers[r].hidden = r !== name; });
+      document.body.dataset.route = name;
+      if (route.title) document.title = route.title;
+      currentView = name;
+      const view = window.RehablixViews && window.RehablixViews[name];
+      if (view && typeof view.onShow === 'function') {
+        try { view.onShow(); } catch (err) { console.error('[router] onShow error:', err); }
+      }
+      document.dispatchEvent(new CustomEvent('rehablix:routechange', { detail: { route: name } }));
+      return;
+    }
 
     let html;
     try {
@@ -67,18 +135,29 @@
     }
     if (myToken !== navToken) return; // a newer navigation superseded this one
 
-    if (currentView && window.RehablixViews && window.RehablixViews[currentView] && typeof window.RehablixViews[currentView].unmount === 'function') {
-      try { window.RehablixViews[currentView].unmount(); } catch (err) { console.error('[router] unmount error:', err); }
+    resetSharedNavbar();
+
+    if (isKeepAlive) {
+      transientHost.hidden = true;
+      transientHost.innerHTML = '';
+      keepAliveHost.hidden = false;
+      Object.values(keepAliveWrappers).forEach(w => { w.hidden = true; });
+      const wrapper = document.createElement('div');
+      wrapper.className = 'kept-alive-view';
+      wrapper.dataset.route = name;
+      wrapper.innerHTML = html;
+      keepAliveHost.appendChild(wrapper);
+      keepAliveWrappers[name] = wrapper;
+    } else {
+      keepAliveHost.hidden = true;
+      transientHost.hidden = false;
+      transientHost.innerHTML = html;
     }
 
-    resetSharedNavbar();
-    const appRoot = document.getElementById('appRoot');
-    appRoot.innerHTML = html;
     document.body.dataset.route = name;
     if (route.title) document.title = route.title;
     currentView = name;
     window.scrollTo(0, 0);
-    appRoot.scrollTop = 0; // #appRoot (not window) is the actual scroll container
 
     if (window.RehablixViews && window.RehablixViews[name] && typeof window.RehablixViews[name].mount === 'function') {
       try { window.RehablixViews[name].mount(); } catch (err) { console.error('[router] mount error:', err); }

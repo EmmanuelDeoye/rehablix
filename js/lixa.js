@@ -48,8 +48,17 @@
     cleanupFns = [];
   }
 
+  // Lixa is kept alive by js/router.js — mount() only runs on the first
+  // visit; every later visit calls onShow() instead, which just re-attaches
+  // the navbar controls ask.js relocated out of the fragment (the router
+  // clears #navbarViewSlot on every navigation) without re-running init()
+  // or touching any state.
+  function onShow() {
+    if (window.RehablixAskView && window.RehablixAskView.onShow) window.RehablixAskView.onShow();
+  }
+
   window.RehablixViews = window.RehablixViews || {};
-  window.RehablixViews.lixa = { mount, unmount };
+  window.RehablixViews.lixa = { mount, unmount, onShow };
 
   function init() {
     if (!window.LixaCore) return; // ask.js's mount() didn't run — bail defensively
@@ -60,13 +69,12 @@
     const toolBanner = document.getElementById('lixaToolBanner');
     const chatMessages = document.getElementById('chatMessages');
     const historyDrawer = document.getElementById('historyDrawer');
-    const drawerSwitch = document.getElementById('drawerSwitch');
-    const chatsView = document.getElementById('chatsView');
+    const filesToggleBtn = document.getElementById('filesToggleBtn');
     const chatsSearchWrap = document.getElementById('chatsSearchWrap');
     const historyList = document.getElementById('historyList');
     const filesSearchWrap = document.getElementById('filesSearchWrap');
     const filesSearchInput = document.getElementById('filesSearchInput');
-    const fileFilterChips = document.getElementById('fileFilterChips');
+    const fileFilterSelect = document.getElementById('fileFilterSelect');
     const filesList = document.getElementById('filesList');
 
     if (!messageInput) return;
@@ -275,6 +283,22 @@
         return true;
       }
 
+      // 2+ still-missing fields is exactly the "compulsory need" case a
+      // form beats several chat round-trips for — Lixa decides this on its
+      // own, no manual trigger. A single missing field stays a quick
+      // inline chat question instead (less friction than a whole modal).
+      if (missing.length >= 2) {
+        showBanner(toolId);
+        pending = { toolId, collected, missingQueue: [] };
+        pushAssistantText(`Just need a few details for your **${tool.meta.name}** — I've opened a quick form for it.`);
+        showToolFormModal(tool, missing, collected, async (data) => {
+          pending = null;
+          hideBanner();
+          await runGeneration(toolId, data);
+        });
+        return true;
+      }
+
       pending = { toolId, collected, missingQueue: missing.map(f => f.key) };
       showBanner(toolId);
       const prompts = missing.map(f => `- ${f.prompt}`).join('\n');
@@ -311,6 +335,85 @@
         await runGeneration(toolId, data);
       }
       return true;
+    }
+
+    // =====================================================================
+    // Auto-popup form modal — when a tool still needs 2+ pieces of info
+    // Lixa couldn't pull from the message itself, a single form beats
+    // several back-and-forth chat turns. Lixa decides this itself (no
+    // manual trigger): one missing field stays a quick inline chat
+    // question (continueSlotFilling), since a whole modal for one field is
+    // more friction than it saves.
+    let activeFormModal = null;
+
+    function closeToolFormModal() {
+      if (activeFormModal) { activeFormModal.remove(); activeFormModal = null; }
+    }
+
+    const onFormModalEscape = (e) => {
+      if (e.key === 'Escape' && activeFormModal) {
+        closeToolFormModal();
+        pending = null;
+        hideBanner();
+      }
+    };
+    document.addEventListener('keydown', onFormModalEscape);
+    cleanupFns.push(() => document.removeEventListener('keydown', onFormModalEscape));
+    cleanupFns.push(() => closeToolFormModal());
+
+    function showToolFormModal(tool, missingFields, collected, onSubmit) {
+      closeToolFormModal();
+      const modal = document.createElement('div');
+      modal.className = 'lixa-form-modal';
+      modal.innerHTML = `
+        <div class="lixa-form-overlay"></div>
+        <div class="lixa-form-card">
+          <button type="button" class="lixa-form-close" aria-label="Cancel">&times;</button>
+          <h3><span>${tool.meta.icon || '✨'}</span> ${core.escapeHtml(tool.meta.name)}</h3>
+          <p class="lixa-form-sub">Just need a few details to generate this:</p>
+          <form id="lixaToolForm">
+            ${missingFields.map(f => `
+              <div class="form-group">
+                <label for="lixaField_${core.escapeHtml(f.key)}">${core.escapeHtml(f.prompt)}</label>
+                <textarea id="lixaField_${core.escapeHtml(f.key)}" name="${core.escapeHtml(f.key)}" rows="2" required></textarea>
+              </div>
+            `).join('')}
+            <button type="submit" class="btn-primary">Generate</button>
+          </form>
+        </div>
+      `;
+      // Appended inside Lixa's own (kept-alive) view container, not
+      // document.body — Lixa is never unmounted when you navigate away
+      // (js/router.js keeps it alive), so a modal parked on <body> would
+      // otherwise keep floating over whatever page you navigate to next.
+      // Nesting it here means it's hidden along with the rest of Lixa the
+      // instant the view container gets display:none.
+      const lixaContainer = chatMessages.closest('.kept-alive-view') || document.body;
+      lixaContainer.appendChild(modal);
+      activeFormModal = modal;
+      requestAnimationFrame(() => modal.classList.add('open'));
+
+      const firstInput = modal.querySelector('textarea');
+      if (firstInput) firstInput.focus();
+
+      modal.querySelector('.lixa-form-close').addEventListener('click', () => {
+        closeToolFormModal();
+        pending = null;
+        hideBanner();
+      });
+      modal.querySelector('.lixa-form-overlay').addEventListener('click', () => {
+        closeToolFormModal();
+        pending = null;
+        hideBanner();
+      });
+      modal.querySelector('#lixaToolForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const values = {};
+        missingFields.forEach(f => { values[f.key] = (formData.get(f.key) || '').toString().trim(); });
+        closeToolFormModal();
+        onSubmit({ ...collected, ...values });
+      });
     }
 
     const GENERIC_STAGES = ['Reading your request…', 'Working with the AI model…', 'Structuring the result…', 'Almost done…'];
@@ -436,30 +539,36 @@
     window.LixaOrchestrator = { tryHandle, handleFileAction };
 
     // =====================================================================
-    // History drawer: Chats / Files switch
+    // History drawer: Chats / Files toggle (single icon button — the icon
+    // shows what you'd switch TO) — files are every native per-tool record
+    // (formats/standardizedTools/caseHistory/audio/assignments/study sets),
+    // filterable by which tool it came from, not by uploaded-file type.
     // =====================================================================
     let currentView = 'chats';
     let allFiles = [];
-    let activeFileTypes = new Set(FILE_SOURCES.map(s => s.type));
+    let selectedFileType = 'all';
 
     function setView(view) {
       currentView = view;
-      drawerSwitch.querySelectorAll('.drawer-switch-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
       const isChats = view === 'chats';
-      chatsView.style.display = isChats ? '' : 'none';
-      chatsSearchWrap.style.display = isChats ? '' : 'none';
-      historyList.style.display = isChats ? '' : 'none';
-      filesSearchWrap.hidden = isChats;
-      fileFilterChips.hidden = isChats;
-      filesList.hidden = isChats;
+      if (chatsSearchWrap) chatsSearchWrap.hidden = !isChats;
+      if (historyList) historyList.hidden = !isChats;
+      if (filesSearchWrap) filesSearchWrap.hidden = isChats;
+      if (fileFilterSelect) fileFilterSelect.hidden = isChats;
+      if (filesList) filesList.hidden = isChats;
+      if (filesToggleBtn) {
+        filesToggleBtn.classList.toggle('active', !isChats);
+        filesToggleBtn.setAttribute('aria-pressed', String(!isChats));
+        filesToggleBtn.setAttribute('aria-label', isChats ? 'Show files' : 'Show chats');
+        filesToggleBtn.title = isChats ? 'Files' : 'Chats';
+        const icon = filesToggleBtn.querySelector('i');
+        if (icon) icon.className = isChats ? 'fas fa-folder' : 'fas fa-comment-dots';
+      }
       if (!isChats) loadFilesList();
     }
 
-    if (drawerSwitch) {
-      drawerSwitch.addEventListener('click', (e) => {
-        const btn = e.target.closest('.drawer-switch-btn');
-        if (btn) setView(btn.dataset.view);
-      });
+    if (filesToggleBtn) {
+      filesToggleBtn.addEventListener('click', () => setView(currentView === 'chats' ? 'files' : 'chats'));
     }
 
     async function loadFilesList() {
@@ -484,7 +593,7 @@
           }).catch(() => [])
         ));
         allFiles = results.flat().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-        renderFilterChips();
+        renderFileFilterOptions();
         renderFilesList();
       } catch (err) {
         console.error('[lixa] failed to load files', err);
@@ -492,39 +601,44 @@
       }
     }
 
-    function renderFilterChips() {
-      fileFilterChips.innerHTML = FILE_SOURCES.map(src => `
-        <button type="button" class="file-filter-chip${activeFileTypes.has(src.type) ? ' active' : ''}" data-type="${src.type}">${src.icon} ${src.label}</button>
-      `).join('');
-      fileFilterChips.querySelectorAll('.file-filter-chip').forEach(chip => {
-        chip.addEventListener('click', () => {
-          const t = chip.dataset.type;
-          if (activeFileTypes.has(t)) activeFileTypes.delete(t); else activeFileTypes.add(t);
-          chip.classList.toggle('active');
-          renderFilesList();
-        });
+    function renderFileFilterOptions() {
+      if (!fileFilterSelect) return;
+      const typesPresent = new Set(allFiles.map(f => f.type));
+      const sources = FILE_SOURCES.filter(s => typesPresent.has(s.type));
+      const current = fileFilterSelect.value || 'all';
+      fileFilterSelect.innerHTML = `<option value="all">All files</option>` +
+        sources.map(s => `<option value="${s.type}">${core.escapeHtml(s.label)}</option>`).join('');
+      fileFilterSelect.value = sources.some(s => s.type === current) || current === 'all' ? current : 'all';
+      selectedFileType = fileFilterSelect.value;
+    }
+
+    if (fileFilterSelect) {
+      fileFilterSelect.addEventListener('change', () => {
+        selectedFileType = fileFilterSelect.value;
+        renderFilesList();
       });
     }
 
     function renderFilesList() {
       const term = (filesSearchInput.value || '').toLowerCase().trim();
-      const filtered = allFiles.filter(f => activeFileTypes.has(f.type) && (!term || f.title.toLowerCase().includes(term)));
+      const filtered = allFiles.filter(f =>
+        (selectedFileType === 'all' || f.type === selectedFileType) &&
+        (!term || f.title.toLowerCase().includes(term))
+      );
       if (filtered.length === 0) {
-        filesList.innerHTML = '<div class="empty-state"><i class="bx bx-file-blank"></i><p>No matching files</p></div>';
+        filesList.innerHTML = '<div class="empty-state"><i class="bx bx-file-blank"></i><p>No files yet</p></div>';
         return;
       }
-      filesList.innerHTML = filtered.map(f => {
-        const date = new Date(f.createdAt || Date.now());
-        return `
-          <div class="history-item file-item" data-id="${f.id}" data-type="${f.type}">
-            <span class="history-title"><span class="file-type-badge">${f.label}</span> ${core.escapeHtml(f.title)}</span>
-            <div class="history-meta">
-              <span><i class="far fa-calendar-alt"></i> ${date.toLocaleDateString()}</span>
-            </div>
-          </div>
-        `;
-      }).join('');
-      filesList.querySelectorAll('.file-item').forEach(el => {
+      filesList.innerHTML = filtered.map(f => `
+        <div class="history-file-item" data-id="${f.id}" data-type="${f.type}">
+          <span class="file-icon">${f.icon}</span>
+          <span class="file-info">
+            <span class="file-name" title="${core.escapeHtml(f.title)}">${core.escapeHtml(f.title)}</span>
+            <span class="file-tool-label">${core.escapeHtml(f.label)}</span>
+          </span>
+        </div>
+      `).join('');
+      filesList.querySelectorAll('.history-file-item').forEach(el => {
         el.addEventListener('click', () => openFile(el.dataset.type, el.dataset.id));
       });
     }
