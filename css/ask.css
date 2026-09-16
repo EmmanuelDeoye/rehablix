@@ -905,7 +905,16 @@ body {
   .history-drawer { width: 300px; left: -300px; }
   .message.user { max-width: 90%; }
   .message-actions { opacity: 1; }
-  .action-btn { padding: 0.25rem 0.5rem; font-size: 0.7rem; }
+  /* Icon-only on mobile — the label text takes up room that matters more on
+     a narrow screen than the extra clarity it adds next to a familiar icon. */
+  .action-btn-label { display: none; }
+  .action-btn {
+    padding: 0.45rem;
+    font-size: 0.85rem;
+    width: 34px;
+    height: 34px;
+    justify-content: center;
+  }
 }
 
 @media (max-width: 480px) {
