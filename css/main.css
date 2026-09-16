@@ -52,6 +52,20 @@ body {
 
 main { flex: 1; }
 
+/* SPA router outlet — takes over the flex-fill role each view's own CSS
+   (e.g. ask.css's body/.ask-main rules) expects a direct main-tag child of
+   body to have. min-height:0 lets a view's own internal scroll region (like
+   Lixa's #chatMessages) size correctly instead of being pushed to its
+   natural content size; overflow-y:auto is what makes taller views (like
+   Workspace) scroll, since body itself is overflow:hidden in ask.css. */
+#appRoot {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 /* navbar */
 .navbar {
   position: sticky;
