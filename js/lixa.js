@@ -16,14 +16,18 @@
   const CONFIDENCE_THRESHOLD = 1; // min keyword score before auto-triggering a tool
 
   // Native Firebase history paths each tool already writes to (used to
-  // build the unified Files view without a separate data store).
+  // build the unified Files view without a separate data store). Each
+  // record's own schema differs per tool (format saves diagnosis/
+  // assessmentType, presentation saves fileName, others save title/
+  // toolName/topic directly) — titleOf() bridges that so the Files list
+  // never falls back to a bare "Untitled".
   const FILE_SOURCES = [
-    { type: 'format', label: 'Formats', path: 'formats', icon: '📋' },
-    { type: 'standardized', label: 'Standardized Tools', path: 'standardizedTools', icon: '⚖️' },
-    { type: 'presentation', label: 'Presentations/Reports', path: 'caseHistory', icon: '📑' },
-    { type: 'audio', label: 'Audio', path: 'audio', icon: '🎧' },
-    { type: 'assignment', label: 'Assignments', path: 'assignments', icon: '📝' },
-    { type: 'study', label: 'Study Sets', path: 'study/sets', icon: '🧠' }
+    { type: 'format', label: 'Formats', path: 'formats', icon: '📋', titleOf: (item) => (item.assessmentType && item.diagnosis) ? `${item.assessmentType} — ${item.diagnosis}` : (item.diagnosis || item.assessmentType) },
+    { type: 'standardized', label: 'Standardized Tools', path: 'standardizedTools', icon: '⚖️', titleOf: (item) => item.toolName },
+    { type: 'presentation', label: 'Presentations/Reports', path: 'caseHistory', icon: '📑', titleOf: (item) => item.fileName || item.documentType },
+    { type: 'audio', label: 'Audio', path: 'audio', icon: '🎧', titleOf: (item) => item.title },
+    { type: 'assignment', label: 'Assignments', path: 'assignments', icon: '📝', titleOf: (item) => item.topic },
+    { type: 'study', label: 'Study Sets', path: 'study/sets', icon: '🧠', titleOf: (item) => item.title }
   ];
 
   // Registered as (the rest of) the "lixa" SPA view — js/router.js calls
@@ -428,7 +432,19 @@
         const result = await tool.generate(data);
         hideStatus();
         if (result && result.ok) {
-          pushAssistantText(result.summary || `Here's your ${tool.meta.name.toLowerCase()}:`, result.fileCard);
+          const summary = result.summary || `Here's your ${tool.meta.name.toLowerCase()}:`;
+          pushAssistantText(summary, result.fileCard);
+          // A tool flow's first assistant message is usually just "which
+          // details do you still need?", not real content — title from
+          // this genuine completion instead, once there is one, overriding
+          // whatever that earlier premature save already locked in.
+          if (core.refineTitleAndSave) {
+            const allMessages = core.getMessages();
+            const firstUserMsg = allMessages.find(m => m.role === 'user');
+            if (firstUserMsg) {
+              core.refineTitleAndSave(firstUserMsg.displayContent || firstUserMsg.content, summary);
+            }
+          }
         } else {
           pushAssistantText(`Sorry, I couldn't generate that: ${(result && result.error) || 'unknown error'}. Want to try again?`);
         }
@@ -586,8 +602,8 @@
             if (!data) return [];
             return Object.entries(data).map(([id, item]) => ({
               id, type: src.type, label: src.label, icon: src.icon,
-              title: item.title || item.toolName || item.topic || item.subject || 'Untitled',
-              createdAt: item.createdAt || item.updatedAt || 0,
+              title: (src.titleOf && src.titleOf(item)) || item.title || item.toolName || item.topic || item.subject || 'Untitled',
+              createdAt: item.createdAt || item.updatedAt || item.timestamp || 0,
               raw: item
             }));
           }).catch(() => [])
@@ -654,7 +670,7 @@
         return;
       }
       const links = {
-        format: `index.html?id=${id}#/formatresult`,
+        format: `index.html?type=format&id=${id}#/result`,
         standardized: `index.html?openId=${id}#/standardized`,
         presentation: `index.html?type=case&id=${id}#/result`,
         audio: `index.html?openId=${id}#/audio`,
@@ -668,10 +684,9 @@
 
     if (filesSearchInput) filesSearchInput.addEventListener('input', renderFilesList);
 
-    // Reset to Chats view whenever the drawer is (re)opened via the nav button
-    const historyNavBtn = document.getElementById('historyNavBtn');
-    if (historyNavBtn) {
-      historyNavBtn.addEventListener('click', () => setView('chats'));
-    }
+    // Deliberately no "reset to Chats on open" here — the drawer keeps
+    // whichever of Chats/Files (and its search text) was last active, same
+    // as everything else the app now preserves across being closed/reopened
+    // rather than rebuilt from scratch every time.
   }
 })();

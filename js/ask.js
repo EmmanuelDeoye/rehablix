@@ -830,13 +830,13 @@ If the user's message includes content extracted from an uploaded file, an image
         // ceiling mid-thought (not a natural stop) — offer to continue
         // instead of leaving the response trailing off.
         const continueBtnHtml = msg.finishReason === 'length'
-          ? `<button class="action-btn continue-btn" title="This response was cut short — continue it"><i class="fas fa-forward"></i> Continue</button>`
+          ? `<button class="action-btn continue-btn" title="This response was cut short — continue it"><i class="fas fa-forward"></i> <span class="action-btn-label">Continue</span></button>`
           : '';
         actionsDiv.innerHTML = `
           ${continueBtnHtml}
-          <button class="action-btn copy-btn" title="Copy response"><i class="fas fa-copy"></i> Copy</button>
-          <button class="action-btn download-btn" title="Open in editor to export"><i class="fas fa-download"></i> Word</button>
-          <button class="action-btn regenerate-btn" title="Regenerate response"><i class="fas fa-redo"></i> Regenerate</button>
+          <button class="action-btn copy-btn" title="Copy response"><i class="fas fa-copy"></i> <span class="action-btn-label">Copy</span></button>
+          <button class="action-btn download-btn" title="Open in editor to export"><i class="fas fa-download"></i> <span class="action-btn-label">Word</span></button>
+          <button class="action-btn regenerate-btn" title="Regenerate response"><i class="fas fa-redo"></i> <span class="action-btn-label">Regenerate</span></button>
         `;
         msgDiv.appendChild(actionsDiv);
 
@@ -1607,24 +1607,22 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       renderMessages();
 
       // ---- Generate title BEFORE saving, with retry + local fallback ----
+      // Plain chat's first assistant reply is always genuine final content
+      // (there's no multi-turn slot-filling here, unlike a Lixa tool flow —
+      // see finalizeTitleFromLatest() for that path), so it's safe to
+      // title from it immediately.
       if (currentUser && !titleIsFinal && messages.filter(m => m.role === 'user').length === 1) {
-        console.log('[runAssistantTurn] Attempting to generate title for new conversation...');
         try {
           const generatedTitle = await generateConversationTitle(promptTextForSuggestions, reply);
           conversationTitle = generatedTitle && generatedTitle.trim().length > 0
             ? generatedTitle
             : localTitleFallback(promptTextForSuggestions);
           titleIsFinal = true;
-          console.log('[runAssistantTurn] Title finalized:', conversationTitle);
         } catch (titleError) {
-          console.error('[runAssistantTurn] Title generation failed with error:', titleError);
+          console.error('[runAssistantTurn] Title generation failed:', titleError);
           conversationTitle = localTitleFallback(promptTextForSuggestions);
           titleIsFinal = true;
         }
-      } else if (currentUser && titleIsFinal) {
-        console.log('[runAssistantTurn] Title already finalized:', conversationTitle);
-      } else if (!currentUser) {
-        console.log('[runAssistantTurn] No user logged in, skipping title generation');
       }
 
       if (currentUser) {
@@ -2051,7 +2049,16 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
         return;
       }
       historyDrawer.classList.add('active');
-      loadHistoryList();
+      // Only hit Firebase (and flash the loading skeleton over already-
+      // visible rows) the first time — reopening the drawer with nothing
+      // changed should show what's already loaded instantly. New/updated
+      // conversations already trigger a fresh loadHistoryList() themselves
+      // via refreshHistoryList() in window.LixaCore.
+      if (allConversations.length === 0) {
+        loadHistoryList();
+      } else {
+        renderHistoryList(allConversations);
+      }
     });
   }
 
@@ -2124,7 +2131,28 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     },
     isWaiting: () => isWaiting,
     scrollToBottom: () => { chatMessages.scrollTop = chatMessages.scrollHeight; },
-    refreshHistoryList: () => loadHistoryList()
+    refreshHistoryList: () => loadHistoryList(),
+    // Called by js/lixa.js once a tool's generation actually succeeds — a
+    // tool flow's FIRST assistant message is usually just "which details do
+    // you still need?", not real content, so titling off it (the way plain
+    // chat safely can) produces a useless title like the raw "@study ..."
+    // trigger text. This re-titles from the genuine final exchange instead,
+    // overriding whatever titleIsFinal already locked in along the way.
+    async refineTitleAndSave(userText, aiText) {
+      if (!currentUser) return;
+      try {
+        const generatedTitle = await generateConversationTitle(userText, aiText);
+        conversationTitle = generatedTitle && generatedTitle.trim().length > 0
+          ? generatedTitle
+          : localTitleFallback(userText);
+      } catch (err) {
+        console.error('[refineTitleAndSave] Title generation failed:', err);
+        conversationTitle = localTitleFallback(userText);
+      }
+      titleIsFinal = true;
+      await saveConversation();
+      loadHistoryList();
+    }
   };
 
   async function initialize() {

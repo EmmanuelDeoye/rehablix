@@ -50,7 +50,7 @@
       },
       getContentHtml: (data) => fallbackContent(data, 'resultsHtml', 'resultsMarkdown', 'results'),
       buildSaveUpdates: ({ html, markdown }) => ({ resultsMarkdown: markdown, resultsHtml: html }),
-      closeUrl: 'presentation.html',
+      closeUrl: 'index.html#/presentation',
       showPptExport: true,
       pptExportData: (data, html) => ({
         content: html,
@@ -89,7 +89,7 @@
       ],
       getContentHtml: (data) => (data.html && data.html.trim().length > 0) ? data.html : '<p>No content available</p>',
       buildSaveUpdates: ({ html, text }) => ({ html: html, plainPreview: (text || '').substring(0, 200) }),
-      closeUrl: 'assignment.html',
+      closeUrl: 'index.html#/assignment',
       showPptExport: true,
       pptExportData: (data, html) => ({
         content: html,
@@ -123,7 +123,7 @@
       ],
       getContentHtml: (data) => fallbackContent(data, 'resultsHtml', 'resultsMarkdown'),
       buildSaveUpdates: ({ html, markdown }) => ({ resultsMarkdown: markdown, resultsHtml: html }),
-      closeUrl: 'rom.html?mode=gait',
+      closeUrl: 'index.html#/motion',
       showPptExport: false,
       shareSubject: (data) => `Gait Analysis Report: ${data.patientName || data.fileName || 'Report'}`,
       printMeta: (data) => [
@@ -161,7 +161,7 @@
       },
       getContentHtml: (data) => fallbackContent(data, 'resultsHtml', 'resultsMarkdown'),
       buildSaveUpdates: ({ html, markdown }) => ({ resultsMarkdown: markdown, resultsHtml: html }),
-      closeUrl: 'rom.html',
+      closeUrl: 'index.html#/motion',
       showPptExport: false,
       shareSubject: (data) => `ROM Analysis Report: ${data.fileName || 'Report'}`,
       printMeta: (data) => [
@@ -217,7 +217,7 @@
         generatedText: html,
         preview: html.replace(/<[^>]*>/g, ' ').substring(0, 150).replace(/\n/g, ' ')
       }),
-      closeUrl: 'format.html',
+      closeUrl: 'index.html#/format',
       showPptExport: false,
       shareSubject: (data) => `Assessment Result: ${data.patientName || 'Result'}`,
       printMeta: (data) => [
