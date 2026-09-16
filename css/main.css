@@ -56,15 +56,44 @@ main { flex: 1; }
    (e.g. ask.css's body/.ask-main rules) expects a direct main-tag child of
    body to have. min-height:0 lets a view's own internal scroll region (like
    Lixa's #chatMessages) size correctly instead of being pushed to its
-   natural content size; overflow-y:auto is what makes taller views (like
-   Workspace) scroll, since body itself is overflow:hidden in ask.css. */
+   natural content size. #appRoot itself no longer scrolls — #transientHost
+   and each kept-alive view's own wrapper do, independently, so that
+   switching between Lixa and Workspace (kept alive, never rebuilt — see
+   js/router.js) doesn't leak one view's scroll position into the other's. */
 #appRoot {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+#transientHost {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
 }
+#transientHost[hidden] { display: none !important; }
+
+#keepAliveHost {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}
+#keepAliveHost[hidden] { display: none !important; }
+
+.kept-alive-view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+.kept-alive-view[hidden] { display: none !important; }
 
 /* navbar */
 .navbar {
@@ -101,6 +130,15 @@ main { flex: 1; }
 .logo-full { font-size: 0.8rem; color: var(--text-secondary); }
 
 .nav-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Route-specific controls each view relocates here on mount (history/new-chat
+   buttons, workspace switcher, Motion's type dropdown, ...) — must lay out
+   horizontally like the rest of .nav-right, not stack per the div default. */
+#navbarViewSlot {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -318,6 +356,39 @@ main { flex: 1; }
   gap: 0.3rem;
 }
 
+/* ===== More tools (collapsible) — the SPA-embedded tools also reachable
+   from Lixa's @mention picker, for anyone who'd rather open the page. ===== */
+.more-tools-section { margin-top: 1.5rem; }
+.more-tools-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border-light);
+  border-radius: 1.5rem;
+  padding: 0.9rem 1.3rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+.more-tools-toggle:hover { border-color: var(--accent); background: var(--accent-soft); }
+.more-tools-toggle span { display: flex; align-items: center; gap: 0.6rem; }
+.more-tools-caret { transition: transform 0.2s ease; color: var(--text-secondary); }
+.more-tools-toggle.open .more-tools-caret { transform: rotate(180deg); }
+.more-tools-grid {
+  margin-top: 1rem;
+  grid-template-columns: repeat(2, 1fr);
+}
+.more-tools-grid[hidden] { display: none !important; }
+@media (min-width: 1024px) {
+  .more-tools-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
 /* Stagger animation for cards */
 .tool-card:nth-child(1) { animation-delay: 0.1s; }
 .tool-card:nth-child(2) { animation-delay: 0.2s; }
@@ -523,18 +594,35 @@ main { flex: 1; }
     font-size: 1rem;
   }
   
+  .tool-grid { gap: 1rem; }
+
   .tool-card {
-    padding: 1.5rem 1.2rem;
+    padding: 1.1rem 1rem;
   }
-  
+
+  .tool-icon {
+    font-size: 1.8rem;
+    margin-bottom: 0.5rem;
+  }
+
   .tool-title {
-    font-size: 1.4rem;
+    font-size: 1.15rem;
+    margin-bottom: 0.4rem;
   }
-  
+
   .tool-description {
-    font-size: 0.95rem;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    margin-bottom: 0.85rem;
   }
-  
+
+  .tool-meta {
+    padding-top: 0.6rem;
+    font-size: 0.8rem;
+  }
+
+  .more-tools-grid { grid-template-columns: 1fr; }
+
   .empty-state {
     padding: 3rem 1.5rem;
   }
@@ -1551,17 +1639,22 @@ main { flex: 1; }
     rgba(255, 255, 255, 0.15) 40%,
     rgba(255, 255, 255, 0.05) 100%
   );
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  /* Was blur(20px) — backdrop-filter cost scales roughly with the square of
+     the radius, and this card (plus the navbar and 4 tool cards) all
+     compositing their own blur on Workspace's first paint is the likely
+     source of the "lags for a moment on first open" complaint. 8px reads
+     the same as glassy at this size for a fraction of the paint cost. */
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 2rem;
   padding: 1.5rem 2rem;
   overflow: hidden;
-  box-shadow: 
+  box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.06),
     0 2px 8px rgba(0, 0, 0, 0.04),
     inset 0 1px 0 rgba(255, 255, 255, 0.4);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
 .plan-glass-card:hover {

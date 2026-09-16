@@ -703,7 +703,8 @@ body {
 
 .user-msg-popover {
   position: absolute;
-  top: -2.4rem;
+  top: 100%;
+  margin-top: 0.4rem;
   right: 0;
   display: flex;
   gap: 0.35rem;
