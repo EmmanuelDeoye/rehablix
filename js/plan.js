@@ -18,8 +18,10 @@
     exam: 'student',
   };
 
-  // Numeric level for comparison
-  const planLevel = { free: 0, student: 1, pro: 2 };
+  // Numeric level for comparison — single source of truth in plan-tiers.js
+  // (adds the 'max' tier above 'pro'); falls back locally if that script
+  // hasn't loaded for some reason.
+  const planLevel = (window.RehabPlanTiers && window.RehabPlanTiers.PLAN_LEVEL) || { free: 0, student: 1, pro: 2, max: 3 };
 
   let currentPlan = null; // 'free' | 'student' | 'pro' | null
   let currentSubscription = null; // full record: {plan, starts, ends, renewal, ...}
@@ -125,7 +127,7 @@
     // Default upgrade prompt (can be overridden by page)
     showUpgradePrompt(feature) {
       const required = featureMinPlans[feature] || 'pro';
-      const names = { free: 'Free', student: 'Student', pro: 'Pro' };
+      const names = (window.RehabPlanTiers && window.RehabPlanTiers.PLAN_LABELS) || { free: 'Free', student: 'Basic', pro: 'Pro', max: 'Max' };
       const msg = `This feature requires the ${names[required]} plan. Please upgrade to continue.`;
       // Use a toast if available, otherwise alert
       if (typeof showToast === 'function') {

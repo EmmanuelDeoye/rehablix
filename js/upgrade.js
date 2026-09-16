@@ -1,6 +1,11 @@
 // js/upgrade.js – Country-specific fixed pricing with "slashed price" illusion, multi-gateway payments
+// Registered as the "subscription" SPA view (js/router.js calls mount() after
+// injecting views/subscription.fragment.html into #appRoot).
 
-document.addEventListener('DOMContentLoaded', async () => {
+(function () {
+  let cleanupFns = [];
+
+  async function mount() {
 
   // ===== DOM Elements (with null safety) =====
   const getEl = (id) => document.getElementById(id);
@@ -288,6 +293,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
+  // Max plan pricing isn't hand-authored per country — it's derived as 3x
+  // Pro's price (same currency/gateways), so adding it doesn't require
+  // retyping ~15 countries' worth of numbers by hand.
+  const MAX_PLAN_MULTIPLIER = 3;
+  function deriveMaxPricing(entry) {
+    if (entry.max) return entry; // already has one
+    const scale = (p) => ({ original: Math.round(p.original * MAX_PLAN_MULTIPLIER * 100) / 100, current: Math.round(p.current * MAX_PLAN_MULTIPLIER * 100) / 100 });
+    entry.max = {
+      monthly: scale(entry.pro.monthly),
+      yearly: scale(entry.pro.yearly)
+    };
+    return entry;
+  }
+  Object.values(COUNTRY_PRICING).forEach(deriveMaxPricing);
+  deriveMaxPricing(DEFAULT_PRICING);
+
   // ===== Payment Gateway Keys =====
   // Paystack: this is a live key (pk_live_...) — correct for production.
   const PAYSTACK_PUBLIC_KEY = 'pk_live_1fd1c3c6380edae5c08ca9f1e69db8d717534af2';
@@ -483,7 +504,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Update current price
       proPriceEl.textContent = proPricing.current % 1 !== 0 ? proPricing.current.toFixed(2) : proPricing.current.toLocaleString();
     }
-    
+
+    // Update Max price card (no slashed/discount styling — top tier)
+    const maxCurrencyEl = getEl('maxCurrency');
+    const maxPriceEl = getEl('maxPrice');
+    if (maxCurrencyEl) maxCurrencyEl.textContent = symbol;
+    if (maxPriceEl && pricing.max) {
+      const maxPricing = isYearly ? pricing.max.yearly : pricing.max.monthly;
+      maxPriceEl.textContent = maxPricing.current % 1 !== 0 ? maxPricing.current.toFixed(2) : maxPricing.current.toLocaleString();
+    }
+
     // Update period labels
     document.querySelectorAll('.period').forEach(el => {
       el.textContent = isYearly ? '/year' : '/month';
@@ -571,7 +601,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const priceData = isYearly ? pricing[plan].yearly : pricing[plan].monthly;
     const discountPercent = Math.round((1 - priceData.current / priceData.original) * 100);
     
-    if (paymentPlanBadge) paymentPlanBadge.textContent = plan === 'student' ? '🎓 Student Plan' : '💎 Pro Plan';
+    const planBadges = { student: '🎓 Basic Plan', pro: '💎 Pro Plan', max: '♾️ Max Plan' };
+    if (paymentPlanBadge) paymentPlanBadge.textContent = planBadges[plan] || plan;
     if (paymentCurrency) paymentCurrency.textContent = pricing.symbol;
     if (paymentAmount) paymentAmount.textContent = priceData.current % 1 !== 0 ? priceData.current.toFixed(2) : priceData.current.toLocaleString();
     if (paymentPeriod) paymentPeriod.textContent = isYearly ? '/year' : '/month';
@@ -893,8 +924,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ===== Success Celebration Modal =====
   function showSuccessCelebration(plan, endDate) {
-    const planNames = { student: 'Student', pro: 'Pro' };
-    const planIcons = { student: '🎓', pro: '💎' };
+    const planNames = { student: 'Basic', pro: 'Pro', max: 'Max' };
+    const planIcons = { student: '🎓', pro: '💎', max: '♾️' };
     const overlay = document.createElement('div');
     overlay.className = 'sub-success-overlay';
     overlay.innerHTML = `
@@ -944,20 +975,45 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // ===== Update Current Plan UI =====
+  // plan.js already auto-downgrades an expired paid subscription back to
+  // 'free' (see js/plan.js's loadSubscription), so whatever getCurrentPlan()
+  // returns here is guaranteed to be the user's actually-active plan — no
+  // separate expiry check needed on this page.
   function updateCurrentPlanUI(plan) {
+    const tiers = window.RehabPlanTiers;
+    const order = tiers ? tiers.PLAN_ORDER : ['free', 'student', 'pro', 'max'];
+    const currentIdx = order.indexOf(plan);
+    const next = tiers ? tiers.nextPlan(plan) : null;
+    const nextLabel = next && tiers ? tiers.PLAN_LABELS[next] : null;
+
     document.querySelectorAll('.plan-card').forEach(card => {
       const cardPlan = card.dataset.plan;
+      const cardIdx = order.indexOf(cardPlan);
       const btn = card.querySelector('.plan-btn');
-      if (btn) {
-        if (cardPlan === plan) {
+
+      // Hide every tier below the user's active plan — they're not a
+      // meaningful choice once you're already above them.
+      card.hidden = currentIdx > -1 && cardIdx > -1 && cardIdx < currentIdx;
+      if (card.hidden) return;
+
+      if (!btn) return;
+      if (cardPlan === plan) {
+        if (next) {
+          btn.textContent = `Upgrade to ${nextLabel}`;
+          btn.classList.remove('current-plan');
+          btn.disabled = false;
+          btn.dataset.plan = next; // clicking it starts the upgrade flow for the next tier up
+        } else {
+          // Already on the top tier — nothing higher to upgrade to.
           btn.textContent = 'Current Plan';
           btn.classList.add('current-plan');
           btn.disabled = true;
-        } else {
-          btn.textContent = 'Get Started';
-          btn.classList.remove('current-plan');
-          btn.disabled = false;
         }
+      } else {
+        btn.textContent = 'Get Started';
+        btn.classList.remove('current-plan');
+        btn.disabled = false;
+        btn.dataset.plan = cardPlan;
       }
     });
     // Re-attach listeners after UI update
@@ -979,12 +1035,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const days = window.rehabPlans.daysUntilExpiry();
     if (!plan || plan === 'free' || days === null || days > 5) return;
 
+    const planLabel = (window.RehabPlanTiers && window.RehabPlanTiers.PLAN_LABELS[plan]) || (plan.charAt(0).toUpperCase() + plan.slice(1));
     const banner = document.createElement('div');
     banner.id = 'renewalBanner';
     banner.className = 'renewal-banner';
     banner.innerHTML = days > 0
-      ? `<i class="fas fa-clock"></i> Your ${plan.charAt(0).toUpperCase() + plan.slice(1)} plan expires in ${days} day${days === 1 ? '' : 's'}. Renew below to avoid losing access.`
-      : `<i class="fas fa-exclamation-circle"></i> Your ${plan.charAt(0).toUpperCase() + plan.slice(1)} plan expires today. Renew below to keep your access.`;
+      ? `<i class="fas fa-clock"></i> Your ${planLabel} plan expires in ${days} day${days === 1 ? '' : 's'}. Renew below to avoid losing access.`
+      : `<i class="fas fa-exclamation-circle"></i> Your ${planLabel} plan expires today. Renew below to keep your access.`;
     const header = document.querySelector('.sub-header');
     if (header) header.insertAdjacentElement('afterend', banner);
   }
@@ -993,31 +1050,31 @@ document.addEventListener('DOMContentLoaded', async () => {
   // plan.js is the single source of truth for the user's current plan
   // (it also handles expiry/auto-downgrade) — this page just reflects it,
   // instead of re-reading the subscription from Firebase a second time.
-  auth.onAuthStateChanged((user) => {
+  // (The compat SDK's onAuthStateChanged returns an unsubscribe function —
+  // captured so unmount() can detach it; this listener would otherwise
+  // outlive the view and keep firing after navigating away.)
+  const unsubscribeAuth = auth.onAuthStateChanged((user) => {
     currentUser = user;
     attachPlanButtonListeners();
   });
+  cleanupFns.push(unsubscribeAuth);
 
-  document.addEventListener('planUpdated', (e) => {
+  const onPlanUpdated = (e) => {
     currentPlan = e.detail.plan || 'free';
     updateCurrentPlanUI(currentPlan);
-  });
+  };
+  document.addEventListener('planUpdated', onPlanUpdated);
+  cleanupFns.push(() => document.removeEventListener('planUpdated', onPlanUpdated));
 
-  document.addEventListener('planExpired', (e) => {
-    showToast(`Your ${e.detail.previousPlan} plan has expired and you've been moved to the Free plan.`, 'warning', 6000);
-  });
+  const onPlanExpired = (e) => {
+    const label = (window.RehabPlanTiers && window.RehabPlanTiers.PLAN_LABELS[e.detail.previousPlan]) || e.detail.previousPlan;
+    showToast(`Your ${label} plan has expired and you've been moved to the Free plan.`, 'warning', 6000);
+  };
+  document.addEventListener('planExpired', onPlanExpired);
+  cleanupFns.push(() => document.removeEventListener('planExpired', onPlanExpired));
 
-  // ===== Theme Toggle =====
-  const themeToggle = getEl('themeToggle');
-  if (themeToggle) {
-    themeToggle.addEventListener('click', () => {
-      const html = document.documentElement;
-      const current = html.getAttribute('data-theme');
-      const newTheme = current === 'light' ? 'dark' : 'light';
-      html.setAttribute('data-theme', newTheme);
-      localStorage.setItem('rehab-theme', newTheme);
-    });
-  }
+  // Theme toggle is shared shell chrome (js/theme.js wires #themeToggle
+  // globally in index.html) — no page-local listener needed here.
 
   // ===== Initialize =====
   async function initialize() {
@@ -1032,4 +1089,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   initialize();
-});
+  } // end mount()
+
+  function unmount() {
+    cleanupFns.forEach(fn => fn());
+    cleanupFns = [];
+  }
+
+  window.RehablixViews = window.RehablixViews || {};
+  window.RehablixViews.subscription = { mount, unmount };
+})();

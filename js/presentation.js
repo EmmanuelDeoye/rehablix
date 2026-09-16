@@ -1679,7 +1679,7 @@ ${combinedText || 'No notes provided.'}`;
         
         modal.querySelector('#viewFullPresentationBtn').addEventListener('click', () => {
             if (historyId) {
-                window.open(`result.html?type=case&id=${historyId}`, '_blank');
+                window.open(`index.html?type=case&id=${historyId}#/result`, '_blank');
                 close();
             }
         });
@@ -1833,7 +1833,7 @@ ${combinedText || 'No notes provided.'}`;
             div.querySelector('.delete-btn')?.addEventListener('click', (e) => deleteHistoryItem(key, e));
             
             div.addEventListener('click', (e) => {
-                if (!e.target.closest('button')) window.open(`result.html?type=case&id=${key}`, '_blank');
+                if (!e.target.closest('button')) window.open(`index.html?type=case&id=${key}#/result`, '_blank');
             });
             
             historyList.appendChild(div);

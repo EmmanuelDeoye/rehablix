@@ -1,6 +1,11 @@
 // docresult.js - Complete document editor with full synchronization to doc.html
+// Registered as the "docresult" SPA view (js/router.js calls mount() after
+// injecting views/docresult.fragment.html into #appRoot).
 
-document.addEventListener('DOMContentLoaded', async function() {
+(function () {
+  let cleanupFns = [];
+
+  async function mount() {
     // =========================================================================
     // DOM Elements
     // =========================================================================
@@ -1287,21 +1292,13 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
 
-    // =========================================================================
-    // Theme Toggle
-    // =========================================================================
-    document.getElementById('themeToggle')?.addEventListener('click', () => {
-        const html = document.documentElement;
-        const current = html.getAttribute('data-theme');
-        const next = current === 'dark' ? 'light' : 'dark';
-        html.setAttribute('data-theme', next);
-        localStorage.setItem('rehab-theme', next);
-    });
+    // Theme toggle is shared shell chrome (js/theme.js wires #themeToggle
+    // globally in index.html) — no page-local listener needed here.
 
     // =========================================================================
     // Auth & Initialization
     // =========================================================================
-    firebase.auth().onAuthStateChanged(async (user) => {
+    const unsubscribeAuth = firebase.auth().onAuthStateChanged(async (user) => {
         currentUser = user;
         if (user) {
             if (window.RehablixCenter && typeof window.RehablixCenter.getEffectiveScopeUid === 'function') {
@@ -1322,4 +1319,14 @@ document.addEventListener('DOMContentLoaded', async function() {
             showToast('Please log in to access documents', 'error');
         }
     });
-});
+    cleanupFns.push(unsubscribeAuth);
+  } // end mount()
+
+  function unmount() {
+    cleanupFns.forEach(fn => fn());
+    cleanupFns = [];
+  }
+
+  window.RehablixViews = window.RehablixViews || {};
+  window.RehablixViews.docresult = { mount, unmount };
+})();

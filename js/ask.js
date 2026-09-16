@@ -33,25 +33,38 @@
   const chatMessages = document.getElementById('chatMessages');
   const messageInput = document.getElementById('messageInput');
   const sendBtn = document.getElementById('sendBtn');
-  const newChatBtn = document.getElementById('newChatBtn');
   const attachBtn = document.getElementById('attachBtn');
   const attachMenu = document.getElementById('attachMenu');
   const fileInput = document.getElementById('fileInput');
   const attachmentsStrip = document.getElementById('attachmentsStrip');
   const micBtn = document.getElementById('micBtn');
   const inputHint = document.getElementById('inputHint');
+  const modelPickerBtn = document.getElementById('modelPickerBtn');
+  const modelPickerLabel = document.getElementById('modelPickerLabel');
+  const modelPickerPopup = document.getElementById('modelPickerPopup');
 
   const historyDrawer = document.getElementById('historyDrawer');
+  const newChatNavBtn = document.getElementById('newChatNavBtn');
   const historyNavBtn = document.getElementById('historyNavBtn');
-  // This button visually belongs in the shared shell navbar, not the
-  // fragment body — relocate it into the shell's nav slot on mount. The
-  // router destroys/recreates #navbarViewSlot's contents on every
-  // navigation, so this never needs explicit unmount cleanup.
+  // These buttons visually belong in the shared shell navbar, not the
+  // fragment body — relocate them into the shell's nav slot on mount, in
+  // order (new-chat plus icon just before the history icon). The router
+  // destroys/recreates #navbarViewSlot's contents on every navigation, so
+  // this never needs explicit unmount cleanup.
   const navbarSlot = document.getElementById('navbarViewSlot');
+  if (navbarSlot && newChatNavBtn) navbarSlot.appendChild(newChatNavBtn);
   if (navbarSlot && historyNavBtn) navbarSlot.appendChild(historyNavBtn);
   const closeDrawerBtn = document.getElementById('closeDrawerBtn');
   const historyList = document.getElementById('historyList');
   const historySearchInput = document.getElementById('historySearchInput');
+  const historyLoading = document.getElementById('historyLoading');
+  const filesToggleBtn = document.getElementById('filesToggleBtn');
+  const filesList = document.getElementById('filesList');
+  const filesLoading = document.getElementById('filesLoading');
+  const chatsSearchWrap = document.getElementById('chatsSearchWrap');
+  const filesSearchWrap = document.getElementById('filesSearchWrap');
+  const filesSearchInput = document.getElementById('filesSearchInput');
+  const fileFilterSelect = document.getElementById('fileFilterSelect');
 
   const toastContainer = document.getElementById('toast-container');
 
@@ -64,6 +77,9 @@
   // Vision-capable model (GPT-4.1 via GitHub Models marketplace) – used when
   // an image or a video (sampled as frames) is attached.
   let visionConfig = { token: null, endpoint: null, model: 'gpt-4.1' };
+  // Which of the 4 named models (js/plan-tiers.js) the user picked in the
+  // composer — persisted across sessions like the theme preference.
+  let selectedModelId = localStorage.getItem('rehab-lixa-model') || 'corpus101';
 
   let currentConversationId = null;
   let conversationTitle = null;
@@ -137,6 +153,35 @@
       console.error('Vision token fetch error:', error);
       return false;
     }
+  }
+
+  // Resolves which model config + token to actually send a turn with: the
+  // vision-capable model whenever the turn has images (auto — not a user
+  // choice), otherwise whichever of the 4 named models is selected in the
+  // composer. Returns null if the needed token isn't configured.
+  async function resolveModelConfig(needsVision) {
+    if (needsVision) {
+      const ok = await fetchVisionTokens();
+      if (ok) return { ...visionConfig, maxTokens: 4096, weight: 4 };
+      showToast('Vision model is not configured — answering from extracted text only.', 'info', 4000);
+      // fall through to the selected text model so the turn can still proceed
+    }
+    const tiers = window.RehabPlanTiers;
+    const model = tiers ? tiers.getModel(selectedModelId) : null;
+    if (model && model.provider === 'openai') {
+      const ok = await fetchVisionTokens();
+      if (!ok) return null;
+      return { token: visionConfig.token, endpoint: model.endpoint, model: model.apiModel, maxTokens: model.maxTokens, weight: model.weight };
+    }
+    const ok = await fetchTokens();
+    if (!ok) return null;
+    return {
+      token: aiConfig.token,
+      endpoint: (model && model.endpoint) || aiConfig.endpoint,
+      model: (model && model.apiModel) || aiConfig.model,
+      maxTokens: (model && model.maxTokens) || 2000,
+      weight: (model && model.weight) || 1
+    };
   }
 
   // Lazy-load a third-party script only when actually needed
@@ -571,6 +616,81 @@ If the user's message includes content extracted from an uploaded file, an image
     fileInput.value = '';
   });
 
+  // ---- Model picker ----
+  function closeModelPicker() {
+    if (modelPickerPopup) modelPickerPopup.hidden = true;
+    if (modelPickerBtn) modelPickerBtn.classList.remove('active');
+  }
+
+  function updateModelPickerLabel() {
+    if (!modelPickerLabel || !window.RehabPlanTiers) return;
+    modelPickerLabel.textContent = window.RehabPlanTiers.getModel(selectedModelId).label;
+  }
+
+  function renderModelPicker() {
+    if (!modelPickerPopup || !window.RehabPlanTiers) return;
+    const tiers = window.RehabPlanTiers;
+    const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free';
+    modelPickerPopup.innerHTML = tiers.MODELS.map(m => {
+      const locked = !tiers.isModelUnlocked(m.id, plan);
+      const selected = m.id === selectedModelId;
+      return `
+        <button type="button" class="model-option${locked ? ' locked' : ''}${selected ? ' selected' : ''}" data-model-id="${m.id}">
+          <span class="model-option-rank">${m.rank}</span>
+          <span class="model-option-text">
+            <span class="model-option-name">${escapeHtml(m.label)}${locked ? ' <i class="fas fa-lock"></i>' : ''}</span>
+            <span class="model-option-desc">${escapeHtml(m.strength)}</span>
+          </span>
+          <span class="model-option-plan">${escapeHtml(tiers.PLAN_LABELS[m.minPlan])}+</span>
+        </button>
+      `;
+    }).join('');
+  }
+
+  if (modelPickerBtn && modelPickerPopup) {
+    updateModelPickerLabel();
+    modelPickerBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const willOpen = modelPickerPopup.hidden;
+      closeModelPicker();
+      closeAttachMenu();
+      if (willOpen) {
+        renderModelPicker();
+        modelPickerPopup.hidden = false;
+        modelPickerBtn.classList.add('active');
+      }
+    });
+
+    modelPickerPopup.addEventListener('click', (e) => {
+      const option = e.target.closest('.model-option');
+      if (!option) return;
+      e.stopPropagation();
+      const modelId = option.dataset.modelId;
+      const tiers = window.RehabPlanTiers;
+      const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free';
+      if (tiers && !tiers.isModelUnlocked(modelId, plan)) {
+        const model = tiers.getModel(modelId);
+        showToast(`${model.label} requires the ${tiers.PLAN_LABELS[model.minPlan]} plan or higher. Upgrade to unlock it.`, 'error', 4500);
+        return;
+      }
+      selectedModelId = modelId;
+      localStorage.setItem('rehab-lixa-model', modelId);
+      updateModelPickerLabel();
+      closeModelPicker();
+    });
+
+    const onDocClickCloseModelPicker = (e) => {
+      if (!modelPickerPopup.hidden && !modelPickerPopup.contains(e.target) && e.target !== modelPickerBtn && !modelPickerBtn.contains(e.target)) closeModelPicker();
+    };
+    const onDocKeydownCloseModelPicker = (e) => {
+      if (e.key === 'Escape') closeModelPicker();
+    };
+    document.addEventListener('click', onDocClickCloseModelPicker);
+    document.addEventListener('keydown', onDocKeydownCloseModelPicker);
+    cleanupFns.push(() => document.removeEventListener('click', onDocClickCloseModelPicker));
+    cleanupFns.push(() => document.removeEventListener('keydown', onDocKeydownCloseModelPicker));
+  }
+
   // Drag & drop onto the chat area
   chatMessages.addEventListener('dragover', (e) => e.preventDefault());
   chatMessages.addEventListener('drop', (e) => {
@@ -706,7 +826,14 @@ If the user's message includes content extracted from an uploaded file, an image
       if (msg.role === 'assistant') {
         const actionsDiv = document.createElement('div');
         actionsDiv.className = 'message-actions';
+        // finishReason === 'length' means the model hit its max_tokens
+        // ceiling mid-thought (not a natural stop) — offer to continue
+        // instead of leaving the response trailing off.
+        const continueBtnHtml = msg.finishReason === 'length'
+          ? `<button class="action-btn continue-btn" title="This response was cut short — continue it"><i class="fas fa-forward"></i> Continue</button>`
+          : '';
         actionsDiv.innerHTML = `
+          ${continueBtnHtml}
           <button class="action-btn copy-btn" title="Copy response"><i class="fas fa-copy"></i> Copy</button>
           <button class="action-btn download-btn" title="Open in editor to export"><i class="fas fa-download"></i> Word</button>
           <button class="action-btn regenerate-btn" title="Regenerate response"><i class="fas fa-redo"></i> Regenerate</button>
@@ -939,6 +1066,33 @@ If the user's message includes content extracted from an uploaded file, an image
       openInResultEditor(index);
     }
 
+    if (btn.classList.contains('continue-btn')) {
+      if (isWaiting) {
+        showToast('Please wait for the current response to finish', 'error');
+        return;
+      }
+      const assistantMsg = messages[index];
+      const bubbleEl = messageDiv.querySelector('.message-bubble');
+      if (!bubbleEl) return;
+      isWaiting = true;
+      sendBtn.disabled = true;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Continuing…';
+      continueAssistantTurn(assistantMsg, bubbleEl, () => {
+        isWaiting = false;
+        sendBtn.disabled = false;
+        renderMessages();
+      }).catch((err) => {
+        console.error('[continue] failed:', err);
+        showToast('Failed to continue the response. Please try again.', 'error');
+        isWaiting = false;
+        sendBtn.disabled = false;
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-forward"></i> Continue';
+      });
+      return;
+    }
+
     if (btn.classList.contains('regenerate-btn')) {
       if (isWaiting) {
         showToast('Please wait for the current response to finish', 'error');
@@ -983,7 +1137,7 @@ If the user's message includes content extracted from an uploaded file, an image
         date: new Date().toLocaleDateString(),
         createdAt: firebase.database.ServerValue.TIMESTAMP
       });
-      window.open(`result.html?type=ask&id=${ref.key}`, '_blank');
+      window.open(`index.html?type=ask&id=${ref.key}#/result`, '_blank');
     } catch (err) {
       console.error('Failed to open in editor:', err);
       showToast('Could not open the editor. Please try again.', 'error');
@@ -1193,10 +1347,13 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
 
   // Streams a chat completion via SSE, calling onToken(deltaText, fullSoFar)
   // as chunks arrive. Falls back to a plain buffered response if the
-  // provider/browser doesn't give us a readable stream body. Returns the
-  // final accumulated text (possibly '' if the provider genuinely sent
-  // nothing — callers decide whether/how to retry on that).
-  async function streamChatCompletion(config, apiMessages, needsVision, onToken) {
+  // provider/browser doesn't give us a readable stream body. Returns
+  // { text, finishReason } — text may be '' if the provider genuinely sent
+  // nothing (callers decide whether/how to retry on that); finishReason is
+  // 'length' when the response was cut short by maxTokens (as opposed to
+  // 'stop', a natural completion), which callers use to offer a Continue
+  // affordance instead of just silently truncating.
+  async function streamChatCompletion(config, apiMessages, needsVision, onToken, maxTokens) {
     const url = `${config.endpoint}/chat/completions`;
     const response = await fetch(url, {
       method: 'POST',
@@ -1207,7 +1364,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       body: JSON.stringify({
         model: config.model,
         messages: apiMessages,
-        max_tokens: 1500,
+        max_tokens: maxTokens || config.maxTokens || 2000,
         temperature: 0.7,
         top_p: 0.9,
         stream: true
@@ -1233,14 +1390,16 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       // buffered read so the feature still degrades gracefully.
       const data = await response.json();
       const text = data.choices?.[0]?.message?.content || '';
+      const finishReason = data.choices?.[0]?.finish_reason || null;
       if (text) onToken(text, text);
-      return text;
+      return { text, finishReason };
     }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let full = '';
     let buffer = '';
+    let finishReason = null;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -1254,18 +1413,20 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
         if (!payload || payload === '[DONE]') continue;
         try {
           const json = JSON.parse(payload);
-          const delta = json.choices?.[0]?.delta?.content || '';
+          const choice = json.choices?.[0];
+          const delta = choice?.delta?.content || '';
           if (delta) {
             full += delta;
             onToken(delta, full);
           }
+          if (choice?.finish_reason) finishReason = choice.finish_reason;
         } catch (e) {
           // Ignore partial/malformed SSE chunks — the buffer handles
           // reassembly of split lines; a genuinely bad line is skippable.
         }
       }
     }
-    return full;
+    return { text: full, finishReason };
   }
 
   // Empty completions happen intermittently with these providers (a 200 OK
@@ -1276,19 +1437,20 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     const recentMessages = messages.slice(-20);
     const needsVision = recentMessages.some(m => m.visionImages && m.visionImages.length > 0);
 
-    let config = aiConfig;
-    if (needsVision) {
-      const ok = await fetchVisionTokens();
-      if (ok) {
-        config = visionConfig;
-      } else {
-        showToast('Vision model is not configured — answering from extracted text only.', 'info', 4000);
+    const config = await resolveModelConfig(needsVision);
+    if (!config) throw new Error('AI service is not configured.');
+
+    // Quota is a soft, per-plan budget on a 4-hour rolling window — checked
+    // before sending (not per-message-exact, since real cost isn't known
+    // until the response completes) so an exhausted budget blocks the next
+    // send rather than the app trying to guess mid-flight.
+    if (currentUser && window.RehabPlanTiers && window.rehabPlans) {
+      const plan = window.rehabPlans.getCurrentPlan() || 'free';
+      const quota = await window.RehabPlanTiers.hasQuota(currentUser.uid, plan);
+      if (!quota.allowed) {
+        const resetMins = Math.max(1, Math.ceil((quota.resetAt - Date.now()) / 60000));
+        throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
       }
-    }
-    if (!config.token) {
-      const ok = await fetchTokens();
-      if (!ok) throw new Error('AI service is not configured.');
-      config = aiConfig;
     }
 
     const apiMessages = [
@@ -1296,16 +1458,78 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       ...recentMessages.map(m => ({ role: m.role, content: buildApiContent(m) }))
     ];
 
-    let full = await streamChatCompletion(config, apiMessages, needsVision, onToken);
-    if (!full || !full.trim()) {
+    let result = await streamChatCompletion(config, apiMessages, needsVision, onToken, config.maxTokens);
+    if (!result.text || !result.text.trim()) {
       // Retry once — onToken hasn't fired yet on a genuinely empty attempt,
       // so this is a clean second try, not a duplicate/garbled render.
-      full = await streamChatCompletion(config, apiMessages, needsVision, onToken);
+      result = await streamChatCompletion(config, apiMessages, needsVision, onToken, config.maxTokens);
     }
-    if (!full || !full.trim()) {
+    if (!result.text || !result.text.trim()) {
       throw new Error('The AI returned an empty response. Please try again.');
     }
-    return full;
+
+    if (currentUser && window.RehabPlanTiers && window.rehabPlans) {
+      const plan = window.rehabPlans.getCurrentPlan() || 'free';
+      const rawTokens = window.RehabPlanTiers.estimateTokens(
+        apiMessages.map(m => (typeof m.content === 'string' ? m.content : '')).join(' ') + result.text
+      );
+      window.RehabPlanTiers.consumeQuota(currentUser.uid, plan, rawTokens, config.weight).catch(() => {});
+    }
+
+    return result;
+  }
+
+  // Continues a reply that stopped early because it hit the model's
+  // max_tokens ceiling (finish_reason === 'length'), rather than leaving the
+  // user with a response that just stops mid-sentence. Re-sends the whole
+  // conversation plus the partial reply so far and a short instruction to
+  // pick up exactly where it left off, and streams the continuation onto the
+  // SAME message bubble (concatenated), same as the original turn.
+  async function continueAssistantTurn(assistantMsg, bubbleEl, onDone) {
+    const recentMessages = messages.slice(-20);
+    const needsVision = recentMessages.some(m => m.visionImages && m.visionImages.length > 0);
+    const config = await resolveModelConfig(needsVision);
+    if (!config) { showToast('AI service is not configured.', 'error'); return; }
+
+    const apiMessages = [
+      { role: 'system', content: buildSystemPrompt() },
+      ...recentMessages.map(m => ({ role: m.role, content: buildApiContent(m) })),
+      { role: 'assistant', content: assistantMsg.content },
+      { role: 'user', content: 'Continue exactly where you left off. Do not repeat anything you already said, and do not add any preamble.' }
+    ];
+
+    let latestFullSoFar = assistantMsg.content;
+    let rafPending = false;
+    function flush() {
+      rafPending = false;
+      bubbleEl.textContent = latestFullSoFar;
+      if (isNearBottom()) chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'auto' });
+    }
+    function onToken(delta, fullSoFar) {
+      latestFullSoFar = assistantMsg.content + fullSoFar;
+      if (!rafPending) { rafPending = true; requestAnimationFrame(flush); }
+    }
+
+    bubbleEl.classList.add('streaming-text');
+    const result = await streamChatCompletion(config, apiMessages, needsVision, onToken, config.maxTokens);
+    bubbleEl.classList.remove('streaming-text');
+    assistantMsg.content = assistantMsg.content + (result.text || '');
+    assistantMsg.finishReason = result.finishReason;
+    if (currentUser && window.RehabPlanTiers && window.rehabPlans) {
+      const plan = window.rehabPlans.getCurrentPlan() || 'free';
+      const rawTokens = window.RehabPlanTiers.estimateTokens(result.text || '');
+      window.RehabPlanTiers.consumeQuota(currentUser.uid, plan, rawTokens, config.weight).catch(() => {});
+    }
+    if (currentUser) saveConversation();
+    onDone();
+  }
+
+  // How close to the bottom (px) counts as "still following the stream" —
+  // if the user scrolls further up than this, auto-scroll stops until they
+  // scroll back down themselves.
+  const STREAM_FOLLOW_THRESHOLD = 80;
+  function isNearBottom() {
+    return chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < STREAM_FOLLOW_THRESHOLD;
   }
 
   // Shared "ask the AI and append its reply" logic, used by send/edit/regenerate.
@@ -1321,6 +1545,27 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     let assistantMsg = null;
     let bubbleEl = null;
 
+    // The previous version wrote textContent + scrolled on every single SSE
+    // delta (often many times a second) while chat-messages has CSS
+    // scroll-behavior:smooth — reassigning scrollTop that often restarts a
+    // smooth-scroll animation on top of itself repeatedly, which is what
+    // caused the visible jitter/distortion while streaming. Fix: batch DOM
+    // writes to once per animation frame, and scroll instantly (not smooth)
+    // during streaming, only while the user hasn't scrolled away from the
+    // bottom themselves.
+    let latestFullSoFar = '';
+    let rafPending = false;
+    let followBottom = true;
+
+    function flushStreamFrame() {
+      rafPending = false;
+      if (!bubbleEl) return;
+      bubbleEl.textContent = latestFullSoFar;
+      if (followBottom) {
+        chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'auto' });
+      }
+    }
+
     function handleToken(deltaText, fullSoFar) {
       if (!assistantMsg) {
         removeTyping();
@@ -1330,16 +1575,20 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
         const msgDiv = chatMessages.querySelector('.message.assistant:last-of-type');
         bubbleEl = msgDiv ? msgDiv.querySelector('.message-bubble') : null;
         if (bubbleEl) bubbleEl.classList.add('streaming-text');
+        followBottom = true; // we just sent this turn ourselves — always start following
+      } else {
+        followBottom = isNearBottom();
       }
       assistantMsg.content = fullSoFar;
-      if (bubbleEl) {
-        bubbleEl.textContent = fullSoFar;
-        chatMessages.scrollTop = chatMessages.scrollHeight;
+      latestFullSoFar = fullSoFar;
+      if (!rafPending) {
+        rafPending = true;
+        requestAnimationFrame(flushStreamFrame);
       }
     }
 
     try {
-      const reply = await callAI(handleToken);
+      const { text: reply, finishReason } = await callAI(handleToken);
       removeTyping();
       if (!assistantMsg) {
         // Defensive fallback: streaming produced no visible tokens (e.g. a
@@ -1349,6 +1598,10 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       } else {
         assistantMsg.content = reply;
       }
+      // 'length' means the model hit its max_tokens ceiling mid-thought, not
+      // a natural stop — flag it so renderMessages() offers a Continue button
+      // instead of silently handing back a response that trails off.
+      assistantMsg.finishReason = finishReason;
       const suggestions = await generateSuggestions(promptTextForSuggestions, reply);
       assistantMsg.suggestions = suggestions;
       renderMessages();
@@ -1546,12 +1799,25 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   // History list
   // =========================================================================
   let allConversations = [];
+  let showingFiles = false;
+  let fileFilterExt = 'all';
+
+  // "3:45 PM" for anything within the last 24h, "Sep 14" beyond that.
+  function formatRelative(ts) {
+    const date = new Date(ts);
+    const isRecent = Date.now() - ts < 24 * 60 * 60 * 1000;
+    return isRecent
+      ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
 
   async function loadHistoryList() {
     if (!currentUser) {
       console.warn('[loadHistoryList] No user logged in');
       return;
     }
+    if (historyLoading) historyLoading.hidden = false;
+    if (filesLoading) filesLoading.hidden = false;
     try {
       console.log('[loadHistoryList] Fetching conversations for user:', currentUser.uid);
       const snap = await database.ref(`history/${currentUser.uid}/askConversations`).orderByChild('updatedAt').once('value');
@@ -1561,28 +1827,32 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
         allConversations = Object.entries(data).map(([id, item]) => ({ id, ...item }));
         allConversations.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
         console.log('[loadHistoryList] Loaded', allConversations.length, 'conversations');
-        allConversations.forEach(c => {
-          console.log('  -', c.title, '(ID:', c.id, ')');
-        });
       } else {
         console.log('[loadHistoryList] No conversations found');
       }
       renderHistoryList(allConversations);
+      renderFileFilterOptions();
+      renderFilesList();
     } catch (error) {
       console.error('[loadHistoryList] Error:', error);
+    } finally {
+      if (historyLoading) historyLoading.hidden = true;
+      if (filesLoading) filesLoading.hidden = true;
     }
   }
 
   function renderHistoryList(conversations) {
     if (!historyList) return;
-    historyList.innerHTML = '';
+    // Loading skeleton is a sibling, not a child we'd clobber — only the
+    // rendered rows/empty-state get replaced here.
+    historyList.querySelectorAll(':scope > *:not(#historyLoading)').forEach(el => el.remove());
     if (conversations.length === 0) {
-      historyList.innerHTML = `
+      historyList.insertAdjacentHTML('beforeend', `
         <div class="empty-state">
           <i class='bx bx-folder-open'></i>
           <p>No conversations yet</p>
         </div>
-      `;
+      `);
       return;
     }
 
@@ -1592,29 +1862,25 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     );
 
     if (filtered.length === 0) {
-      historyList.innerHTML = `
+      historyList.insertAdjacentHTML('beforeend', `
         <div class="empty-state">
           <i class='bx bx-search'></i>
           <p>No matching conversations</p>
         </div>
-      `;
+      `);
       return;
     }
 
     filtered.forEach(conv => {
       const div = document.createElement('div');
       div.className = 'history-item';
-      const date = new Date(conv.updatedAt || conv.createdAt);
+      const ts = conv.updatedAt || conv.createdAt;
       div.innerHTML = `
+        <span class="history-title" title="${escapeHtml(conv.title || 'Untitled')}">${escapeHtml(conv.title || 'Untitled')}</span>
         <button class="delete-btn" data-id="${conv.id}" title="Delete conversation">
           <i class="fas fa-trash-alt"></i>
         </button>
-        <span class="history-title">${escapeHtml(conv.title || 'Untitled')}</span>
-        <div class="history-meta">
-          <span><i class="far fa-calendar-alt"></i> ${date.toLocaleDateString()}</span>
-          <span><i class="far fa-clock"></i> ${date.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-          <span>${conv.messages?.length || 0} messages</span>
-        </div>
+        <span class="history-time">${formatRelative(ts)}</span>
       `;
       div.addEventListener('click', (e) => {
         if (e.target.closest('.delete-btn')) return;
@@ -1622,6 +1888,77 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       });
       div.querySelector('.delete-btn').addEventListener('click', (e) => deleteConversation(conv.id, e));
       historyList.appendChild(div);
+    });
+  }
+
+  // ---- Files tab: every attachment ever sent to Lixa, aggregated across
+  // conversations. No raw file bytes are persisted anywhere (only
+  // {name, icon} per attachment), so a row deep-links to the conversation it
+  // came from rather than previewing/downloading the original file.
+  function collectAllFiles() {
+    const files = [];
+    allConversations.forEach(conv => {
+      (conv.messages || []).forEach(msg => {
+        (msg.attachmentMeta || []).forEach(att => {
+          files.push({ name: att.name, icon: att.icon, conversationId: conv.id, ts: msg.timestamp || conv.updatedAt || conv.createdAt });
+        });
+      });
+    });
+    // De-dupe by name, keeping the most recent reference.
+    const byName = new Map();
+    files.forEach(f => {
+      const existing = byName.get(f.name);
+      if (!existing || f.ts > existing.ts) byName.set(f.name, f);
+    });
+    return Array.from(byName.values()).sort((a, b) => b.ts - a.ts);
+  }
+
+  function fileExt(name) {
+    const m = /\.([a-z0-9]+)$/i.exec(name || '');
+    return m ? m[1].toLowerCase() : 'other';
+  }
+
+  function renderFileFilterOptions() {
+    if (!fileFilterSelect) return;
+    const exts = Array.from(new Set(collectAllFiles().map(f => fileExt(f.name)))).sort();
+    const current = fileFilterSelect.value || 'all';
+    fileFilterSelect.innerHTML = `<option value="all">All files</option>` +
+      exts.map(ext => `<option value="${ext}">${ext.toUpperCase()}</option>`).join('');
+    fileFilterSelect.value = exts.includes(current) || current === 'all' ? current : 'all';
+    fileFilterExt = fileFilterSelect.value;
+  }
+
+  function renderFilesList() {
+    if (!filesList) return;
+    filesList.querySelectorAll(':scope > *:not(#filesLoading)').forEach(el => el.remove());
+    const searchTerm = filesSearchInput?.value.toLowerCase().trim() || '';
+    const files = collectAllFiles().filter(f =>
+      (fileFilterExt === 'all' || fileExt(f.name) === fileFilterExt) &&
+      (!searchTerm || f.name.toLowerCase().includes(searchTerm))
+    );
+
+    if (files.length === 0) {
+      filesList.insertAdjacentHTML('beforeend', `
+        <div class="empty-state">
+          <i class='bx bx-file-blank'></i>
+          <p>No files yet</p>
+        </div>
+      `);
+      return;
+    }
+
+    files.forEach(f => {
+      const div = document.createElement('div');
+      div.className = 'history-file-item';
+      div.innerHTML = `
+        <i class="fas ${f.icon || 'fa-file-lines'} file-icon"></i>
+        <span class="file-info"><span class="file-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span></span>
+      `;
+      div.addEventListener('click', () => {
+        loadConversation(f.conversationId);
+        historyDrawer.classList.remove('active');
+      });
+      filesList.appendChild(div);
     });
   }
 
@@ -1769,12 +2106,15 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     }
   })();
 
-  newChatBtn.addEventListener('click', () => {
-    if (messages.length > 0 && !confirm('Start a new chat? Current conversation will be saved.')) return;
-    newChat();
-    historyDrawer.classList.remove('active');
-    showToast('New conversation started', 'info');
-  });
+  // No confirmation dialog — clicking the plus icon starts a new chat
+  // immediately, per design (the previous conversation is already saved).
+  if (newChatNavBtn) {
+    newChatNavBtn.addEventListener('click', () => {
+      newChat();
+      historyDrawer.classList.remove('active');
+      showToast('New conversation started', 'info');
+    });
+  }
 
   // =========================================================================
   // History drawer controls
@@ -1798,11 +2138,31 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     });
   }
 
+  // Single toggle between the Chats and Files views (mirrors Project
+  // Maker's resources panel — one icon button, not a two-way switch).
+  if (filesToggleBtn) {
+    filesToggleBtn.addEventListener('click', () => {
+      showingFiles = !showingFiles;
+      filesToggleBtn.classList.toggle('active', showingFiles);
+      filesToggleBtn.setAttribute('aria-pressed', String(showingFiles));
+      filesToggleBtn.setAttribute('aria-label', showingFiles ? 'Show chats' : 'Show files');
+      filesToggleBtn.title = showingFiles ? 'Chats' : 'Files';
+      if (chatsSearchWrap) chatsSearchWrap.hidden = showingFiles;
+      if (historyList) historyList.hidden = showingFiles;
+      if (filesSearchWrap) filesSearchWrap.hidden = !showingFiles;
+      if (fileFilterSelect) fileFilterSelect.hidden = !showingFiles;
+      if (filesList) filesList.hidden = !showingFiles;
+      if (showingFiles) renderFilesList();
+    });
+  }
+
   const onDocClickCloseHistoryDrawer = (e) => {
     if (historyDrawer?.classList.contains('active') &&
         !historyDrawer.contains(e.target) &&
         e.target !== historyNavBtn &&
-        !historyNavBtn?.contains(e.target)) {
+        !historyNavBtn?.contains(e.target) &&
+        e.target !== newChatNavBtn &&
+        !newChatNavBtn?.contains(e.target)) {
       historyDrawer.classList.remove('active');
     }
   };
@@ -1819,18 +2179,25 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   if (historySearchInput) {
     historySearchInput.addEventListener('input', () => renderHistoryList(allConversations));
   }
+  if (filesSearchInput) {
+    filesSearchInput.addEventListener('input', () => renderFilesList());
+  }
+  if (fileFilterSelect) {
+    fileFilterSelect.addEventListener('change', () => {
+      fileFilterExt = fileFilterSelect.value;
+      renderFilesList();
+    });
+  }
 
   // =========================================================================
   // Auth & initialization
   // =========================================================================
   const unsubAuth = firebase.auth().onAuthStateChanged(user => {
     currentUser = user;
-    if (user) {
-      historyNavBtn.style.display = 'block';
-      loadHistoryList();
-    } else {
-      historyNavBtn.style.display = 'none';
-    }
+    const display = user ? 'block' : 'none';
+    historyNavBtn.style.display = display;
+    if (newChatNavBtn) newChatNavBtn.style.display = display;
+    if (user) loadHistoryList();
   });
   cleanupFns.push(unsubAuth);
 

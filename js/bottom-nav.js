@@ -12,11 +12,62 @@
     return document.body.dataset.route || document.body.dataset.page || '';
   }
 
+  // Only Lixa and Workspace are "primary" tabs — every other route (SPA tool
+  // views, Motion, and every standalone page like doc.html/project.html,
+  // which never set data-route at all) hides the bottom nav in favor of a
+  // back button injected into the shared navbar instead.
+  function isPrimaryRoute(route) {
+    return route === 'lixa' || route === 'workspace';
+  }
+
   function setActive(nav, route) {
     const lixaTab = nav.querySelector('[data-route-tab="lixa"]');
     const workspaceTab = nav.querySelector('[data-route-tab="workspace"]');
     if (lixaTab) lixaTab.classList.toggle('active', route === 'lixa');
     if (workspaceTab) workspaceTab.classList.toggle('active', route === 'workspace');
+  }
+
+  function goBack() {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      window.location.href = 'index.html#/workspace';
+    }
+  }
+
+  function ensureBackButton() {
+    let btn = document.getElementById('navBackBtn');
+    if (btn) return btn;
+    const navRight = document.querySelector('.nav-right');
+    if (!navRight) return null;
+    btn = document.createElement('button');
+    btn.id = 'navBackBtn';
+    btn.className = 'icon-btn back-btn';
+    btn.setAttribute('aria-label', 'Back');
+    btn.innerHTML = `
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 12H5M12 19l-7-7 7-7"></path>
+      </svg>
+    `;
+    btn.addEventListener('click', goBack);
+    navRight.insertBefore(btn, navRight.firstChild);
+    return btn;
+  }
+
+  function updateChrome(route) {
+    const nav = document.querySelector('.app-bottom-nav');
+    const primary = isPrimaryRoute(route);
+    if (nav) {
+      nav.hidden = !primary;
+      document.body.classList.toggle('has-bottom-nav', primary);
+    }
+    const backBtn = document.getElementById('navBackBtn');
+    if (primary) {
+      if (backBtn) backBtn.hidden = true;
+    } else {
+      const btn = ensureBackButton();
+      if (btn) btn.hidden = false;
+    }
   }
 
   function init() {
@@ -45,10 +96,12 @@
       </div>
     `;
     document.body.appendChild(nav);
-    document.body.classList.add('has-bottom-nav');
+    updateChrome(route);
 
     document.addEventListener('rehablix:routechange', (e) => {
-      setActive(nav, (e.detail && e.detail.route) || '');
+      const newRoute = (e.detail && e.detail.route) || '';
+      setActive(nav, newRoute);
+      updateChrome(newRoute);
     });
   }
 

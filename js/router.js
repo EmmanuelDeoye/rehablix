@@ -14,7 +14,12 @@
     study: { fragment: 'views/study.fragment.html', title: 'Study Buddy | rehablix' },
     assignment: { fragment: 'views/assignment.fragment.html', title: 'Assignment Maker | rehablix' },
     exam: { fragment: 'views/exam.fragment.html', title: 'Exam Simulator | rehablix' },
-    motion: { fragment: 'views/motion.fragment.html', title: 'Motion & Gait Analyzer | rehablix' }
+    motion: { fragment: 'views/motion.fragment.html', title: 'Motion & Gait Analyzer | rehablix' },
+    settings: { fragment: 'views/settings.fragment.html', title: 'rehablix · Account Settings' },
+    subscription: { fragment: 'views/subscription.fragment.html', title: 'rehablix · Subscription Plans' },
+    result: { fragment: 'views/result.fragment.html', title: 'rehablix · Result' },
+    formatresult: { fragment: 'views/formatresult.fragment.html', title: 'rehablix · Format Result' },
+    docresult: { fragment: 'views/docresult.fragment.html', title: 'rehablix · Documentation Result' }
   };
 
   const fragmentCache = {};

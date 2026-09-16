@@ -1,6 +1,11 @@
 // js/sets.js – Settings page functionality
+// Registered as the "settings" SPA view (js/router.js calls mount() after
+// injecting views/settings.fragment.html into #appRoot).
 
-document.addEventListener('DOMContentLoaded', async () => {
+(function () {
+  let cleanupFns = [];
+
+  async function mount() {
   const auth = firebase.auth();
   const db = firebase.database();
   let currentUser = null;
@@ -870,39 +875,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
   
-  document.addEventListener('keydown', (e) => {
+  const onEscapeCloseConfirm = (e) => {
     if (e.key === 'Escape' && confirmModal?.classList.contains('show')) {
       closeConfirmModalHandler();
     }
-  });
+  };
+  document.addEventListener('keydown', onEscapeCloseConfirm);
+  cleanupFns.push(() => document.removeEventListener('keydown', onEscapeCloseConfirm));
 
-  // ==================== THEME TOGGLE (NAVBAR) ====================
-  const themeToggle = document.getElementById('themeToggle');
-  if (themeToggle) {
-    themeToggle.addEventListener('click', () => {
-      const html = document.documentElement;
-      const current = html.getAttribute('data-theme');
-      const newTheme = current === 'light' ? 'dark' : 'light';
-      applyTheme(newTheme);
-    });
-  }
+  // Theme toggle is shared shell chrome (js/theme.js wires #themeToggle
+  // globally in index.html) — no page-local listener needed here.
 
   // ==================== AUTH STATE LISTENER ====================
-  auth.onAuthStateChanged(async (user) => {
+  // onAuthStateChanged returns an unsubscribe function in the compat SDK —
+  // captured so unmount() can detach it before it outlives this view.
+  const unsubscribeAuth = auth.onAuthStateChanged(async (user) => {
     console.log('Auth state changed:', user ? `Logged in as ${user.email}` : 'Logged out');
-    
+
     if (!user) {
-      // Redirect to home if not logged in
-      window.location.href = 'index.html';
+      // Redirect to Lixa if not logged in
+      window.location.hash = '#/lixa';
       return;
     }
-    
+
     // Small delay to ensure Firebase is ready
     setTimeout(async () => {
       await loadUserData(user);
     }, 100);
   });
-  
+  cleanupFns.push(unsubscribeAuth);
+
   // ==================== DEBUG HELPER (Remove in production) ====================
   window.debugSettings = async function() {
     const user = auth.currentUser;
@@ -915,4 +917,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('Auth displayName:', user.displayName);
     console.log('Auth email:', user.email);
   };
-});
+  } // end mount()
+
+  function unmount() {
+    cleanupFns.forEach(fn => fn());
+    cleanupFns = [];
+  }
+
+  window.RehablixViews = window.RehablixViews || {};
+  window.RehablixViews.settings = { mount, unmount };
+})();

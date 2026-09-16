@@ -432,7 +432,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div style="font-weight:600;font-size:0.85rem;">${escapeHtml(doc.patientName)} — ${escapeHtml(doc.sessionType)}</div>
                     <div style="font-size:0.75rem;color:var(--text-secondary);">${escapeHtml(doc.date)}${doc.hasContent ? '' : ' · No notes yet'}</div>
                 </div>
-                <a href="docresult.html?id=${encodeURIComponent(doc.patientId)}&type=session&sessionId=${encodeURIComponent(doc.sessionId)}" target="_blank" class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.8rem;text-decoration:none;">
+                <a href="index.html?id=${encodeURIComponent(doc.patientId)}&type=session&sessionId=${encodeURIComponent(doc.sessionId)}#/docresult" target="_blank" class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.8rem;text-decoration:none;">
                     <i class="bx bx-edit"></i> Complete
                 </a>
             </div>
@@ -1031,7 +1031,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const indexed = summaries.map((s, i) => ({ ...s, _index: i }));
         const sorted = indexed.sort((a, b) => new Date(b.date) - new Date(a.date));
         container.innerHTML = sorted.map(summary => `
-            <a href="docresult.html?id=${currentPatientId}&type=summary&index=${summary._index}" target="_blank" style="text-decoration:none;color:inherit;display:block;">
+            <a href="index.html?id=${currentPatientId}&type=summary&index=${summary._index}#/docresult" target="_blank" style="text-decoration:none;color:inherit;display:block;">
                 <div class="summary-card">
                     <div class="summary-card-header">
                         <div>
@@ -1047,7 +1047,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     document.getElementById('addSummaryBtn')?.addEventListener('click', function() {
         if (!currentPatientId) { showToast('Open a patient first', 'warning'); return; }
-        window.open(`docresult.html?id=${currentPatientId}&type=summary&action=new`, '_blank');
+        window.open(`index.html?id=${currentPatientId}&type=summary&action=new#/docresult`, '_blank');
     });
 
     document.getElementById('generateSummaryBtn')?.addEventListener('click', async function() {
@@ -1368,7 +1368,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 <div class="session-card-x-body">
                     <div class="session-card-x-content">${bodyText ? escapeHtml(bodyText) : '<em>No notes recorded yet.</em>'}</div>
-                    <a href="docresult.html?id=${currentPatientId}&type=session&sessionId=${encodeURIComponent(session.id)}" target="_blank" class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.8rem;margin-top:0.6rem;display:inline-block;text-decoration:none;"><i class="bx bx-edit"></i> Open Full Editor</a>
+                    <a href="index.html?id=${currentPatientId}&type=session&sessionId=${encodeURIComponent(session.id)}#/docresult" target="_blank" class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.8rem;margin-top:0.6rem;display:inline-block;text-decoration:none;"><i class="bx bx-edit"></i> Open Full Editor</a>
                 </div>
             </div>`;
         }).join('');
@@ -1755,7 +1755,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     document.getElementById('addProgressBtn')?.addEventListener('click', function() {
         if (!currentPatientId) { showToast('Open a patient first', 'warning'); return; }
-        window.open(`docresult.html?id=${currentPatientId}&type=progress&action=new`, '_blank');
+        window.open(`index.html?id=${currentPatientId}&type=progress&action=new#/docresult`, '_blank');
     });
 
     async function saveProgressNotes(notes) {
@@ -1901,7 +1901,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         const sorted = [...summaries].sort((a, b) => new Date(b.date) - new Date(a.date));
         container.innerHTML = sorted.map((summary, index) => `
-            <a href="docresult.html?id=${currentPatientId}&type=discharge&index=${index}" target="_blank" style="text-decoration:none;color:inherit;display:block;">
+            <a href="index.html?id=${currentPatientId}&type=discharge&index=${index}#/docresult" target="_blank" style="text-decoration:none;color:inherit;display:block;">
                 <div class="report-item">
                     <div class="report-icon ri-amber"><i class="bx bx-file"></i></div>
                     <div>

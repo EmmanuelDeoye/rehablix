@@ -92,7 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (ctx.isCenterOwner && ctx.uid === center.centerUid) {
         renderWelcome(center.name, 'your center dashboard');
-        setTimeout(() => { window.location.href = 'settings.html'; }, 900);
+        setTimeout(() => { window.location.href = 'index.html#/settings'; }, 900);
         return;
       }
 

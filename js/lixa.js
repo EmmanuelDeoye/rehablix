@@ -540,11 +540,11 @@
         return;
       }
       const links = {
-        format: `formatresult.html?id=${id}`,
+        format: `index.html?id=${id}#/formatresult`,
         standardized: `index.html?openId=${id}#/standardized`,
-        presentation: `result.html?type=case&id=${id}`,
+        presentation: `index.html?type=case&id=${id}#/result`,
         audio: `index.html?openId=${id}#/audio`,
-        assignment: `result.html?type=answer&id=${id}`,
+        assignment: `index.html?type=answer&id=${id}#/result`,
         study: `index.html?subject=${id}#/study`
       };
       const href = links[type];

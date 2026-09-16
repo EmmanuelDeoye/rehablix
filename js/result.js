@@ -4,7 +4,15 @@
 // js/result-types.js via the ?type= URL parameter, so this file itself
 // never needs to change when a new generator is added.
 
-document.addEventListener('DOMContentLoaded', function () {
+// Registered as the "result" SPA view (js/router.js calls mount() after
+// injecting views/result.fragment.html into #appRoot). Deep links keep the
+// same ?type=&id= query params as before — they just now sit in front of
+// the #/result hash instead of on their own result.html page, so
+// window.location.search parses exactly as it always did.
+(function () {
+  let cleanupFns = [];
+
+  async function mount() {
   const urlParams = new URLSearchParams(window.location.search);
   const type = urlParams.get('type');
   const historyId = urlParams.get('id');
@@ -681,10 +689,20 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   // --- Auth & init ---------------------------------------------------------
-  firebase.auth().onAuthStateChanged(async (user) => {
+  const unsubscribeAuth = firebase.auth().onAuthStateChanged(async (user) => {
     currentUser = user;
     await loadResult();
   });
+  cleanupFns.push(unsubscribeAuth);
 
   updateWordAndCharCount();
-});
+  } // end mount()
+
+  function unmount() {
+    cleanupFns.forEach(fn => fn());
+    cleanupFns = [];
+  }
+
+  window.RehablixViews = window.RehablixViews || {};
+  window.RehablixViews.result = { mount, unmount };
+})();

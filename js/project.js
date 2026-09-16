@@ -280,7 +280,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function goToSubscription() {
-    window.location.href = 'sub.html';
+    window.location.href = 'index.html#/subscription';
   }
 
   // =========================================================================

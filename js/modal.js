@@ -496,13 +496,13 @@ function createAuthModal() {
     }
   });
 
-  // ---------- Redirect to settings.html when settings menu item is clicked ----------
+  // ---------- Redirect to index.html#/settings when settings menu item is clicked ----------
   const settingsMenuItem = document.getElementById('settingsMenuItem');
   if (settingsMenuItem) {
     settingsMenuItem.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      window.location.href = 'settings.html';
+      window.location.href = 'index.html#/settings';
     });
   }
 
@@ -510,7 +510,7 @@ function createAuthModal() {
   const goToSettingsBtn = document.getElementById('goToSettingsFromProfile');
   if (goToSettingsBtn) {
     goToSettingsBtn.addEventListener('click', () => {
-      window.location.href = 'settings.html';
+      window.location.href = 'index.html#/settings';
     });
   }
 

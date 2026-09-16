@@ -1,37 +1,15 @@
 // js/formatresult.js - Complete Assessment Result Page with Rich Text Editor
 // Enhanced version with public/private sharing toggle, fixed checkboxes, and Android input support
+// Registered as the "formatresult" SPA view (js/router.js calls mount() after
+// injecting views/formatresult.fragment.html into #appRoot). Theme toggling
+// is shared shell chrome (js/theme.js wires #themeToggle globally in
+// index.html) — this file used to run its own competing theme system here;
+// removed rather than ported, since it would double-toggle on every click.
 
-// Theme toggle
-(function() {
-  const themeToggle = document.getElementById('themeToggle');
-  const html = document.documentElement;
-  function setTheme(theme) {
-    if (theme === 'system') {
-      const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      html.setAttribute('data-theme', dark ? 'dark' : 'light');
-    } else {
-      html.setAttribute('data-theme', theme);
-    }
-  }
-  function initTheme() {
-    const stored = localStorage.getItem('rehab-theme');
-    setTheme(stored || 'system');
-  }
-  function cycleTheme() {
-    const current = html.getAttribute('data-theme');
-    let newTheme = 'light';
-    if (current === 'light') newTheme = 'dark';
-    else if (current === 'dark') newTheme = 'system';
-    else newTheme = 'light';
-    localStorage.setItem('rehab-theme', newTheme);
-    setTheme(newTheme);
-  }
-  if (themeToggle) themeToggle.addEventListener('click', cycleTheme);
-  initTheme();
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (localStorage.getItem('rehab-theme') === 'system') setTheme('system');
-  });
-})();
+(function () {
+  let cleanupFns = [];
+
+  async function mount() {
 
 // Toast notification function
 function showToast(message, isError = false, duration = 3000) {
@@ -658,10 +636,9 @@ function shareAssessment() {
 }
 
 // Initialize Firebase and load data
-document.addEventListener('DOMContentLoaded', async () => {
   // Check if Firebase is available
   if (typeof firebase !== 'undefined' && firebase.auth) {
-    firebase.auth().onAuthStateChanged(async (user) => {
+    const unsubscribeAuth = firebase.auth().onAuthStateChanged(async (user) => {
       currentUser = user;
       
       // Initialize editor after auth
@@ -698,16 +675,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
     });
+    cleanupFns.push(unsubscribeAuth);
   } else {
     console.error('Firebase not initialized');
     showToast('Firebase not available. Please check your connection.', true);
     // Still try to initialize editor
     await initEditor();
   }
-});
 
-// Event listeners (wait for DOM to load)
-document.addEventListener('DOMContentLoaded', () => {
+  // Event listeners
   // Copy button
   const copyBtn = document.getElementById('copyBtn');
   if (copyBtn) {
@@ -830,7 +806,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   
   // Keyboard shortcuts
-  document.addEventListener('keydown', (e) => {
+  const onFormatresultKeydown = (e) => {
     // Ctrl+S to save
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
@@ -854,8 +830,10 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       printAssessment();
     }
-  });
-  
+  };
+  document.addEventListener('keydown', onFormatresultKeydown);
+  cleanupFns.push(() => document.removeEventListener('keydown', onFormatresultKeydown));
+
   // Android input focus fix - ensure all inputs are focusable
   const allInputs = document.querySelectorAll('input, textarea, select, [contenteditable="true"]');
   allInputs.forEach(input => {
@@ -864,6 +842,15 @@ document.addEventListener('DOMContentLoaded', () => {
       this.focus();
     });
   });
-});
+  } // end mount()
+
+  function unmount() {
+    cleanupFns.forEach(fn => fn());
+    cleanupFns = [];
+  }
+
+  window.RehablixViews = window.RehablixViews || {};
+  window.RehablixViews.formatresult = { mount, unmount };
+})();
 
 console.log('formatresult.js loaded with rich text editor support, public/private sharing, and mobile fixes');
