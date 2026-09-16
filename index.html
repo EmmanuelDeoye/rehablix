@@ -1,4 +1,6 @@
-<!-- index.html — Lixa: the rehablix conversational copilot (default home page) -->
+<!-- index.html — rehablix SPA shell. Routes (js/router.js) swap #appRoot's
+     content between views/*.fragment.html; Smart EMR, Project Maker, and
+     the pptx export page remain real standalone pages linked normally. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -20,22 +22,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5, user-scalable=yes">
 
-  <!-- ============ PRIMARY SEO ============ -->
-  <title>rehablix | Lixa — AI Clinical Copilot for Physiotherapists, OTs &amp; Rehab Students</title>
-  <meta name="description" content="Lixa is rehablix's AI clinical copilot: chat to generate assessment formats, standardized tools, transcripts, presentations, assignments, and study material — all in one conversation.">
+  <!-- ============ PRIMARY SEO (js/router.js updates the title per route) ============ -->
+  <title>rehablix | AI Clinical Copilot for Physiotherapists, OTs &amp; Rehab Students</title>
+  <meta name="description" content="rehablix: chat with Lixa to generate assessment formats, standardized tools, transcripts, presentations, assignments, and study material — plus Smart EMR, Motion & Gait analysis, and more, all in one app.">
   <meta name="keywords" content="rehabilitation AI tools, physiotherapy software, AI clinical copilot, occupational therapy tools, standardized assessment generator, MMSE, Berg Balance Scale">
   <meta name="author" content="rehablix">
   <meta name="robots" content="index, follow, max-image-preview:large">
   <link rel="canonical" href="https://rehablix.com/">
-
-  <!-- ============ OPEN GRAPH / FACEBOOK ============ -->
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://rehablix.com/">
-  <meta property="og:site_name" content="rehablix">
-  <meta property="og:title" content="rehablix | Lixa — AI Clinical Copilot">
-  <meta property="og:description" content="Chat with Lixa to generate assessment formats, standardized tools, transcripts, presentations, assignments, and study material.">
-  <meta property="og:image" content="https://rehablix.com/assets/img/logo.png">
-  <meta property="og:locale" content="en_US">
 
   <!-- ============ PWA / THEME ============ -->
   <meta name="theme-color" content="#0f172a">
@@ -54,149 +47,98 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js" defer></script>
   <!-- Marked for rendering AI responses -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
+  <!-- docx for Word export (Presentation view) -->
+  <script src="https://unpkg.com/docx@7.8.2/build/index.js" defer></script>
+  <!-- html2pdf for PDF export (Presentation view) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
   <!-- File-reading helpers for attachments (loaded on demand, listed here for caching) -->
-  <link rel="preload" as="script" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js">
-  <link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js">
   <link rel="preload" as="script" href="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js">
-  <link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js">
+  <!-- Loaded directly (not lazily) since the Study view's file-import code expects these globals already present -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
   <!-- Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
-  <!-- Styles -->
+
+  <!-- Payment Gateway SDKs (used by the Workspace view's subscription card) -->
+  <script src="https://js.paystack.co/v1/inline.js" defer></script>
+  <script src="https://checkout.flutterwave.com/v3.js" defer></script>
+
+  <!-- ============ Styles — every view's CSS loads upfront, once ============ -->
   <link rel="stylesheet" href="css/main.css">
   <link rel="stylesheet" href="css/auth.css">
-  <link rel="stylesheet" href="css/ask.css">
   <link rel="stylesheet" href="css/invite-modal.css">
+  <link rel="stylesheet" href="css/error-reporter.css">
   <link rel="stylesheet" href="css/bottom-nav.css">
+  <link rel="stylesheet" href="css/ask.css">
   <link rel="stylesheet" href="css/lixa.css">
+  <link rel="stylesheet" href="css/workspace.css">
+  <link rel="stylesheet" href="css/format.css">
+  <link rel="stylesheet" href="css/standardized.css">
+  <link rel="stylesheet" href="css/audio.css">
+  <link rel="stylesheet" href="css/presentation.css">
+  <link rel="stylesheet" href="css/ppt.css">
+  <link rel="stylesheet" href="css/study.css">
+  <link rel="stylesheet" href="css/assign.css">
+  <link rel="stylesheet" href="css/exam.css">
+  <link rel="stylesheet" href="css/rom.css">
+  <link rel="stylesheet" href="css/gait.css">
+  <link rel="stylesheet" href="css/motion-merge.css">
+  <link rel="stylesheet" href="css/motion-view.css">
+
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/service-worker.js');
     }
   </script>
 </head>
-<body data-page="lixa">
+<body>
   <nav class="navbar">
     <div class="nav-container">
       <div class="nav-left">
         <div class="logo-text">
-          <span class="logo-lop">Lixa</span>
-          <span class="logo-full">your rehablix copilot</span>
+          <span class="logo-lop">rehablix</span>
+          <span class="logo-full">AI clinical copilot</span>
         </div>
       </div>
-      <div class="nav-right">
-        <button class="icon-btn history-nav-btn" id="historyNavBtn" aria-label="History" style="display:none;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path d="M12 8V12L15 15M12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12C21 16.9706 16.9706 21 12 21Z" stroke="currentColor" fill="none"/>
-          </svg>
-        </button>
+      <div class="nav-right" id="navRight">
+        <!-- Each view relocates its own route-specific controls (history
+             button, workspace switcher, Motion's analysis-type dropdown)
+             into this slot on mount, and js/router.js clears it before
+             every navigation. -->
+        <div id="navbarViewSlot"></div>
         <button class="icon-btn theme-toggle" id="themeToggle" aria-label="theme mode">
           <svg class="sun-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.79"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
           </svg>
           <svg class="moon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
           </svg>
         </button>
-        <!-- Auth elements will be injected by auth.js -->
+        <!-- Auth elements injected by js/auth.js -->
       </div>
     </div>
   </nav>
 
-  <main class="ask-main">
-    <div class="ask-container">
-      <div class="chat-messages" id="chatMessages">
-        <div class="empty-chat">
-          <div class="empty-chat-icon">✨</div>
-          <p>Hi, I'm Lixa. Ask me anything, or tell me what to build — an assessment format, a standardized tool, a transcript, a presentation, a study set, or an assignment.</p>
-          <p class="empty-chat-hint">Type <strong>@</strong> to jump straight to a tool, or just describe what you need.</p>
-        </div>
-      </div>
+  <div id="appRoot"><!-- js/router.js injects the active view's fragment here --></div>
 
-      <div class="chat-input-area">
-        <div class="attachments-strip" id="attachmentsStrip" hidden></div>
-        <div id="lixaToolBanner" class="lixa-tool-banner" hidden></div>
-        <div class="composer-wrap">
-          <div class="attach-menu" id="attachMenu" hidden>
-            <button type="button" data-mode="camera"><i class="fas fa-camera"></i> Camera</button>
-            <button type="button" data-mode="photos"><i class="fas fa-image"></i> Photos</button>
-            <button type="button" data-mode="videos"><i class="fas fa-video"></i> Videos</button>
-            <button type="button" data-mode="files"><i class="fas fa-folder-open"></i> Files</button>
-          </div>
-          <div class="mention-popup" id="mentionPopup" hidden></div>
-          <div class="composer">
-            <input type="file" id="fileInput" hidden multiple
-                   accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip,.csv,.md">
-            <textarea id="messageInput" rows="1" placeholder="Ask Lixa anything, or type @ for a tool..." aria-label="Message"></textarea>
-            <div class="composer-controls">
-              <button id="attachBtn" class="plus-btn" aria-label="Add" title="Add">
-                <i class="fas fa-plus"></i>
-              </button>
-              <div class="composer-controls-right">
-                <button id="micBtn" class="icon-round-btn" aria-label="Voice input" title="Voice input">
-                  <i class="fas fa-microphone"></i>
-                </button>
-                <button id="sendBtn" aria-label="Send message"><i class="fas fa-paper-plane"></i></button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <p class="input-hint" id="inputHint" style="display:none">Shift+Enter for a new line · Enter to send</p>
-      </div>
-    </div>
-  </main>
-
-  <!-- History Drawer: Chats / Files -->
-  <aside class="history-drawer" id="historyDrawer">
-    <div class="drawer-header">
-      <h3><i class='bx bx-time-five'></i> History</h3>
-      <button id="closeDrawerBtn" class="drawer-close-btn"><i class='bx bx-x'></i></button>
-    </div>
-    <div class="drawer-switch" id="drawerSwitch">
-      <button type="button" class="drawer-switch-btn active" data-view="chats">Chats</button>
-      <button type="button" class="drawer-switch-btn" data-view="files">Files</button>
-    </div>
-    <div class="drawer-actions" id="chatsView">
-      <button id="newChatBtn" class="new-chat-btn"><i class="fas fa-plus"></i> New Chat</button>
-    </div>
-    <div class="history-search" id="chatsSearchWrap">
-      <i class="fas fa-search"></i>
-      <input type="text" id="historySearchInput" placeholder="Search conversations...">
-    </div>
-    <div class="history-content" id="historyList">
-      <div class="empty-state">
-        <i class='bx bx-folder-open'></i>
-        <p>No conversations yet</p>
-      </div>
-    </div>
-
-    <div class="history-search" id="filesSearchWrap" hidden>
-      <i class="fas fa-search"></i>
-      <input type="text" id="filesSearchInput" placeholder="Search files...">
-    </div>
-    <div class="file-filter-chips" id="fileFilterChips" hidden></div>
-    <div class="history-content" id="filesList" hidden>
-      <div class="empty-state">
-        <i class='bx bx-file-blank'></i>
-        <p>No files yet</p>
-      </div>
-    </div>
-  </aside>
-
-  <!-- Toast Container -->
+  <!-- Toast Container (shared across every view) -->
   <div id="toast-container"></div>
 
   <!-- Scripts -->
   <script src="js/config.js" defer></script>
-  <link rel="stylesheet" href="css/error-reporter.css">
   <script src="js/error-reporter.js" defer></script>
   <script src="js/modal.js" defer></script>
   <script src="js/center.js" defer></script>
   <script src="js/invite-modal.js" defer></script>
   <script src="js/auth.js" defer></script>
   <script src="js/theme.js" defer></script>
-  <script src="js/tools.js" defer></script>
+  <script src="js/plan.js" defer></script>
   <script src="js/handoff.js" defer></script>
+
+  <!-- Lixa chat core + tool generators -->
   <script src="js/lixa-generators/format-gen.js" defer></script>
   <script src="js/lixa-generators/standardized-gen.js" defer></script>
   <script src="js/lixa-generators/audio-gen.js" defer></script>
@@ -205,6 +147,24 @@
   <script src="js/lixa-generators/assign-gen.js" defer></script>
   <script src="js/ask.js" defer></script>
   <script src="js/lixa.js" defer></script>
+
+  <!-- Workspace view -->
+  <script src="js/workspace.js" defer></script>
+
+  <!-- Standalone tool views -->
+  <script src="js/format.js" defer></script>
+  <script src="js/standardized.js" defer></script>
+  <script src="js/audio.js" defer></script>
+  <script src="js/presentation.js" defer></script>
+  <script src="js/study.js" defer></script>
+  <script src="js/assign.js" defer></script>
+  <script src="js/exam.js" defer></script>
+  <script src="js/views/motion-core.js" defer></script>
+  <script src="js/views/motion-view.js" defer></script>
+
+  <!-- Shell chrome + router (router boots last, after every view has registered) -->
+  <script src="js/tools.js" defer></script>
   <script src="js/bottom-nav.js" defer></script>
+  <script src="js/router.js" defer></script>
 </body>
 </html>
