@@ -1,0 +1,147 @@
+<main class="result-main">
+  <div class="result-container">
+    <!-- Header with metadata (populated dynamically per result type) -->
+    <div class="result-header">
+      <div class="result-header-content">
+        <h1 id="resultTitle">Loading result…</h1>
+        <div class="result-metadata" id="resultMetadata">
+          <!-- metadata-item entries injected by js/result.js -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Action Buttons Bar -->
+    <div class="action-bar">
+      <div class="action-bar-wrapper">
+        <div class="action-group">
+          <button class="action-btn" id="shareBtn" title="Share">
+            <i class="fas fa-share-alt"></i> <span>Share</span>
+          </button>
+          <button class="action-btn" id="copyBtn" title="Copy to Clipboard">
+            <i class="fas fa-copy"></i> <span>Copy</span>
+          </button>
+          <button class="action-btn" id="downloadBtn" title="Download as Word">
+            <i class="fas fa-download"></i> <span>Word</span>
+          </button>
+          <button class="action-btn" id="pdfBtn" title="Save as PDF">
+            <i class="fas fa-file-pdf"></i> <span>PDF</span>
+          </button>
+          <button class="action-btn" id="printBtn" title="Print">
+            <i class="fas fa-print"></i> <span>Print</span>
+          </button>
+          <button class="action-btn" id="pptExportBtn" title="Export to PowerPoint" style="display:none;">
+            <i class="fas fa-file-powerpoint"></i> <span>PowerPoint</span>
+          </button>
+        </div>
+        <div class="action-group">
+          <button class="action-btn" id="saveEditBtn" title="Save Changes">
+            <i class="fas fa-save"></i> <span>Save</span>
+          </button>
+          <button class="action-btn" id="closeResultBtn" title="Close Editor">
+            <i class="fas fa-times"></i> <span>Close</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Owner-only public toggle -->
+      <div id="publicToggleContainer" style="display: none;" class="public-toggle no-print">
+        <label class="switch-label">
+          <span>🔓 Make public</span>
+          <div class="switch">
+            <input type="checkbox" id="publicToggle">
+            <span class="slider round"></span>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- Formatting Toolbar -->
+    <div class="formatting-toolbar">
+      <div class="format-group">
+        <button class="format-btn" data-command="bold" title="Bold (Ctrl+B)"><i class="fas fa-bold"></i></button>
+        <button class="format-btn" data-command="italic" title="Italic (Ctrl+I)"><i class="fas fa-italic"></i></button>
+        <button class="format-btn" data-command="underline" title="Underline (Ctrl+U)"><i class="fas fa-underline"></i></button>
+        <button class="format-btn" data-command="strikeThrough" title="Strikethrough"><i class="fas fa-strikethrough"></i></button>
+        <span class="divider"></span>
+        <button class="format-btn" data-command="justifyLeft" title="Align Left"><i class="fas fa-align-left"></i></button>
+        <button class="format-btn" data-command="justifyCenter" title="Align Center"><i class="fas fa-align-center"></i></button>
+        <button class="format-btn" data-command="justifyRight" title="Align Right"><i class="fas fa-align-right"></i></button>
+        <button class="format-btn" data-command="justifyFull" title="Justify"><i class="fas fa-align-justify"></i></button>
+      </div>
+      <div class="format-group">
+        <select class="format-select" id="fontFamilySelect" title="Font Family">
+          <option value="Arial">Arial</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Times New Roman">Times New Roman</option>
+          <option value="Courier New">Courier New</option>
+          <option value="Verdana">Verdana</option>
+        </select>
+        <select class="format-select" id="fontSizeSelect" title="Font Size">
+          <option value="1">8pt</option>
+          <option value="2">10pt</option>
+          <option value="3" selected>12pt</option>
+          <option value="4">14pt</option>
+          <option value="5">18pt</option>
+          <option value="6">24pt</option>
+          <option value="7">36pt</option>
+        </select>
+      </div>
+      <div class="format-group">
+        <button class="format-btn" data-command="insertUnorderedList" title="Bullet List"><i class="fas fa-list-ul"></i></button>
+        <button class="format-btn" data-command="insertOrderedList" title="Numbered List"><i class="fas fa-list-ol"></i></button>
+        <span class="divider"></span>
+        <button class="format-btn" data-command="indent" title="Increase Indent"><i class="fas fa-indent"></i></button>
+        <button class="format-btn" data-command="outdent" title="Decrease Indent"><i class="fas fa-outdent"></i></button>
+      </div>
+      <div class="format-group">
+        <button class="format-btn" data-command="createLink" title="Insert Link"><i class="fas fa-link"></i></button>
+        <button class="format-btn" data-command="unlink" title="Remove Link"><i class="fas fa-unlink"></i></button>
+        <span class="divider"></span>
+        <button class="format-btn" data-command="removeFormat" title="Clear Formatting"><i class="fas fa-eraser"></i></button>
+        <button class="format-btn" data-command="undo" title="Undo (Ctrl+Z)"><i class="fas fa-undo"></i></button>
+        <button class="format-btn" data-command="redo" title="Redo (Ctrl+Y)"><i class="fas fa-redo"></i></button>
+      </div>
+    </div>
+
+    <!-- Editable content area -->
+    <div class="editor-wrapper">
+      <div id="editorContent" class="editor-content" contenteditable="true"></div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+      <div class="status-left">
+        <span id="wordCount">0 words</span>
+        <span class="separator">|</span>
+        <span id="charCount">0 characters</span>
+      </div>
+      <div class="status-right">
+        <span id="saveStatus">Saved</span>
+        <span class="separator">|</span>
+        <span id="editMode">Editing Mode</span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Share Modal -->
+<div id="shareModal" class="modal">
+  <div class="modal-content glass share-modal-content">
+    <div class="modal-header">
+      <h3><i class="fas fa-share-alt"></i> Share</h3>
+      <button class="modal-close share-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p>Share this with your team:</p>
+      <div class="share-link-container">
+        <input type="text" id="shareLink" readonly>
+        <button id="copyLinkBtn" class="btn-secondary">Copy Link</button>
+      </div>
+      <div class="share-options">
+        <button id="shareEmailBtn" class="share-option"><i class="fas fa-envelope"></i> Email</button>
+        <button id="shareWhatsAppBtn" class="share-option"><i class="fab fa-whatsapp"></i> WhatsApp</button>
+        <button id="shareTwitterBtn" class="share-option"><i class="fab fa-twitter"></i> Twitter</button>
+      </div>
+    </div>
+  </div>
+</div>

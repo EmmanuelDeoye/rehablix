@@ -1,4 +1,11 @@
-<!-- Relocated into #navbarViewSlot by js/ask.js's mount() -->
+<!-- Relocated into #navbarViewSlot by js/ask.js's mount(), in this order:
+     new-chat plus icon, then history icon — "just before the history icon". -->
+<button class="icon-btn new-chat-nav-btn" id="newChatNavBtn" aria-label="New chat" title="New chat" style="display:none;">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="12" y1="5" x2="12" y2="19"></line>
+    <line x1="5" y1="12" x2="19" y2="12"></line>
+  </svg>
+</button>
 <button class="icon-btn history-nav-btn" id="historyNavBtn" aria-label="History" style="display:none;">
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
     <path d="M12 8V12L15 15M12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12C21 16.9706 16.9706 21 12 21Z" stroke="currentColor" fill="none"/>
@@ -26,6 +33,7 @@
           <button type="button" data-mode="files"><i class="fas fa-folder-open"></i> Files</button>
         </div>
         <div class="mention-popup" id="mentionPopup" hidden></div>
+        <div class="model-picker-popup" id="modelPickerPopup" hidden></div>
         <div class="composer">
           <input type="file" id="fileInput" hidden multiple
                  accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip,.csv,.md">
@@ -33,6 +41,11 @@
           <div class="composer-controls">
             <button id="attachBtn" class="plus-btn" aria-label="Add" title="Add">
               <i class="fas fa-plus"></i>
+            </button>
+            <button id="modelPickerBtn" class="model-picker-btn" aria-label="Choose AI model" title="Choose AI model">
+              <i class="fas fa-microchip"></i>
+              <span id="modelPickerLabel">Corpus 101</span>
+              <i class="fas fa-chevron-down model-picker-caret"></i>
             </button>
             <div class="composer-controls-right">
               <button id="micBtn" class="icon-round-btn" aria-label="Voice input" title="Voice input">
@@ -48,24 +61,28 @@
   </div>
 </main>
 
-<!-- History Drawer: Chats / Files -->
+<!-- History Drawer: Chats / Files (single toggle, Project-Maker-resources style) -->
 <aside class="history-drawer" id="historyDrawer">
   <div class="drawer-header">
     <h3><i class='bx bx-time-five'></i> History</h3>
-    <button id="closeDrawerBtn" class="drawer-close-btn"><i class='bx bx-x'></i></button>
+    <div class="drawer-header-actions">
+      <button id="filesToggleBtn" class="drawer-header-icon-btn" aria-label="Show files" title="Files" aria-pressed="false">
+        <i class="fas fa-folder"></i>
+      </button>
+      <button id="closeDrawerBtn" class="drawer-close-btn"><i class='bx bx-x'></i></button>
+    </div>
   </div>
-  <div class="drawer-switch" id="drawerSwitch">
-    <button type="button" class="drawer-switch-btn active" data-view="chats">Chats</button>
-    <button type="button" class="drawer-switch-btn" data-view="files">Files</button>
-  </div>
-  <div class="drawer-actions" id="chatsView">
-    <button id="newChatBtn" class="new-chat-btn"><i class="fas fa-plus"></i> New Chat</button>
-  </div>
+
   <div class="history-search" id="chatsSearchWrap">
     <i class="fas fa-search"></i>
     <input type="text" id="historySearchInput" placeholder="Search conversations...">
   </div>
   <div class="history-content" id="historyList">
+    <div class="drawer-loading" id="historyLoading" hidden>
+      <div class="drawer-skeleton"></div>
+      <div class="drawer-skeleton"></div>
+      <div class="drawer-skeleton"></div>
+    </div>
     <div class="empty-state">
       <i class='bx bx-folder-open'></i>
       <p>No conversations yet</p>
@@ -76,8 +93,15 @@
     <i class="fas fa-search"></i>
     <input type="text" id="filesSearchInput" placeholder="Search files...">
   </div>
-  <div class="file-filter-chips" id="fileFilterChips" hidden></div>
+  <select class="file-filter-select" id="fileFilterSelect" hidden>
+    <option value="all">All files</option>
+  </select>
   <div class="history-content" id="filesList" hidden>
+    <div class="drawer-loading" id="filesLoading" hidden>
+      <div class="drawer-skeleton"></div>
+      <div class="drawer-skeleton"></div>
+      <div class="drawer-skeleton"></div>
+    </div>
     <div class="empty-state">
       <i class='bx bx-file-blank'></i>
       <p>No files yet</p>
