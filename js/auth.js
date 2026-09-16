@@ -375,8 +375,10 @@ function initializeAuth() {
         currentData.count = (currentData.count || 0) + 1;
         currentData.lastVisit = timestamp;
         
-        // Track page visits
-        const page = window.location.pathname;
+        // Track page visits (SPA routes live in the hash, e.g. #/lixa — pathname
+        // is always /index.html now; Firebase keys also can't contain ".", "#", "$", "/", "[", "]")
+        const page = (document.body.dataset.route || window.location.hash.replace(/^#\/?/, '') || 'home')
+          .replace(/[.#$/\[\]]/g, '_') || 'home';
         if (!currentData.pages) currentData.pages = {};
         if (!currentData.pages[page]) {
           currentData.pages[page] = 0;

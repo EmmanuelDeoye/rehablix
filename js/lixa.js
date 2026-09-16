@@ -26,28 +26,33 @@
     { type: 'study', label: 'Study Sets', path: 'study/sets', icon: '🧠' }
   ];
 
-  // NOTE: for a deferred script, document.readyState is already
-  // "interactive" (not "loading") by the time this file executes — per
-  // spec, deferred scripts run *after* readyState flips to "interactive"
-  // but *before* DOMContentLoaded fires. So checking for "loading" here
-  // would (incorrectly) run `fn` immediately, before ask.js's own
-  // DOMContentLoaded handler has had a chance to set window.LixaCore.
-  // Only "complete" means DOMContentLoaded has already fired.
-  function ready(fn) {
-    if (document.readyState === 'complete') fn();
-    else document.addEventListener('DOMContentLoaded', fn);
-  }
+  // Registered as (the rest of) the "lixa" SPA view — js/router.js calls
+  // mount()/unmount() around views/lixa.fragment.html. ask.js owns the
+  // chat-core mount/unmount (exposed as window.RehablixAskView) and this
+  // file's mount() calls it first so window.LixaCore exists before init()
+  // wires up the @mention/intent-routing layer on top of it.
+  let cleanupFns = [];
 
-  ready(() => {
+  function mount() {
+    if (window.RehablixAskView) window.RehablixAskView.mount();
     try {
       init();
     } catch (err) {
       console.error('[lixa] init failed:', err);
     }
-  });
+  }
+
+  function unmount() {
+    if (window.RehablixAskView) window.RehablixAskView.unmount();
+    cleanupFns.forEach(fn => { try { fn(); } catch (e) { /* best-effort */ } });
+    cleanupFns = [];
+  }
+
+  window.RehablixViews = window.RehablixViews || {};
+  window.RehablixViews.lixa = { mount, unmount };
 
   function init() {
-    if (!window.LixaCore) return; // not the Lixa page
+    if (!window.LixaCore) return; // ask.js's mount() didn't run — bail defensively
     const core = window.LixaCore;
 
     const messageInput = document.getElementById('messageInput');
@@ -116,15 +121,18 @@
       else mentionPopup.hidden = true;
     });
 
-    document.addEventListener('click', (e) => {
+    const onDocClickCloseMention = (e) => {
       if (!mentionPopup.hidden && !mentionPopup.contains(e.target) && e.target !== messageInput) {
         mentionPopup.hidden = true;
       }
-    });
-
-    document.addEventListener('keydown', (e) => {
+    };
+    const onDocKeydownCloseMention = (e) => {
       if (e.key === 'Escape' && !mentionPopup.hidden) mentionPopup.hidden = true;
-    });
+    };
+    document.addEventListener('click', onDocClickCloseMention);
+    document.addEventListener('keydown', onDocKeydownCloseMention);
+    cleanupFns.push(() => document.removeEventListener('click', onDocClickCloseMention));
+    cleanupFns.push(() => document.removeEventListener('keydown', onDocKeydownCloseMention));
 
     // =====================================================================
     // Active-tool banner (shown while a tool flow is in progress)
@@ -172,15 +180,37 @@
     }
 
     let statusEl = null;
-    function showStatus(text) {
+    let statusCycleInterval = null;
+
+    // Shows a status bubble that, when given more than one stage, cycles
+    // through them over time — a single static "Generating…" line for a
+    // 10-20s AI call reads as frozen/broken; a progression reads as alive.
+    function showStatus(stages) {
       hideStatus();
+      const list = Array.isArray(stages) ? stages : [stages];
+      let i = 0;
       statusEl = document.createElement('div');
       statusEl.className = 'message assistant';
-      statusEl.innerHTML = `<div class="lixa-status-bubble"><span class="lixa-status-spinner"></span><span>${core.escapeHtml(text)}</span></div>`;
+      statusEl.innerHTML = `<div class="lixa-status-bubble"><span class="lixa-status-spinner"></span><span class="lixa-status-text">${core.escapeHtml(list[0])}</span></div>`;
       chatMessages.appendChild(statusEl);
       core.scrollToBottom();
+      if (list.length > 1) {
+        statusCycleInterval = setInterval(() => {
+          i = Math.min(i + 1, list.length - 1);
+          const textEl = statusEl && statusEl.querySelector('.lixa-status-text');
+          if (textEl) {
+            textEl.classList.remove('lixa-status-text-in');
+            textEl.textContent = list[i];
+            // restart the fade-in animation
+            void textEl.offsetWidth;
+            textEl.classList.add('lixa-status-text-in');
+          }
+          if (i >= list.length - 1) { clearInterval(statusCycleInterval); statusCycleInterval = null; }
+        }, 2400);
+      }
     }
     function hideStatus() {
+      if (statusCycleInterval) { clearInterval(statusCycleInterval); statusCycleInterval = null; }
       if (statusEl) { statusEl.remove(); statusEl = null; }
     }
 
@@ -195,6 +225,10 @@
         (tool.meta.keywords || []).forEach(kw => {
           if (lower.includes(kw)) score += 1;
         });
+        // A regex pattern is a stronger, more general signal than any single
+        // keyword phrase (catches e.g. "generate the Oswestry Disability
+        // Index" without needing every possible scale name enumerated).
+        if (tool.meta.pattern && tool.meta.pattern.test(text || '')) score += 2;
         if (tool.meta.id === 'audio' && attachedFiles && attachedFiles.some(a => a.type && a.type.startsWith('audio/'))) {
           score += 5;
         }
@@ -279,10 +313,13 @@
       return true;
     }
 
+    const GENERIC_STAGES = ['Reading your request…', 'Working with the AI model…', 'Structuring the result…', 'Almost done…'];
+
     async function runGeneration(toolId, data) {
       const tool = TOOLS[toolId];
       hideBanner();
-      showStatus(`Generating your ${tool.meta.name.toLowerCase()}…`);
+      const stages = (tool.meta.statusStages && tool.meta.statusStages.length) ? tool.meta.statusStages : GENERIC_STAGES;
+      showStatus(stages);
       core.setWaiting(true);
       try {
         const result = await tool.generate(data);
@@ -504,8 +541,11 @@
       }
       const links = {
         format: `formatresult.html?id=${id}`,
+        standardized: `index.html?openId=${id}#/standardized`,
         presentation: `result.html?type=case&id=${id}`,
-        assignment: `result.html?type=answer&id=${id}`
+        audio: `index.html?openId=${id}#/audio`,
+        assignment: `result.html?type=answer&id=${id}`,
+        study: `index.html?subject=${id}#/study`
       };
       const href = links[type];
       if (href) window.open(href, '_blank');

@@ -1,7 +1,10 @@
 // js/format.js - Complete Assessment Format Generator with Subscription Check
-// Updated with modal popup and plan-based history saving
+// Registered as the "format" SPA view (js/router.js calls mount()/unmount()
+// around views/format.fragment.html).
 
-// Global variables
+(function () {
+// Module-level state persists across mounts (fine — none of it references
+// fragment DOM, only plain values/localStorage).
 let githubToken = '';
 let apiEndpoint = '';
 let currentUser = null;
@@ -70,17 +73,75 @@ document.addEventListener('planUpdated', (e) => {
   currentPlan = e.detail?.plan || 'free';
 });
 
-document.addEventListener('DOMContentLoaded', async function() {
-  console.log('Format.js loaded with subscription integration');
-  
+// ===== Diagnosis picker (referenced by inline onchange= attributes in the
+// fragment, so must live on window — inline handler attributes only see
+// the global scope) =====
+const diagnosisMap = {
+  neurological: [
+    'Stroke / CVA (Cerebrovascular Accident)', 'Traumatic Brain Injury (TBI)', 'Spinal Cord Injury',
+    'Multiple Sclerosis', 'Parkinson\'s Disease', 'Guillain-Barré Syndrome', 'Cerebral Palsy',
+    'Peripheral Neuropathy', 'Epilepsy / Seizure Disorder', 'Hydrocephalus'
+  ],
+  orthopaedic: [
+    'Fracture (Upper Limb)', 'Fracture (Lower Limb)', 'Total Hip Replacement', 'Total Knee Replacement',
+    'Rotator Cuff Tear', 'Lumbar Disc Herniation', 'Cervical Spondylosis', 'Tendon Repair (Hand)',
+    'Amputation', 'Osteoarthritis'
+  ],
+  paediatric: [
+    'Autism Spectrum Disorder (ASD)', 'Developmental Delay', 'Down Syndrome',
+    'Attention Deficit Hyperactivity Disorder (ADHD)', 'Sensory Processing Disorder', 'Intellectual Disability',
+    'Cerebral Palsy (Paediatric)', 'Dyspraxia / DCD', 'Cleft Palate (Post-surgical)', 'Spina Bifida'
+  ],
+  psychiatric: [
+    'Major Depressive Disorder', 'Schizophrenia', 'Bipolar Disorder', 'Anxiety Disorder',
+    'Post-Traumatic Stress Disorder (PTSD)', 'Substance Use Disorder', 'Borderline Personality Disorder',
+    'Obsessive-Compulsive Disorder (OCD)', 'Eating Disorder', 'First Episode Psychosis'
+  ],
+  cardiopulmonary: [
+    'Chronic Obstructive Pulmonary Disease (COPD)', 'Heart Failure (Cardiac Rehabilitation)',
+    'Post-COVID Syndrome (Long COVID)', 'Pulmonary Fibrosis', 'Post-Cardiac Surgery', 'Asthma'
+  ],
+  geriatric: [
+    'Dementia / Alzheimer\'s Disease', 'Hip Fracture (Elderly)', 'Falls & Balance Disorder',
+    'Frailty Syndrome', 'Deconditioning / Prolonged Bed Rest', 'Osteoporosis with Fracture'
+  ]
+};
+
+window.updateDiagnosisList = function () {
+  const cat = document.getElementById('diagnosisCategory').value;
+  const pickerGroup = document.getElementById('diagnosisPickerGroup');
+  const picker = document.getElementById('diagnosisPicker');
+  if (!cat || cat === 'other') { pickerGroup.style.display = 'none'; return; }
+  const list = diagnosisMap[cat] || [];
+  picker.innerHTML = '<option value="">Pick a diagnosis...</option>';
+  list.forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d; opt.textContent = d;
+    picker.appendChild(opt);
+  });
+  pickerGroup.style.display = 'block';
+};
+
+window.applyDiagnosisPicker = function () {
+  const val = document.getElementById('diagnosisPicker').value;
+  if (val) document.getElementById('patientDiagnosis').value = val;
+};
+
+let cleanupFns = [];
+
+async function mount() {
+  console.log('Format view mounted');
+
   // DOM elements - Form
   const form = document.getElementById('assessmentForm');
   const generateBtn = document.getElementById('generateBtn');
   const clearBtn = document.getElementById('clearBtn');
   const toast = document.getElementById('toast');
-  
+
   // DOM elements - History Drawer
   const historyNavBtn = document.getElementById('historyNavBtn');
+  const navbarSlot = document.getElementById('navbarViewSlot');
+  if (navbarSlot && historyNavBtn) navbarSlot.appendChild(historyNavBtn);
   const historyDrawer = document.getElementById('historyDrawer');
   const closeDrawer = document.getElementById('closeDrawer');
   const historyList = document.getElementById('historyList');
@@ -88,13 +149,13 @@ document.addEventListener('DOMContentLoaded', async function() {
   const clearHistoryBtn = document.getElementById('clearHistoryBtn');
   const totalCountSpan = document.getElementById('totalCount');
   const latestDateSpan = document.getElementById('latestDate');
-  
+
   // DOM elements - Download Modal
   const downloadModal = document.getElementById('downloadModal');
   const downloadWordOption = document.getElementById('downloadWordOption');
   const downloadPdfOption = document.getElementById('downloadPdfOption');
   const cancelDownload = document.getElementById('cancelDownload');
-  
+
   // DOM elements - Delete Confirmation
   const deleteConfirmModal = document.getElementById('deleteConfirmModal');
   const cancelDeleteBtn = document.getElementById('cancelDeleteBtn');
@@ -102,24 +163,10 @@ document.addEventListener('DOMContentLoaded', async function() {
   let itemToDelete = null;
 
   // ===== LOCALSTORAGE PERSISTENCE FUNCTIONS =====
-  
-  // Form field IDs to persist (extended with new fields)
   const formFields = [
-    'patientName',
-    'patientAge',
-    'patientGender',
-    'referralSource',
-    'clinicalSetting',
-    'diagnosisCategory',
-    'patientDiagnosis',
-    'precautions',
-    'functionalGoals',
-    'assessmentType',
-    'categorySelect',
-    'deptSelect',
-    'pageCount',
-    'clinicalNotes',
-    'includeStandardSections'
+    'patientName', 'patientAge', 'patientGender', 'referralSource', 'clinicalSetting',
+    'diagnosisCategory', 'patientDiagnosis', 'precautions', 'functionalGoals',
+    'assessmentType', 'categorySelect', 'deptSelect', 'pageCount', 'clinicalNotes', 'includeStandardSections'
   ];
 
   function loadFormFromStorage() {
@@ -127,30 +174,17 @@ document.addEventListener('DOMContentLoaded', async function() {
       const savedData = localStorage.getItem('rehab_assessment_form');
       if (savedData) {
         const formData = JSON.parse(savedData);
-        
         formFields.forEach(fieldId => {
           const element = document.getElementById(fieldId);
           if (element && formData[fieldId] !== undefined) {
-            if (element.type === 'checkbox') {
-              element.checked = formData[fieldId];
-            } else {
-              element.value = formData[fieldId];
-            }
+            if (element.type === 'checkbox') element.checked = formData[fieldId];
+            else element.value = formData[fieldId];
           }
         });
-        
-        // Restore diagnosis picker if category was saved
         const catEl = document.getElementById('diagnosisCategory');
-        if (catEl && catEl.value && typeof updateDiagnosisList === 'function') {
-          updateDiagnosisList();
-        }
-
+        if (catEl && catEl.value) window.updateDiagnosisList();
         const pageVal = document.getElementById('pageVal');
-        if (pageVal && formData.pageCount) {
-          pageVal.textContent = formData.pageCount;
-        }
-        
-        console.log('Form data loaded from localStorage');
+        if (pageVal && formData.pageCount) pageVal.textContent = formData.pageCount;
       }
     } catch (error) {
       console.error('Error loading form from localStorage:', error);
@@ -160,18 +194,10 @@ document.addEventListener('DOMContentLoaded', async function() {
   function saveFormToStorage() {
     try {
       const formData = {};
-      
       formFields.forEach(fieldId => {
         const element = document.getElementById(fieldId);
-        if (element) {
-          if (element.type === 'checkbox') {
-            formData[fieldId] = element.checked;
-          } else {
-            formData[fieldId] = element.value;
-          }
-        }
+        if (element) formData[fieldId] = element.type === 'checkbox' ? element.checked : element.value;
       });
-      
       localStorage.setItem('rehab_assessment_form', JSON.stringify(formData));
     } catch (error) {
       console.error('Error saving form to localStorage:', error);
@@ -182,7 +208,6 @@ document.addEventListener('DOMContentLoaded', async function() {
     localStorage.removeItem('rehab_assessment_form');
   }
 
-  // Auto-save on any form input change
   formFields.forEach(fieldId => {
     const element = document.getElementById(fieldId);
     if (element) {
@@ -191,7 +216,6 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
   });
 
-  // Load saved data on page load
   loadFormFromStorage();
 
   if (typeof firebase === 'undefined') {
@@ -203,66 +227,50 @@ document.addEventListener('DOMContentLoaded', async function() {
   const database = firebase.database();
 
   loadGenerationData();
-  if (window.rehabPlans) {
-    currentPlan = window.rehabPlans.getCurrentPlan() || 'free';
-  }
+  if (window.rehabPlans) currentPlan = window.rehabPlans.getCurrentPlan() || 'free';
 
   const tokens = await fetchTokens();
   if (tokens) {
     githubToken = tokens.token;
     apiEndpoint = tokens.endpoint;
-    console.log('API credentials loaded');
   } else {
     showToast('Failed to load API credentials. Please try again.', true);
   }
 
-  firebase.auth().onAuthStateChanged((user) => {
+  const unsubAuth = firebase.auth().onAuthStateChanged((user) => {
     currentUser = user;
     if (user) {
-      console.log('User logged in:', user.email);
       loadUserHistory();
     } else {
-      console.log('User logged out');
       historyItems = [];
       updateHistoryUI();
     }
   });
+  cleanupFns.push(unsubAuth);
 
   // ===== Helper Functions =====
-  
   function showToast(message, isError = false, duration = 3000) {
     if (!toast) return;
     toast.textContent = message;
     toast.classList.remove('hidden');
     toast.style.background = isError ? '#dc2626' : 'var(--accent)';
-    
-    setTimeout(() => {
-      toast.classList.add('hidden');
-    }, duration);
+    setTimeout(() => toast.classList.add('hidden'), duration);
   }
 
   async function fetchTokens() {
     try {
       const snapshot = await database.ref('tokens/open_ai').once('value');
       const data = snapshot.val();
-      
-      if (data && data.api_key) {
-        return {
-          token: data.api_key,
-          endpoint: 'https://api.openai.com/v1'
-        };
-      }
+      if (data && data.api_key) return { token: data.api_key, endpoint: 'https://api.openai.com/v1' };
       return null;
     } catch (error) {
-      console.error("Credential Error:", error);
+      console.error('Credential Error:', error);
       return null;
     }
   }
 
   function cleanHtml(html) {
-    html = html.replace(/```html?/g, '').replace(/```/g, '');
-    html = html.trim();
-    return html;
+    return (html || '').replace(/```html?/g, '').replace(/```/g, '').trim();
   }
 
   function escapeHtml(text) {
@@ -283,8 +291,8 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     const previewModal = document.createElement('div');
     previewModal.className = 'preview-modal';
-    
-    const viewAction = assessmentId 
+
+    const viewAction = assessmentId
       ? `window.open('formatresult.html?id=${assessmentId}', '_blank'); document.querySelector('.preview-modal').remove();`
       : `(function() {
            const w = window.open('', '_blank');
@@ -297,33 +305,22 @@ document.addEventListener('DOMContentLoaded', async function() {
     if (hasHistoryAccess && assessmentId) {
       historyMessage = `
         <div style="margin-top: 16px; padding: 10px 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px;">
-          <p style="color: #15803d; margin: 0; font-size: 0.8rem;">
-            ✅ This assessment has been saved to your history.
-          </p>
-        </div>
-      `;
+          <p style="color: #15803d; margin: 0; font-size: 0.8rem;">✅ This assessment has been saved to your history.</p>
+        </div>`;
     } else if (!currentUser) {
       historyMessage = `
         <div style="margin-top: 16px; padding: 12px 16px; background: #fefce8; border: 1px solid #fef08a; border-radius: 12px; display: flex; align-items: flex-start; gap: 10px;">
           <span style="font-size: 1.2rem; flex-shrink: 0;">💡</span>
           <div>
-            <p style="color: #854d0e; margin: 0 0 4px 0; font-size: 0.85rem; font-weight: 600;">
-              Login to Save History
-            </p>
-            <p style="color: #a16207; margin: 0; font-size: 0.8rem; line-height: 1.4;">
-              Sign in to automatically save, retrieve, and download your assessments anytime.
-            </p>
+            <p style="color: #854d0e; margin: 0 0 4px 0; font-size: 0.85rem; font-weight: 600;">Login to Save History</p>
+            <p style="color: #a16207; margin: 0; font-size: 0.8rem; line-height: 1.4;">Sign in to automatically save, retrieve, and download your assessments anytime.</p>
           </div>
-        </div>
-      `;
+        </div>`;
     } else {
       historyMessage = `
         <div style="margin-top: 16px; padding: 10px 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px;">
-          <p style="color: #15803d; margin: 0; font-size: 0.8rem;">
-            ✅ Assessment generated successfully.
-          </p>
-        </div>
-      `;
+          <p style="color: #15803d; margin: 0; font-size: 0.8rem;">✅ Assessment generated successfully.</p>
+        </div>`;
     }
 
     previewModal.innerHTML = `
@@ -340,22 +337,15 @@ document.addEventListener('DOMContentLoaded', async function() {
             <span class="preview-date">${new Date().toLocaleString()}</span>
           </div>
           <p class="preview-description">
-            Your <strong>${escapeHtml(formData.assessmentType)}</strong> for 
+            Your <strong>${escapeHtml(formData.assessmentType)}</strong> for
             <strong>${escapeHtml(formData.name)}</strong> has been generated successfully.
           </p>
           <div class="preview-actions">
-            <button class="preview-btn primary" id="viewFullAssessmentBtn"
-                    onclick="${viewAction}">
-              📖 View Full Assessment
-            </button>
-            <button class="preview-btn secondary" id="closePreviewBtn">
-              Close
-            </button>
+            <button class="preview-btn primary" id="viewFullAssessmentBtn" onclick="${viewAction}">📖 View Full Assessment</button>
+            <button class="preview-btn secondary" id="closePreviewBtn">Close</button>
           </div>
           ${historyMessage}
-          <div class="preview-note">
-            <small>💡 The assessment opens in a new tab for printing or saving as PDF.</small>
-          </div>
+          <div class="preview-note"><small>💡 The assessment opens in a new tab for printing or saving as PDF.</small></div>
         </div>
       </div>
     `;
@@ -372,38 +362,24 @@ document.addEventListener('DOMContentLoaded', async function() {
     overlay.addEventListener('click', closeModal);
 
     const escHandler = (e) => {
-      if (e.key === 'Escape') {
-        closeModal();
-        document.removeEventListener('keydown', escHandler);
-      }
+      if (e.key === 'Escape') { closeModal(); document.removeEventListener('keydown', escHandler); }
     };
     document.addEventListener('keydown', escHandler);
   }
 
-  // ===== BUILD PROMPT (extended with new fields) =====
+  // ===== BUILD PROMPT =====
   function buildPrompt(data) {
-    const sections = data.includeSections
-      ? "SOAP notes may be included if clinically relevant."
-      : "";
-
-    const precautionsLine = data.precautions
-      ? `- Precautions / Contraindications: ${data.precautions}`
-      : '';
-    const goalsLine = data.functionalGoals
-      ? `- Functional Goals: ${data.functionalGoals}`
-      : '';
-    const referralLine = data.referralSource
-      ? `- Referral Source: ${data.referralSource}`
-      : '';
-    const settingLine = data.clinicalSetting
-      ? `- Clinical Setting: ${data.clinicalSetting}`
-      : '';
+    const sections = data.includeSections ? 'SOAP notes may be included if clinically relevant.' : '';
+    const precautionsLine = data.precautions ? `- Precautions / Contraindications: ${data.precautions}` : '';
+    const goalsLine = data.functionalGoals ? `- Functional Goals: ${data.functionalGoals}` : '';
+    const referralLine = data.referralSource ? `- Referral Source: ${data.referralSource}` : '';
+    const settingLine = data.clinicalSetting ? `- Clinical Setting: ${data.clinicalSetting}` : '';
 
     return `Generate a professional PRINTABLE medical assessment form.
 
 CONTEXT:
 - Patient: ${data.name} (${data.age} years, ${data.gender})
-- Diagnosis: ${data.diagnosis || "Not specified"}
+- Diagnosis: ${data.diagnosis || 'Not specified'}
 - Assessment Type: ${data.assessmentType}
 - Department: ${data.department}
 - Category: ${data.category}
@@ -411,7 +387,7 @@ ${referralLine}
 ${settingLine}
 ${precautionsLine}
 ${goalsLine}
-- Clinical Notes: ${data.notes || "None"}
+- Clinical Notes: ${data.notes || 'None'}
 
 REQUIREMENTS:
 1. Return ONLY pure HTML. No markdown, no code fences.
@@ -429,8 +405,8 @@ REQUIREMENTS:
      - Add: oninput="this.style.height = ''; this.style.height = Math.min(this.scrollHeight, 400) + 'px'"
      - Set initial rows="10" but allow growth up to max-height
    - Full textarea code example:
-     <textarea rows="7" 
-               style="width:100%; resize:vertical; min-height:150px; max-height:500px; overflow-y:auto;" 
+     <textarea rows="7"
+               style="width:100%; resize:vertical; min-height:150px; max-height:500px; overflow-y:auto;"
                placeholder="Enter observations here..."
                oninput="this.style.height = ''; this.style.height = Math.min(this.scrollHeight, 400) + 'px'"></textarea>
 
@@ -439,7 +415,7 @@ REQUIREMENTS:
    - No labels, only placeholder text
    - Format history sections like this:
      <h4>Psychiatric History</h4>
-     <textarea rows="4" style="width:100%; resize:vertical; min-height:80px; max-height:400px; overflow-y:auto;" 
+     <textarea rows="4" style="width:100%; resize:vertical; min-height:80px; max-height:400px; overflow-y:auto;"
                placeholder="Enter psychiatric history, including diagnoses, hospitalizations, medications..."
                oninput="this.style.height = ''; this.style.height = Math.min(this.scrollHeight, 400) + 'px'"></textarea>
 
@@ -498,7 +474,7 @@ Return ONLY the HTML.`;
   }
 
   function getPrintableDepartmentContent(department, category) {
-    switch(department) {
+    switch (department) {
       case 'Occupational Therapy':
         return `
 - Include areas related to functional performance and independence.
@@ -550,22 +526,16 @@ Return ONLY the HTML.`;
   }
 
   // ===== History Functions =====
-  
   async function loadUserHistory() {
     if (!currentUser) return;
-    
     try {
       const snapshot = await database.ref(`history/${currentUser.uid}/formats`).once('value');
       const data = snapshot.val();
-      
       historyItems = [];
       if (data) {
-        historyItems = Object.entries(data).map(([id, item]) => ({
-          id: id,
-          ...item
-        })).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        historyItems = Object.entries(data).map(([id, item]) => ({ id, ...item }))
+          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       }
-      
       updateHistoryUI();
     } catch (error) {
       console.error('Error loading history:', error);
@@ -574,11 +544,7 @@ Return ONLY the HTML.`;
   }
 
   async function saveToHistory(assessmentData, generatedHtml) {
-    if (!currentUser) {
-      showToast('Please login to save history', true);
-      return null;
-    }
-
+    if (!currentUser) { showToast('Please login to save history', true); return null; }
     try {
       const historyItem = {
         patientName: assessmentData.name,
@@ -600,20 +566,13 @@ Return ONLY the HTML.`;
         timestamp: new Date().toISOString(),
         userId: currentUser.uid
       };
-
       const newHistoryRef = database.ref(`history/${currentUser.uid}/formats`).push();
       await newHistoryRef.set(historyItem);
       const newId = newHistoryRef.key;
-      
-      historyItems.unshift({
-        id: newId,
-        ...historyItem
-      });
-      
+      historyItems.unshift({ id: newId, ...historyItem });
       updateHistoryUI();
       showToast('Assessment saved to history');
       return newId;
-      
     } catch (error) {
       console.error('Error saving to history:', error);
       showToast('Failed to save to history', true);
@@ -623,7 +582,6 @@ Return ONLY the HTML.`;
 
   async function deleteHistoryItem(itemId) {
     if (!currentUser || !itemId) return;
-    
     try {
       await database.ref(`history/${currentUser.uid}/formats/${itemId}`).remove();
       historyItems = historyItems.filter(item => item.id !== itemId);
@@ -637,7 +595,6 @@ Return ONLY the HTML.`;
 
   async function clearAllHistory() {
     if (!currentUser) return;
-    
     try {
       await database.ref(`history/${currentUser.uid}/formats`).remove();
       historyItems = [];
@@ -656,22 +613,17 @@ Return ONLY the HTML.`;
 
   function updateHistoryUI(searchTerm = '') {
     if (!historyList) return;
-    
-    if (totalCountSpan) {
-      totalCountSpan.textContent = historyItems.length;
-    }
-    
+    if (totalCountSpan) totalCountSpan.textContent = historyItems.length;
     if (latestDateSpan && historyItems.length > 0) {
-      const latest = new Date(historyItems[0].timestamp);
-      latestDateSpan.textContent = latest.toLocaleDateString();
+      latestDateSpan.textContent = new Date(historyItems[0].timestamp).toLocaleDateString();
     } else if (latestDateSpan) {
       latestDateSpan.textContent = '-';
     }
-    
+
     let filteredItems = historyItems;
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
-      filteredItems = historyItems.filter(item => 
+      filteredItems = historyItems.filter(item =>
         item.patientName?.toLowerCase().includes(term) ||
         item.assessmentType?.toLowerCase().includes(term) ||
         item.department?.toLowerCase().includes(term) ||
@@ -680,21 +632,19 @@ Return ONLY the HTML.`;
         item.preview?.toLowerCase().includes(term)
       );
     }
-    
+
     if (filteredItems.length === 0) {
       historyList.innerHTML = `
         <div class="empty-history">
           <p>${searchTerm ? 'No matching history items' : 'No history yet'}</p>
           <small>${searchTerm ? 'Try a different search term' : 'Generate your first assessment to see it here'}</small>
-        </div>
-      `;
+        </div>`;
       return;
     }
-    
+
     historyList.innerHTML = filteredItems.map(item => {
       const date = new Date(item.timestamp);
       const formattedDate = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-      
       return `
         <div class="history-item" data-id="${item.id}">
           <div class="history-item-header">
@@ -706,15 +656,10 @@ Return ONLY the HTML.`;
             ${item.clinicalSetting ? `<span class="history-item-badge">${escapeHtml(item.clinicalSetting)}</span>` : ''}
           </div>
           <div class="history-item-actions">
-            <button class="history-item-btn retrieve" onclick="window.retrieveItem('${item.id}')">
-              <span>📂</span> Retrieve
-            </button>
-            <button class="history-item-btn delete" onclick="window.deleteItem('${item.id}')">
-              <span>🗑️</span> Delete
-            </button>
+            <button class="history-item-btn retrieve" onclick="window.retrieveItem('${item.id}')"><span>📂</span> Retrieve</button>
+            <button class="history-item-btn delete" onclick="window.deleteItem('${item.id}')"><span>🗑️</span> Delete</button>
           </div>
-        </div>
-      `;
+        </div>`;
     }).join('');
   }
 
@@ -729,7 +674,6 @@ Return ONLY the HTML.`;
   };
 
   // ===== Form Submission =====
-  
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -738,19 +682,16 @@ Return ONLY the HTML.`;
       document.getElementById('loginBtn')?.click();
       return;
     }
-
     if (!canGenerateMore()) {
       const daysLeft = getDaysUntilReset();
       showToast(`⚠️ You've reached your ${FREE_MONTHLY_LIMIT} generation limit for this month. Upgrade to Student or Pro for unlimited access. Resets in ${daysLeft} days.`, true, 6000);
       return;
     }
-
     if (!githubToken || !apiEndpoint) {
       showToast('API credentials not loaded. Please refresh and try again.', true);
       return;
     }
 
-    // Collect form data (extended)
     const formData = {
       name: document.getElementById('patientName').value.trim(),
       age: document.getElementById('patientAge').value,
@@ -768,17 +709,14 @@ Return ONLY the HTML.`;
       includeSections: document.getElementById('includeStandardSections').checked
     };
 
-    // Validate required fields
     if (!formData.name || !formData.age || !formData.gender || !formData.assessmentType || !formData.department || !formData.pageCount) {
       showToast('Please fill in all required fields.', true);
       return;
     }
-
     if (!formData.diagnosis) {
       showToast('Please enter a diagnosis or chief complaint.', true);
       return;
     }
-
     if (formData.age <= 0 || formData.age > 150) {
       showToast('Please enter a valid age.', true);
       return;
@@ -802,12 +740,9 @@ Return ONLY the HTML.`;
 
       if (currentUser) {
         hasHistoryAccess = await checkPlanAccess();
-
         if (hasHistoryAccess) {
           assessmentId = await saveToHistory(formData, html);
-          if (assessmentId) {
-            window.currentAssessmentId = assessmentId;
-          }
+          if (assessmentId) window.currentAssessmentId = assessmentId;
         }
       } else {
         showToast('Assessment generated! Login to save to history.', false, 4000);
@@ -815,7 +750,6 @@ Return ONLY the HTML.`;
 
       incrementGenerationCount();
       showPreviewModal(html, formData, assessmentId, hasHistoryAccess);
-      
     } catch (error) {
       console.error('Generation error:', error);
       showToast(error.message || 'Failed to generate. Please try again.', true);
@@ -826,19 +760,10 @@ Return ONLY the HTML.`;
     }
   });
 
-  // Validated, auto-retrying AI call — mirrors the fix applied to the
-  // presentation tool. A 200 OK with empty/near-empty content (content
-  // filter tripping on clinical wording, or truncation before real content
-  // was written) used to get saved and shown as-is. This now retries once
-  // with more token headroom, and reports genuinely failed attempts via
-  // error-reporter.js so they're visible in the admin Reviews tab.
   async function callAIWithValidation(prompt, attempt) {
     const response = await fetch(`${apiEndpoint}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${githubToken}`
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${githubToken}` },
       body: JSON.stringify({
         messages: [
           { role: 'system', content: 'You are a senior rehabilitation therapist. You always return clean, printable HTML forms. Never use Markdown or code fences.' },
@@ -853,12 +778,7 @@ Return ONLY the HTML.`;
     if (!response.ok) {
       const errBody = await response.text().catch(() => '');
       if (window.reportApiError) {
-        window.reportApiError({
-          status: response.status,
-          bodyText: errBody,
-          tool: 'format',
-          context: `generate formatted document (attempt ${attempt})`
-        });
+        window.reportApiError({ status: response.status, bodyText: errBody, tool: 'format', context: `generate formatted document (attempt ${attempt})` });
       }
       throw new Error(`API error: ${response.status}`);
     }
@@ -866,9 +786,7 @@ Return ONLY the HTML.`;
     const data = await response.json();
     const choice = data.choices && data.choices[0];
     const finishReason = choice ? choice.finish_reason : null;
-    const rawContent = (choice && choice.message && typeof choice.message.content === 'string')
-      ? choice.message.content
-      : '';
+    const rawContent = (choice && choice.message && typeof choice.message.content === 'string') ? choice.message.content : '';
     const html = cleanHtml(rawContent);
 
     if (finishReason === 'content_filter') {
@@ -897,31 +815,23 @@ Return ONLY the HTML.`;
   }
 
   // ===== Download Functions =====
-  
   if (downloadWordOption) {
     downloadWordOption.addEventListener('click', () => {
       downloadModal.classList.remove('show');
-      if (!window.currentGeneratedText || !window.currentFormData) {
-        showToast('No assessment to download', true);
-        return;
-      }
+      if (!window.currentGeneratedText || !window.currentFormData) { showToast('No assessment to download', true); return; }
       downloadAsWord(window.currentGeneratedText, window.currentFormData);
     });
   }
-
   if (downloadPdfOption) {
     downloadPdfOption.addEventListener('click', () => {
       downloadModal.classList.remove('show');
-      if (!window.currentGeneratedText || !window.currentFormData) {
-        showToast('No assessment to download', true);
-        return;
-      }
+      if (!window.currentGeneratedText || !window.currentFormData) { showToast('No assessment to download', true); return; }
       downloadAsPdf(window.currentGeneratedText, window.currentFormData);
     });
   }
 
-  function downloadAsWord(html, formData) {
-    const fullHtml = `
+  function buildDownloadHtml(html, formData) {
+    return `
 <!DOCTYPE html>
 <html>
 <head>
@@ -948,12 +858,15 @@ Return ONLY the HTML.`;
   <p style="font-size: 0.8rem; color: #666;">Generated by rehablix - Intelligent Rehabilitation Tools</p>
 </body>
 </html>`;
-    
+  }
+
+  function downloadAsWord(html, formData) {
+    const fullHtml = buildDownloadHtml(html, formData);
     const blob = new Blob([fullHtml], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `assessment_${formData.name}_${new Date().toISOString().slice(0,10)}.doc`;
+    a.download = `assessment_${formData.name}_${new Date().toISOString().slice(0, 10)}.doc`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -962,34 +875,7 @@ Return ONLY the HTML.`;
   }
 
   function downloadAsPdf(html, formData) {
-    const fullHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Assessment - ${formData.name}</title>
-  <style>
-    body { font-family: 'Arial', 'Helvetica', sans-serif; line-height: 1.6; padding: 2rem; max-width: 1200px; margin: 0 auto; }
-    h1, h2, h3 { color: #00695c; }
-    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-    th { background-color: #f5f5f5; }
-    textarea { width: 100%; min-height: 100px; margin: 0.5rem 0; padding: 8px; }
-    @media print { body { padding: 0.5in; } textarea { border: 1px solid #ccc; } }
-  </style>
-</head>
-<body>
-  <div style="text-align: center; margin-bottom: 2rem;">
-    <h1>rehablix Assessment</h1>
-    <p>Generated: ${new Date().toLocaleString()}</p>
-    <hr>
-  </div>
-  ${html}
-  <hr>
-  <p style="font-size: 0.8rem; color: #666;">Generated by rehablix - Intelligent Rehabilitation Tools</p>
-</body>
-</html>`;
-
+    const fullHtml = buildDownloadHtml(html, formData);
     const win = window.open('', '_blank');
     win.document.write(fullHtml);
     win.document.close();
@@ -998,25 +884,18 @@ Return ONLY the HTML.`;
   }
 
   if (cancelDownload) {
-    cancelDownload.addEventListener('click', () => {
-      downloadModal.classList.remove('show');
-    });
+    cancelDownload.addEventListener('click', () => downloadModal.classList.remove('show'));
   }
 
   // ===== Clear Form =====
-  
   if (clearBtn) {
     clearBtn.addEventListener('click', () => {
       form.reset();
       const pageVal = document.getElementById('pageVal');
       if (pageVal) pageVal.textContent = '2';
-      
-      // Hide diagnosis picker on clear
       const pickerGroup = document.getElementById('diagnosisPickerGroup');
       if (pickerGroup) pickerGroup.style.display = 'none';
-      
       clearFormStorage();
-      
       delete window.currentGeneratedText;
       delete window.currentFormData;
       delete window.currentAssessmentId;
@@ -1025,19 +904,14 @@ Return ONLY the HTML.`;
   }
 
   // ===== History Drawer Controls =====
-  
   if (historyNavBtn) {
     historyNavBtn.addEventListener('click', () => {
-      if (!currentUser) {
-        showToast('Please login to view history', true);
-        return;
-      }
+      if (!currentUser) { showToast('Please login to view history', true); return; }
       loadUserHistory();
       historyDrawer.classList.add('open');
       document.body.style.overflow = 'hidden';
     });
   }
-
   if (closeDrawer) {
     closeDrawer.addEventListener('click', () => {
       historyDrawer.classList.remove('open');
@@ -1045,49 +919,39 @@ Return ONLY the HTML.`;
     });
   }
 
-  document.addEventListener('click', (e) => {
-    if (historyDrawer && historyNavBtn && 
-        !historyDrawer.contains(e.target) && 
-        !historyNavBtn.contains(e.target) && 
+  const onDocClickCloseDrawer = (e) => {
+    if (historyDrawer && historyNavBtn &&
+        !historyDrawer.contains(e.target) &&
+        !historyNavBtn.contains(e.target) &&
         historyDrawer.classList.contains('open')) {
       historyDrawer.classList.remove('open');
       document.body.style.overflow = '';
     }
-  });
+  };
+  document.addEventListener('click', onDocClickCloseDrawer);
+  cleanupFns.push(() => document.removeEventListener('click', onDocClickCloseDrawer));
 
   if (historySearch) {
-    historySearch.addEventListener('input', (e) => {
-      updateHistoryUI(e.target.value);
-    });
+    historySearch.addEventListener('input', (e) => updateHistoryUI(e.target.value));
   }
-
   if (clearHistoryBtn) {
     clearHistoryBtn.addEventListener('click', () => {
-      if (historyItems.length === 0) {
-        showToast('No history to clear', true);
-        return;
-      }
+      if (historyItems.length === 0) { showToast('No history to clear', true); return; }
       itemToDelete = 'all';
       deleteConfirmModal.classList.add('show');
     });
   }
 
-  // ===== Delete Confirmation =====
-  
   if (cancelDeleteBtn) {
     cancelDeleteBtn.addEventListener('click', () => {
       deleteConfirmModal.classList.remove('show');
       itemToDelete = null;
     });
   }
-
   if (confirmDeleteBtn) {
     confirmDeleteBtn.addEventListener('click', async () => {
-      if (itemToDelete === 'all') {
-        await clearAllHistory();
-      } else if (itemToDelete) {
-        await deleteHistoryItem(itemToDelete);
-      }
+      if (itemToDelete === 'all') await clearAllHistory();
+      else if (itemToDelete) await deleteHistoryItem(itemToDelete);
       deleteConfirmModal.classList.remove('show');
       itemToDelete = null;
     });
@@ -1115,22 +979,21 @@ Return ONLY the HTML.`;
   }
 
   // ===== Keyboard Shortcuts =====
-  
-  document.addEventListener('keydown', (e) => {
+  const onDocKeydown = (e) => {
     if (e.key === 'Escape') {
       if (historyDrawer && historyDrawer.classList.contains('open')) {
         historyDrawer.classList.remove('open');
         document.body.style.overflow = '';
       }
-      if (downloadModal && downloadModal.classList.contains('show')) {
-        downloadModal.classList.remove('show');
-      }
+      if (downloadModal && downloadModal.classList.contains('show')) downloadModal.classList.remove('show');
       if (deleteConfirmModal && deleteConfirmModal.classList.contains('show')) {
         deleteConfirmModal.classList.remove('show');
         itemToDelete = null;
       }
     }
-  });
+  };
+  document.addEventListener('keydown', onDocKeydown);
+  cleanupFns.push(() => document.removeEventListener('keydown', onDocKeydown));
 
   if (form) {
     form.addEventListener('keydown', (e) => {
@@ -1140,6 +1003,13 @@ Return ONLY the HTML.`;
       }
     });
   }
+}
 
-  console.log('Format.js fully initialized with free history saving for all users');
-});
+function unmount() {
+  cleanupFns.forEach(fn => { try { fn(); } catch (e) { /* best-effort */ } });
+  cleanupFns = [];
+}
+
+window.RehablixViews = window.RehablixViews || {};
+window.RehablixViews.format = { mount, unmount };
+})();

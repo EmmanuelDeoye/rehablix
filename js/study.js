@@ -5,7 +5,10 @@
 // (exam.js) reads from and writes back to — that shared record is the sync
 // between the two tools.
 
-document.addEventListener('DOMContentLoaded', function () {
+(function () {
+  let cleanupFns = [];
+
+  function mount() {
   const database = firebase.database();
   const auth = firebase.auth();
 
@@ -68,6 +71,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // ===== DOM refs =====
   const $ = (id) => document.getElementById(id);
+  const navbarSlot = $('navbarViewSlot');
+  const historyNavBtnEl = $('historyNavBtn');
+  if (navbarSlot && historyNavBtnEl) navbarSlot.appendChild(historyNavBtnEl);
   const viewDashboard = $('viewDashboard');
   const viewCreate = $('viewCreate');
   const viewSubject = $('viewSubject');
@@ -211,6 +217,7 @@ document.addEventListener('DOMContentLoaded', function () {
   // =========================================================================
   function renderDashboard() {
     const grid = $('subjectsGrid');
+    if (!grid) return; // view was unmounted (navigated away) before this async callback resolved
     const ids = Object.keys(subjects);
     if (ids.length === 0) {
       grid.innerHTML = `<div class="empty-state"><i class="fas fa-book-open"></i><p>No subjects yet — create your first study set to get started.</p></div>`;
@@ -395,7 +402,7 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
 
   $('practiceExamBtn').addEventListener('click', () => {
     if (!activeSubjectId) return;
-    window.location.href = `exam.html?subject=${activeSubjectId}&subjectName=${encodeURIComponent(subjects[activeSubjectId].name)}`;
+    window.location.href = `index.html?subject=${activeSubjectId}&subjectName=${encodeURIComponent(subjects[activeSubjectId].name)}#/exam`;
   });
 
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -672,7 +679,7 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
     renderDashboard();
   }
 
-  auth.onAuthStateChanged(async (user) => {
+  const unsubAuth = auth.onAuthStateChanged(async (user) => {
     currentUser = user;
     if (!user) {
       $('historyNavBtn').style.display = 'none';
@@ -704,4 +711,14 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
       if (focusParam) showToast('Focus on the highlighted weak topics below', 'info', 5000);
     }
   });
-});
+  cleanupFns.push(unsubAuth);
+  } // end mount()
+
+  function unmount() {
+    cleanupFns.forEach(fn => { try { fn(); } catch (e) { /* best-effort */ } });
+    cleanupFns = [];
+  }
+
+  window.RehablixViews = window.RehablixViews || {};
+  window.RehablixViews.study = { mount, unmount };
+})();

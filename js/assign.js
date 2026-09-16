@@ -5,7 +5,11 @@ if (typeof marked !== 'undefined') {
   marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false });
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
+(function () {
+  let cleanupFns = [];
+  let historyListenerRef = null;
+
+  async function mount() {
 
   // ===== DOM Elements =====
   const topicInput = document.getElementById('topicInput');
@@ -47,6 +51,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // History
   const historyDrawer = document.getElementById('historyDrawer');
   const historyNavBtn = document.getElementById('historyNavBtn');
+  const navbarSlot = document.getElementById('navbarViewSlot');
+  if (navbarSlot && historyNavBtn) navbarSlot.appendChild(historyNavBtn);
   const closeDrawerBtn = document.getElementById('closeDrawerBtn');
   const historyList = document.getElementById('historyList');
   const historySearchInput = document.getElementById('historySearchInput');
@@ -442,11 +448,13 @@ The final text must read like a specific, thoughtful student wrote it for this s
   closeUploadModalBtn.addEventListener('click', closeUploadModalFn);
   document.querySelector('.upload-modal-overlay')?.addEventListener('click', closeUploadModalFn);
 
-  document.addEventListener('keydown', (e) => {
+  const onKeydownCloseUploadModal = (e) => {
     if (e.key === 'Escape' && uploadModal.classList.contains('active')) {
       closeUploadModalFn();
     }
-  });
+  };
+  document.addEventListener('keydown', onKeydownCloseUploadModal);
+  cleanupFns.push(() => document.removeEventListener('keydown', onKeydownCloseUploadModal));
 
   uploadOptions.forEach(option => {
     option.addEventListener('click', () => {
@@ -834,11 +842,13 @@ Return ONLY the polished HTML. No markdown fences.`;
   const previewOverlay = document.querySelector('.preview-overlay');
   if (previewOverlay) previewOverlay.addEventListener('click', closePreviewModal);
 
-  document.addEventListener('keydown', (e) => {
+  const onKeydownClosePreview = (e) => {
     if (e.key === 'Escape' && previewModal.classList.contains('active')) {
       closePreviewModal();
     }
-  });
+  };
+  document.addEventListener('keydown', onKeydownClosePreview);
+  cleanupFns.push(() => document.removeEventListener('keydown', onKeydownClosePreview));
 
   if (viewFullAssignmentBtn) {
     viewFullAssignmentBtn.addEventListener('click', () => {
@@ -884,9 +894,10 @@ Return ONLY the polished HTML. No markdown fences.`;
   // ===== History =====
   function loadHistoryList() {
     if (!currentUser) return;
+    if (historyListenerRef) historyListenerRef.off();
+    historyListenerRef = database.ref(`history/${currentUser.uid}/assignments`).orderByChild('timestamp');
 
-    database.ref(`history/${currentUser.uid}/assignments`)
-      .orderByChild('timestamp')
+    historyListenerRef
       .on('value', snap => {
         const data = snap.val();
         if (!historyList) return;
@@ -1017,7 +1028,7 @@ Return ONLY the polished HTML. No markdown fences.`;
     });
   }
 
-  document.addEventListener('click', (e) => {
+  const onDocClickCloseHistory = (e) => {
     if (historyDrawer?.classList.contains('active') &&
         !historyDrawer.contains(e.target) &&
         e.target !== historyNavBtn &&
@@ -1025,14 +1036,17 @@ Return ONLY the polished HTML. No markdown fences.`;
       historyDrawer.classList.remove('active');
       document.body.style.overflow = '';
     }
-  });
-
-  document.addEventListener('keydown', (e) => {
+  };
+  const onDocKeydownCloseHistory = (e) => {
     if (e.key === 'Escape' && historyDrawer?.classList.contains('active')) {
       historyDrawer.classList.remove('active');
       document.body.style.overflow = '';
     }
-  });
+  };
+  document.addEventListener('click', onDocClickCloseHistory);
+  document.addEventListener('keydown', onDocKeydownCloseHistory);
+  cleanupFns.push(() => document.removeEventListener('click', onDocClickCloseHistory));
+  cleanupFns.push(() => document.removeEventListener('keydown', onDocKeydownCloseHistory));
 
   if (historySearchInput) {
     historySearchInput.addEventListener('input', () => {
@@ -1049,7 +1063,7 @@ Return ONLY the polished HTML. No markdown fences.`;
   // =========================================================================
   // PLAN UPDATE LISTENER
   // =========================================================================
-  document.addEventListener('planUpdated', (e) => {
+  const onPlanUpdated = (e) => {
     const newPlan = e.detail?.plan || 'free';
     if (newPlan !== currentPlan) {
       currentPlan = newPlan;
@@ -1057,7 +1071,9 @@ Return ONLY the polished HTML. No markdown fences.`;
       loadGenerationData();
       updatePlanUI();
     }
-  });
+  };
+  document.addEventListener('planUpdated', onPlanUpdated);
+  cleanupFns.push(() => document.removeEventListener('planUpdated', onPlanUpdated));
 
   if (window.rehabPlans) {
     currentPlan = window.rehabPlans.getCurrentPlan() || 'free';
@@ -1065,7 +1081,7 @@ Return ONLY the polished HTML. No markdown fences.`;
   }
 
   // ===== Auth =====
-  firebase.auth().onAuthStateChanged(user => {
+  const unsubAuth = firebase.auth().onAuthStateChanged(user => {
     currentUser = user;
     if (user) {
       console.log('[AUTH] User logged in:', user.email);
@@ -1077,6 +1093,7 @@ Return ONLY the polished HTML. No markdown fences.`;
       currentHistoryId = null;
     }
   });
+  cleanupFns.push(unsubAuth);
 
   // ===== Init =====
   async function initialize() {
@@ -1089,4 +1106,22 @@ Return ONLY the polished HTML. No markdown fences.`;
   }
 
   initialize();
-});
+
+  // Bring over anything the user shared with Ask AI (feature 7)
+  if (window.RehablixHandoff) {
+    const handoffData = window.RehablixHandoff.consume('assignment.html');
+    if (handoffData) {
+      window.RehablixHandoff.applyTo(handoffData, { textFieldId: 'topicInput', fileFieldId: 'fileInput' });
+    }
+  }
+  } // end mount()
+
+  function unmount() {
+    if (historyListenerRef) { historyListenerRef.off(); historyListenerRef = null; }
+    cleanupFns.forEach(fn => { try { fn(); } catch (e) { /* best-effort */ } });
+    cleanupFns = [];
+  }
+
+  window.RehablixViews = window.RehablixViews || {};
+  window.RehablixViews.assignment = { mount, unmount };
+})();

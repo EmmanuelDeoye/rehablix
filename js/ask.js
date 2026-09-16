@@ -2,18 +2,30 @@
 // image/video vision), voice input, editable prompts, link/URL reading,
 // site-aware system knowledge, cross-page handoff, and "export to
 // result.html" for AI answers.
+//
+// Registered as the "lixa" SPA view (js/router.js calls mount() after
+// injecting views/lixa.fragment.html into #appRoot, and unmount() before
+// navigating away) rather than running once on DOMContentLoaded, since the
+// fragment can be mounted/unmounted repeatedly across a single page load.
 
-// Marked configuration
-if (typeof marked !== 'undefined') {
-  marked.setOptions({
-    breaks: true,
-    gfm: true,
-    headerIds: false,
-    mangle: false
-  });
-}
+(function () {
+  // Marked configuration
+  if (typeof marked !== 'undefined') {
+    marked.setOptions({
+      breaks: true,
+      gfm: true,
+      headerIds: false,
+      mangle: false
+    });
+  }
 
-document.addEventListener('DOMContentLoaded', async () => {
+  // Cleanup for listeners attached to long-lived targets (document/window/
+  // firebase.auth) that outlive this view's own DOM — anything attached to
+  // an element inside the fragment needs no cleanup, it's GC'd when the
+  // router replaces #appRoot's content on the next navigation.
+  let cleanupFns = [];
+
+  async function mount() {
 
   // =========================================================================
   // DOM Elements
@@ -31,6 +43,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const historyDrawer = document.getElementById('historyDrawer');
   const historyNavBtn = document.getElementById('historyNavBtn');
+  // This button visually belongs in the shared shell navbar, not the
+  // fragment body — relocate it into the shell's nav slot on mount. The
+  // router destroys/recreates #navbarViewSlot's contents on every
+  // navigation, so this never needs explicit unmount cleanup.
+  const navbarSlot = document.getElementById('navbarViewSlot');
+  if (navbarSlot && historyNavBtn) navbarSlot.appendChild(historyNavBtn);
   const closeDrawerBtn = document.getElementById('closeDrawerBtn');
   const historyList = document.getElementById('historyList');
   const historySearchInput = document.getElementById('historySearchInput');
@@ -64,7 +82,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       : 'Shift+Enter for a new line · Enter to send';
   }
 
-  const TOOL_PAGES = ['doc.html', 'rom.html', 'project.html', 'exam.html', 'workspace.html'];
+  const TOOL_PAGES = ['doc.html', 'index.html#/motion', 'project.html', 'index.html#/exam', 'index.html#/workspace'];
 
   // =========================================================================
   // Helpers
@@ -191,9 +209,9 @@ Unlike a typical chatbot, you can also personally CREATE things for the user dir
 
 A few things genuinely still live on separate pages (in the "Workspace" tab, reachable via the bottom nav) because they're too complex for chat — only recommend these, and only when truly relevant:
 - [Smart EMR](doc.html) – AI-powered workspace for documentation, patient management, treatment planning, progress tracking.
-- [Motion & Gait Analyzer](rom.html) – a voice-guided video scan that measures joint range of motion (rom.html?mode=rom) or analyzes gait (rom.html?mode=gait).
+- [Motion & Gait Analyzer](index.html#/motion) – a full-screen camera scanner that measures joint range of motion or analyzes gait via a voice-guided scan.
 - [Project Maker](project.html) – builds an academic project chapter by chapter (literature review, methodology, references, defense prep).
-- [Exam Simulator](exam.html) – timed, AI-generated practice exams with performance analytics.
+- [Exam Simulator](index.html#/exam) – timed, AI-generated practice exams with performance analytics.
 
 When a user's need clearly matches one of these four, say so directly and link to it. Don't link a page unless it's actually relevant.
 
@@ -536,12 +554,16 @@ If the user's message includes content extracted from an uploaded file, an image
       });
     });
 
-    document.addEventListener('click', (e) => {
+    const onDocClickCloseAttachMenu = (e) => {
       if (!attachMenu.hidden && !attachMenu.contains(e.target) && e.target !== attachBtn) closeAttachMenu();
-    });
-    document.addEventListener('keydown', (e) => {
+    };
+    const onDocKeydownCloseAttachMenu = (e) => {
       if (e.key === 'Escape') closeAttachMenu();
-    });
+    };
+    document.addEventListener('click', onDocClickCloseAttachMenu);
+    document.addEventListener('keydown', onDocKeydownCloseAttachMenu);
+    cleanupFns.push(() => document.removeEventListener('click', onDocClickCloseAttachMenu));
+    cleanupFns.push(() => document.removeEventListener('keydown', onDocKeydownCloseAttachMenu));
   }
 
   if (fileInput) fileInput.addEventListener('change', (e) => {
@@ -809,9 +831,11 @@ If the user's message includes content extracted from an uploaded file, an image
     }
   }
 
-  document.addEventListener('click', (e) => {
+  const onDocClickClosePopover = (e) => {
     if (activePopover && !activePopover.contains(e.target)) closeActivePopover();
-  });
+  };
+  document.addEventListener('click', onDocClickClosePopover);
+  cleanupFns.push(() => document.removeEventListener('click', onDocClickClosePopover));
 
   chatMessages.addEventListener('click', (e) => {
     const cancelBtn = e.target.closest('.cancel-edit-btn');
@@ -1167,7 +1191,88 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     return msg.content;
   }
 
-  async function callAI() {
+  // Streams a chat completion via SSE, calling onToken(deltaText, fullSoFar)
+  // as chunks arrive. Falls back to a plain buffered response if the
+  // provider/browser doesn't give us a readable stream body. Returns the
+  // final accumulated text (possibly '' if the provider genuinely sent
+  // nothing — callers decide whether/how to retry on that).
+  async function streamChatCompletion(config, apiMessages, needsVision, onToken) {
+    const url = `${config.endpoint}/chat/completions`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.token}`
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages: apiMessages,
+        max_tokens: 1500,
+        temperature: 0.7,
+        top_p: 0.9,
+        stream: true
+      })
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      const msg = errData?.error?.message || `API error (${response.status})`;
+      if (window.reportApiError) {
+        window.reportApiError({
+          status: response.status,
+          bodyText: JSON.stringify(errData),
+          tool: 'ask',
+          context: `chat completion (${needsVision ? 'vision' : 'text'})`
+        });
+      }
+      throw new Error(msg);
+    }
+
+    if (!response.body || !response.body.getReader) {
+      // No streaming support in this environment — fall back to a normal
+      // buffered read so the feature still degrades gracefully.
+      const data = await response.json();
+      const text = data.choices?.[0]?.message?.content || '';
+      if (text) onToken(text, text);
+      return text;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let full = '';
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const payload = trimmed.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        try {
+          const json = JSON.parse(payload);
+          const delta = json.choices?.[0]?.delta?.content || '';
+          if (delta) {
+            full += delta;
+            onToken(delta, full);
+          }
+        } catch (e) {
+          // Ignore partial/malformed SSE chunks — the buffer handles
+          // reassembly of split lines; a genuinely bad line is skippable.
+        }
+      }
+    }
+    return full;
+  }
+
+  // Empty completions happen intermittently with these providers (a 200 OK
+  // with no visible content). Retrying once, silently, fixes the vast
+  // majority of "Lixa just shows a blank reply" complaints without the user
+  // needing to notice or manually hit regenerate.
+  async function callAI(onToken) {
     const recentMessages = messages.slice(-20);
     const needsVision = recentMessages.some(m => m.visionImages && m.visionImages.length > 0);
 
@@ -1191,52 +1296,61 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       ...recentMessages.map(m => ({ role: m.role, content: buildApiContent(m) }))
     ];
 
-    const url = `${config.endpoint}/chat/completions`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.token}`
-      },
-      body: JSON.stringify({
-        model: config.model,
-        messages: apiMessages,
-        max_tokens: 1500,
-        temperature: 0.7,
-        top_p: 0.9
-      })
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      const msg = errData?.error?.message || `API error (${response.status})`;
-      if (window.reportApiError) {
-        window.reportApiError({
-          status: response.status,
-          bodyText: JSON.stringify(errData),
-          tool: 'ask',
-          context: `chat completion (${needsVision ? 'vision' : 'text'})`
-        });
-      }
-      throw new Error(msg);
+    let full = await streamChatCompletion(config, apiMessages, needsVision, onToken);
+    if (!full || !full.trim()) {
+      // Retry once — onToken hasn't fired yet on a genuinely empty attempt,
+      // so this is a clean second try, not a duplicate/garbled render.
+      full = await streamChatCompletion(config, apiMessages, needsVision, onToken);
     }
-
-    const data = await response.json();
-    return data.choices[0].message.content;
+    if (!full || !full.trim()) {
+      throw new Error('The AI returned an empty response. Please try again.');
+    }
+    return full;
   }
 
-  // Shared "ask the AI and append its reply" logic, used by send/edit/regenerate
+  // Shared "ask the AI and append its reply" logic, used by send/edit/regenerate.
+  // Streams the reply into a live bubble as tokens arrive (raw text, since
+  // partial markdown mid-stream renders oddly), then does one final
+  // full renderMessages() pass once complete to get proper markdown,
+  // action buttons, and suggestions.
   async function runAssistantTurn(promptTextForSuggestions) {
     isWaiting = true;
     sendBtn.disabled = true;
     showTyping();
+
+    let assistantMsg = null;
+    let bubbleEl = null;
+
+    function handleToken(deltaText, fullSoFar) {
+      if (!assistantMsg) {
+        removeTyping();
+        assistantMsg = { role: 'assistant', content: '', timestamp: Date.now() };
+        messages.push(assistantMsg);
+        renderMessages();
+        const msgDiv = chatMessages.querySelector('.message.assistant:last-of-type');
+        bubbleEl = msgDiv ? msgDiv.querySelector('.message-bubble') : null;
+        if (bubbleEl) bubbleEl.classList.add('streaming-text');
+      }
+      assistantMsg.content = fullSoFar;
+      if (bubbleEl) {
+        bubbleEl.textContent = fullSoFar;
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+    }
+
     try {
-      const reply = await callAI();
+      const reply = await callAI(handleToken);
       removeTyping();
-      const assistantMsg = { role: 'assistant', content: reply, timestamp: Date.now() };
+      if (!assistantMsg) {
+        // Defensive fallback: streaming produced no visible tokens (e.g. a
+        // non-streaming provider path) but callAI still returned text.
+        assistantMsg = { role: 'assistant', content: reply, timestamp: Date.now() };
+        messages.push(assistantMsg);
+      } else {
+        assistantMsg.content = reply;
+      }
       const suggestions = await generateSuggestions(promptTextForSuggestions, reply);
       assistantMsg.suggestions = suggestions;
-      messages.push(assistantMsg);
       renderMessages();
 
       // ---- Generate title BEFORE saving, with retry + local fallback ----
@@ -1276,6 +1390,12 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       }
     } catch (error) {
       removeTyping();
+      if (assistantMsg) {
+        // Drop the partially-streamed reply rather than leaving/saving a
+        // broken half-response — the user sees a clear error toast instead.
+        const idx = messages.indexOf(assistantMsg);
+        if (idx !== -1) messages.splice(idx, 1);
+      }
       const errorMsg = (error.message || '').includes('Service error') ? 'AI service error. Please try again.' : error.message;
       showToast(`Error: ${errorMsg}`, 'error', 5000);
       renderMessages();
@@ -1644,7 +1764,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       messageInput.value = q.trim();
       messageInput.dispatchEvent(new Event('input'));
       // Clean the URL so a refresh doesn't resend the same question.
-      window.history.replaceState({}, '', 'index.html');
+      window.history.replaceState({}, '', 'index.html#/lixa');
       setTimeout(() => handleSend(), 300);
     }
   })();
@@ -1678,20 +1798,23 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     });
   }
 
-  document.addEventListener('click', (e) => {
+  const onDocClickCloseHistoryDrawer = (e) => {
     if (historyDrawer?.classList.contains('active') &&
         !historyDrawer.contains(e.target) &&
         e.target !== historyNavBtn &&
         !historyNavBtn?.contains(e.target)) {
       historyDrawer.classList.remove('active');
     }
-  });
-
-  document.addEventListener('keydown', (e) => {
+  };
+  const onDocKeydownCloseHistoryDrawer = (e) => {
     if (e.key === 'Escape' && historyDrawer?.classList.contains('active')) {
       historyDrawer.classList.remove('active');
     }
-  });
+  };
+  document.addEventListener('click', onDocClickCloseHistoryDrawer);
+  document.addEventListener('keydown', onDocKeydownCloseHistoryDrawer);
+  cleanupFns.push(() => document.removeEventListener('click', onDocClickCloseHistoryDrawer));
+  cleanupFns.push(() => document.removeEventListener('keydown', onDocKeydownCloseHistoryDrawer));
 
   if (historySearchInput) {
     historySearchInput.addEventListener('input', () => renderHistoryList(allConversations));
@@ -1700,7 +1823,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   // =========================================================================
   // Auth & initialization
   // =========================================================================
-  firebase.auth().onAuthStateChanged(user => {
+  const unsubAuth = firebase.auth().onAuthStateChanged(user => {
     currentUser = user;
     if (user) {
       historyNavBtn.style.display = 'block';
@@ -1709,6 +1832,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       historyNavBtn.style.display = 'none';
     }
   });
+  cleanupFns.push(unsubAuth);
 
   // =========================================================================
   // Expose a small surface for js/lixa.js to drive the same chat core
@@ -1747,4 +1871,16 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   }
 
   initialize();
-});
+  } // end mount()
+
+  function unmount() {
+    cleanupFns.forEach(fn => { try { fn(); } catch (e) { /* best-effort */ } });
+    cleanupFns = [];
+  }
+
+  // Registered under a distinct name (not window.RehablixViews.lixa) —
+  // js/lixa.js is the one that registers the "lixa" route, and calls into
+  // this mount()/unmount() pair first before wiring up its own @mention/
+  // intent-routing layer on top of the chat core this sets up.
+  window.RehablixAskView = { mount, unmount };
+})();

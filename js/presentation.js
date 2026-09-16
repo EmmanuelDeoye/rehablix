@@ -11,7 +11,11 @@ if (typeof marked !== 'undefined') {
     });
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
+(function () {
+    let cleanupFns = [];
+    let historyListenerRef = null;
+
+    async function mount() {
 
     // =========================================================================
     // DOM Elements
@@ -78,6 +82,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // History drawer
     const historyDrawer = document.getElementById('historyDrawer');
     const historyNavBtn = document.getElementById('historyNavBtn');
+    const navbarSlot = document.getElementById('navbarViewSlot');
+    if (navbarSlot && historyNavBtn) navbarSlot.appendChild(historyNavBtn);
     const closeDrawerBtn = document.getElementById('closeDrawerBtn');
     const historyList = document.getElementById('historyList');
     const historySearchInput = document.getElementById('historySearchInput');
@@ -634,7 +640,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // =========================================================================
     // Plan Management
     // =========================================================================
-    document.addEventListener('planUpdated', (e) => {
+    const onPlanUpdated = (e) => {
         const newPlan = e.detail?.plan || 'free';
         if (newPlan !== currentPlan) {
             currentPlan = newPlan;
@@ -647,7 +653,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 switchMode('report');
             }
         }
-    });
+    };
+    document.addEventListener('planUpdated', onPlanUpdated);
+    cleanupFns.push(() => document.removeEventListener('planUpdated', onPlanUpdated));
 
     // Check initial plan
     if (window.rehabPlans) {
@@ -764,11 +772,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    document.addEventListener('keydown', (e) => {
+    const onKeydownCloseUploadModal = (e) => {
         if (e.key === 'Escape' && uploadModal.classList.contains('active')) {
             closeUploadModalFn();
         }
-    });
+    };
+    document.addEventListener('keydown', onKeydownCloseUploadModal);
+    cleanupFns.push(() => document.removeEventListener('keydown', onKeydownCloseUploadModal));
 
     // =========================================================================
     // Suggestion chips
@@ -1845,8 +1855,9 @@ ${combinedText || 'No notes provided.'}`;
 
     function loadHistory() {
         if (!currentUser) return;
-        database.ref(`history/${scopeUid}/caseHistory`)
-            .orderByChild('timestamp')
+        if (historyListenerRef) historyListenerRef.off();
+        historyListenerRef = database.ref(`history/${scopeUid}/caseHistory`).orderByChild('timestamp');
+        historyListenerRef
             .on('value', snapshot => {
                 const data = snapshot.val();
                 if (!data) { allHistoryEntries = []; renderHistory([]); return; }
@@ -1874,19 +1885,22 @@ ${combinedText || 'No notes provided.'}`;
     }
     
     // FIXED: Use contains() to check if click target is inside history button
-    document.addEventListener('click', e => {
-        if (historyDrawer?.classList.contains('active') && 
-            !historyDrawer.contains(e.target) && 
+    const onDocClickCloseHistory = e => {
+        if (historyDrawer?.classList.contains('active') &&
+            !historyDrawer.contains(e.target) &&
             !historyNavBtn?.contains(e.target)) {
             historyDrawer.classList.remove('active');
         }
-    });
-    
-    document.addEventListener('keydown', e => {
+    };
+    const onDocKeydownCloseHistory = e => {
         if (e.key === 'Escape' && historyDrawer?.classList.contains('active')) {
             historyDrawer.classList.remove('active');
         }
-    });
+    };
+    document.addEventListener('click', onDocClickCloseHistory);
+    document.addEventListener('keydown', onDocKeydownCloseHistory);
+    cleanupFns.push(() => document.removeEventListener('click', onDocClickCloseHistory));
+    cleanupFns.push(() => document.removeEventListener('keydown', onDocKeydownCloseHistory));
     
     if (historySearchInput) {
         historySearchInput.addEventListener('input', e => filterHistory(e.target.value));
@@ -1895,7 +1909,7 @@ ${combinedText || 'No notes provided.'}`;
     // =========================================================================
     // Auth & init
     // =========================================================================
-    firebase.auth().onAuthStateChanged(async user => {
+    const unsubAuth = firebase.auth().onAuthStateChanged(async user => {
         currentUser = user;
         if (user) {
             console.log('[AUTH] Logged in:', user.email);
@@ -1918,6 +1932,7 @@ ${combinedText || 'No notes provided.'}`;
         }
         validateForm();
     });
+    cleanupFns.push(unsubAuth);
 
     async function initialize() {
         console.log('[INIT] Starting...');
@@ -1939,4 +1954,22 @@ ${combinedText || 'No notes provided.'}`;
     }
 
     initialize();
-});
+
+    // Bring over anything the user shared with Ask AI (feature 7)
+    if (window.RehablixHandoff) {
+        const handoffData = window.RehablixHandoff.consume('presentation.html');
+        if (handoffData) {
+            window.RehablixHandoff.applyTo(handoffData, { textFieldId: 'textInput', fileFieldId: 'multiFileInput' });
+        }
+    }
+    } // end mount()
+
+    function unmount() {
+        if (historyListenerRef) { historyListenerRef.off(); historyListenerRef = null; }
+        cleanupFns.forEach(fn => { try { fn(); } catch (e) { /* best-effort */ } });
+        cleanupFns = [];
+    }
+
+    window.RehablixViews = window.RehablixViews || {};
+    window.RehablixViews.presentation = { mount, unmount };
+})();

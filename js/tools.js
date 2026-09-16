@@ -18,18 +18,18 @@
 
     // Define all available tools
     const tools = [
-      { name: 'Lixa', url: 'index.html', icon: '✨' },
-      { name: 'Workspace', url: 'workspace.html', icon: '🧰' },
-      { name: 'Format Generator', url: 'format.html', icon: '📋' },
-      { name: 'Standardized Tools', url: 'standardized.html', icon: '⚖️' },
+      { name: 'Lixa', url: 'index.html#/lixa', icon: '✨' },
+      { name: 'Workspace', url: 'index.html#/workspace', icon: '🧰' },
+      { name: 'Format Generator', url: 'index.html#/format', icon: '📋' },
+      { name: 'Standardized Tools', url: 'index.html#/standardized', icon: '⚖️' },
       { name: 'Smart EMR', url: 'doc.html', icon: '🗂️' },
-      { name: 'Audio Transcription', url: 'audio.html', icon: '🎧' },
-      { name: 'Motion & Gait', url: 'rom.html', icon: '🦵' },
+      { name: 'Audio Transcription', url: 'index.html#/audio', icon: '🎧' },
+      { name: 'Motion & Gait', url: 'index.html#/motion', icon: '🦵' },
       { name: 'Report & Presentation', url: 'presentation.html', icon: '📑' },
-      { name: 'Assignment Maker', url: 'assignment.html', icon: '📝' },
+      { name: 'Assignment Maker', url: 'index.html#/assignment', icon: '📝' },
       { name: 'Project Maker', url: 'project.html', icon: '📚' },
-      { name: 'Study Buddy', url: 'study.html', icon: '🧠' },
-      { name: 'Exam Simulator', url: 'exam.html', icon: '⏱️' }
+      { name: 'Study Buddy', url: 'index.html#/study', icon: '🧠' },
+      { name: 'Exam Simulator', url: 'index.html#/exam', icon: '⏱️' }
     ];
 
     const currentPath = window.location.pathname.split('/').pop() || 'index.html';

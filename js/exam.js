@@ -5,7 +5,11 @@
 // shared `subjects/{uid}/{subjectId}/topics` record that study.js reads
 // from and writes to — that shared record is the sync between the two tools.
 
-document.addEventListener('DOMContentLoaded', function () {
+(function () {
+  let cleanupFns = [];
+  let timerInterval = null;
+
+  function mount() {
   const database = firebase.database();
   const auth = firebase.auth();
 
@@ -84,12 +88,14 @@ document.addEventListener('DOMContentLoaded', function () {
   let examAnswers = [];
   let examFlags = [];
   let currentQIndex = 0;
-  let timerInterval = null;
   let timeRemainingSec = 0;
   let trendChartInstance = null;
   let topicChartInstance = null;
 
   const $ = (id) => document.getElementById(id);
+  const navbarSlot = $('navbarViewSlot');
+  const historyNavBtnEl = $('historyNavBtn');
+  if (navbarSlot && historyNavBtnEl) navbarSlot.appendChild(historyNavBtnEl);
   const viewSetup = $('viewSetup');
   const viewExam = $('viewExam');
   const viewResults = $('viewResults');
@@ -271,6 +277,7 @@ Generate exactly ${questionCount} multiple-choice questions at "${difficulty}" d
     const m = Math.floor(timeRemainingSec / 60);
     const s = timeRemainingSec % 60;
     const el = $('examTimer');
+    if (!el) { clearInterval(timerInterval); return; } // view was unmounted mid-exam
     el.innerHTML = `<i class="fas fa-clock"></i> ${m}:${s.toString().padStart(2, '0')}`;
     el.classList.toggle('timer-warning', timeRemainingSec <= 60);
   }
@@ -408,7 +415,7 @@ Generate exactly ${questionCount} multiple-choice questions at "${difficulty}" d
 
     const weak = Object.entries(attempt.topicBreakdown).filter(([, r]) => (r.correct / r.total) < 0.6).map(([t]) => t);
     $('reviewWeakBtn').onclick = () => {
-      window.location.href = `study.html?subject=${attempt.subjectId}&focus=${encodeURIComponent(weak.join(','))}`;
+      window.location.href = `index.html?subject=${attempt.subjectId}&focus=${encodeURIComponent(weak.join(','))}#/study`;
     };
   }
 
@@ -471,7 +478,7 @@ Generate exactly ${questionCount} multiple-choice questions at "${difficulty}" d
   // =========================================================================
   // Init
   // =========================================================================
-  auth.onAuthStateChanged(async (user) => {
+  const unsubAuth = auth.onAuthStateChanged(async (user) => {
     currentUser = user;
     if (!user) { $('historyNavBtn').style.display = 'none'; return; }
     $('historyNavBtn').style.display = '';
@@ -505,4 +512,15 @@ Generate exactly ${questionCount} multiple-choice questions at "${difficulty}" d
       onSubjectInputChange();
     }
   });
-});
+  cleanupFns.push(unsubAuth);
+  } // end mount()
+
+  function unmount() {
+    clearInterval(timerInterval);
+    cleanupFns.forEach(fn => { try { fn(); } catch (e) { /* best-effort */ } });
+    cleanupFns = [];
+  }
+
+  window.RehablixViews = window.RehablixViews || {};
+  window.RehablixViews.exam = { mount, unmount };
+})();

@@ -2,8 +2,13 @@
 // live captions) or file upload (Whisper transcription), a careful
 // non-hallucinating AI cleanup pass, and local-first persistence so a
 // reload/crash/background-tab never loses a recording in progress.
+// Registered as the "audio" SPA view.
 
-document.addEventListener('DOMContentLoaded', () => {
+(function () {
+let cleanupFns = [];
+let activeSessionStopper = null; // set while a live session is recording, cleared on finalize/reset
+
+function mount() {
   const database = firebase.database();
 
   // =========================================================================
@@ -13,9 +18,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const DB_VERSION = 1;
   const STORE_SESSIONS = 'sessions';
   const STORE_CHUNKS = 'chunks';
-  const CHUNK_INTERVAL_MS = 20000; // periodic local backup chunks, for crash-recovery + audio download only
-  const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // Whisper's practical file-size ceiling
-  const CLEANUP_CHUNK_CHARS = 6000; // split very long transcripts before the AI narrative pass
+  const CHUNK_INTERVAL_MS = 20000;
+  const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+  const CLEANUP_CHUNK_CHARS = 6000;
 
   const PROFESSIONAL_LABELS = {
     occupational_therapist: 'Occupational Therapist',
@@ -80,6 +85,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const saveTranscriptBtn = $('saveTranscriptBtn');
 
   const toggleHistoryBtn = $('toggleHistoryBtn');
+  const navbarSlot = $('navbarViewSlot');
+  if (navbarSlot && toggleHistoryBtn) navbarSlot.appendChild(toggleHistoryBtn);
   const historyDrawer = $('historyDrawer');
   const closeDrawerBtn = $('closeDrawerBtn');
   const historyList = $('historyList');
@@ -88,13 +95,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // STATE
   // =========================================================================
   let currentUser = null;
-  let scopeUid = null; // center owner's uid for center members, own uid otherwise
+  let scopeUid = null;
   let aiConfig = { token: null, endpoint: null, model: 'openai/gpt-4.1' };
   let idb = null;
 
-  let sourceMode = 'live'; // 'live' | 'upload'
+  let sourceMode = 'live';
   let localSessionId = null;
-  let sessionMeta = null; // { title, sessionType, sourceType, startedAt, pausedAccumMs, mimeType }
+  let sessionMeta = null;
   let mediaStream = null;
   let mediaRecorder = null;
   let chunkIndex = 0;
@@ -102,20 +109,17 @@ document.addEventListener('DOMContentLoaded', () => {
   let timerInterval = null;
   let pauseStartedAt = null;
   let wakeLockSentinel = null;
-  let rawSegments = []; // ordered array of finalized speech-recognition segments (or one Whisper fallback segment)
+  let rawSegments = [];
   let cleanedTranscript = '';
   let audioContext = null, analyser = null, waveformRAF = null;
   let uploadedFile = null;
-  let firebaseAudioId = null; // once saved, the history record's key
+  let firebaseAudioId = null;
   let currentView = 'cleaned';
   let recordedMimeType = 'audio/webm';
-  let interimEl = null; // trailing <span> showing not-yet-final speech recognition text
-  let hasReceivedAnyResult = false; // did recognition produce anything this session?
+  let interimEl = null;
+  let hasReceivedAnyResult = false;
   let noResultWatchdog = null;
 
-  // =========================================================================
-  // TOAST (self-contained, matches the rest of the app's look)
-  // =========================================================================
   function showToast(message, type = 'success', duration = 3000) {
     let container = document.getElementById('toast-container');
     if (!container) {
@@ -132,9 +136,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => toast.remove(), duration);
   }
 
-  // =========================================================================
-  // INDEXEDDB — local-first persistence so nothing is lost on reload/crash
-  // =========================================================================
   function openIDB() {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -157,17 +158,6 @@ document.addEventListener('DOMContentLoaded', () => {
       tx.onerror = () => reject(tx.error);
     });
   }
-
-  async function idbGetSession(id) {
-    if (!idb) await openIDB();
-    return new Promise((resolve, reject) => {
-      const tx = idb.transaction([STORE_SESSIONS], 'readonly');
-      const req = tx.objectStore(STORE_SESSIONS).get(id);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => reject(req.error);
-    });
-  }
-
   async function idbGetAllSessions() {
     if (!idb) await openIDB();
     return new Promise((resolve, reject) => {
@@ -177,7 +167,6 @@ document.addEventListener('DOMContentLoaded', () => {
       req.onerror = () => reject(req.error);
     });
   }
-
   async function idbDeleteSession(id) {
     if (!idb) await openIDB();
     return new Promise((resolve, reject) => {
@@ -187,7 +176,6 @@ document.addEventListener('DOMContentLoaded', () => {
       tx.onerror = () => reject(tx.error);
     });
   }
-
   async function idbPutChunk(sessionId, index, blob) {
     if (!idb) await openIDB();
     return new Promise((resolve, reject) => {
@@ -197,7 +185,6 @@ document.addEventListener('DOMContentLoaded', () => {
       tx.onerror = () => reject(tx.error);
     });
   }
-
   async function idbGetChunksForSession(sessionId) {
     if (!idb) await openIDB();
     return new Promise((resolve, reject) => {
@@ -211,7 +198,6 @@ document.addEventListener('DOMContentLoaded', () => {
       req.onerror = () => reject(req.error);
     });
   }
-
   async function idbDeleteChunksForSession(sessionId) {
     const chunks = await idbGetChunksForSession(sessionId);
     if (!idb) await openIDB();
@@ -224,13 +210,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function newSessionId() {
-    return 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
-  }
+  function newSessionId() { return 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9); }
 
-  // =========================================================================
-  // STAGE SWITCHING
-  // =========================================================================
   function setStage(n) {
     [stageSetup, stageRecord, stageProcessing, stageResult].forEach(s => s.classList.remove('active'));
     [stageSetup, stageRecord, stageProcessing, stageResult][n - 1].classList.add('active');
@@ -241,9 +222,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // =========================================================================
-  // SOURCE MODE TABS (Record Live vs Upload File)
-  // =========================================================================
   sourceModeTabs.querySelectorAll('.source-mode-tab').forEach(btn => {
     btn.addEventListener('click', () => {
       sourceModeTabs.querySelectorAll('.source-mode-tab').forEach(b => b.classList.remove('active'));
@@ -254,9 +232,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // =========================================================================
-  // UPLOAD FLOW
-  // =========================================================================
   uploadDropzone.addEventListener('click', () => audioFileInput.click());
   uploadDropzone.addEventListener('dragover', (e) => { e.preventDefault(); uploadDropzone.classList.add('dragover'); });
   uploadDropzone.addEventListener('dragleave', () => uploadDropzone.classList.remove('dragover'));
@@ -320,9 +295,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // =========================================================================
-  // LIVE RECORDING FLOW
-  // =========================================================================
   startSetupBtn.addEventListener('click', startNewRecording);
 
   async function startNewRecording() {
@@ -345,12 +317,6 @@ document.addEventListener('DOMContentLoaded', () => {
     interimEl = null;
     hasReceivedAnyResult = false;
 
-    // On phones, the OS/browser's own speech-recognition engine and our
-    // getUserMedia backup recorder both want the microphone, and — unlike
-    // desktop Chrome, which happily shares it between the two — mobile
-    // devices often only deliver real audio to whichever claims it first.
-    // Starting recognition here, before opening our own stream below,
-    // gives it first claim.
     if (SpeechRecognitionAPI) {
       startLiveTranscription();
       await new Promise(resolve => setTimeout(resolve, 250));
@@ -399,13 +365,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function beginRecorder() {
-    // A single continuous recorder, purely for local crash-recovery backup
-    // and the optional audio download — NOT for transcription. (Live text
-    // comes from the Web Speech API below; if that's unavailable, the whole
-    // assembled recording is sent to Whisper once, after Stop, since a
-    // complete file is always safely decodable — unlike individual
-    // timesliced fragments, which only the first of would have a valid
-    // container header.)
     mediaRecorder = recordedMimeType
       ? new MediaRecorder(mediaStream, { mimeType: recordedMimeType })
       : new MediaRecorder(mediaStream);
@@ -435,6 +394,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setStage(2);
     showToast('Recording started — you can switch tabs, it keeps going.', 'info', 3500);
+
+    // Registered so unmount() (navigating to another view mid-recording)
+    // stops the mic/recorder instead of leaving it running in the background.
+    activeSessionStopper = () => {
+      try { stopTimer(); stopWaveform(); stopLiveTranscription(); releaseWakeLock(); } catch (e) {}
+      try { if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop(); } catch (e) {}
+      try { if (mediaStream) mediaStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+    };
   }
 
   pauseResumeBtn.addEventListener('click', async () => {
@@ -471,6 +438,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   stopRecordingBtn.addEventListener('click', async () => {
     if (!mediaRecorder) return;
+    activeSessionStopper = null;
     stopTimer();
     stopWaveform();
     stopLiveTranscription();
@@ -486,9 +454,6 @@ document.addEventListener('DOMContentLoaded', () => {
       let hasText = rawSegments.some(s => s && s.trim());
 
       if (!hasText) {
-        // Live captions weren't available (or picked nothing up) — fall
-        // back to transcribing the whole recording in one Whisper call,
-        // the same reliable approach the file-upload flow already uses.
         try {
           updateProcessingProgress(55, 'Transcribing the recording…');
           const chunks = await idbGetChunksForSession(localSessionId);
@@ -508,7 +473,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 400);
   });
 
-  // ---- Timer (drift-proof: computed from real timestamps, not just tick count) ----
   function startTimer() {
     stopTimer();
     const baseStartedAt = new Date(sessionMeta.startedAt).getTime();
@@ -520,10 +484,7 @@ document.addEventListener('DOMContentLoaded', () => {
       recTimer.textContent = formatTime(totalSeconds);
     }, 500);
   }
-
-  function stopTimer() {
-    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
-  }
+  function stopTimer() { if (timerInterval) { clearInterval(timerInterval); timerInterval = null; } }
 
   function formatTime(totalSeconds) {
     const h = Math.floor(totalSeconds / 3600);
@@ -534,7 +495,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
   }
 
-  // ---- Waveform visualizer (cosmetic; pauses automatically if tab is hidden) ----
   function setupWaveform() {
     try {
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -577,41 +537,26 @@ document.addEventListener('DOMContentLoaded', () => {
     analyser = null;
   }
 
-  // ---- Wake Lock: keep the screen on while actively recording, where supported ----
   async function requestWakeLock() {
     try {
-      if ('wakeLock' in navigator) {
-        wakeLockSentinel = await navigator.wakeLock.request('screen');
-      }
+      if ('wakeLock' in navigator) wakeLockSentinel = await navigator.wakeLock.request('screen');
     } catch (err) {
-      // Not fatal — recording still continues, the screen may just dim/lock.
       console.warn('Wake lock unavailable:', err);
     }
   }
-
   function releaseWakeLock() {
-    if (wakeLockSentinel) {
-      wakeLockSentinel.release().catch(() => {});
-      wakeLockSentinel = null;
-    }
+    if (wakeLockSentinel) { wakeLockSentinel.release().catch(() => {}); wakeLockSentinel = null; }
   }
 
-  document.addEventListener('visibilitychange', () => {
-    // Re-acquire the wake lock if the tab regains visibility mid-recording
-    // (the OS releases it automatically when a tab is hidden).
-    if (document.visibilityState === 'visible' && mediaRecorder && mediaRecorder.state === 'recording') {
-      requestWakeLock();
-    }
-  });
+  const onVisibilityChange = () => {
+    if (document.visibilityState === 'visible' && mediaRecorder && mediaRecorder.state === 'recording') requestWakeLock();
+  };
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  cleanupFns.push(() => document.removeEventListener('visibilitychange', onVisibilityChange));
 
-  // =========================================================================
-  // LIVE TRANSCRIPTION (Web Speech API) — same mic-to-text mechanism used
-  // by the mic button on ask.html. Runs alongside the recording so text
-  // appears as the person talks, rather than waiting on file uploads.
-  // =========================================================================
   const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
-  let recognitionShouldRun = false; // true whenever we're recording and not paused
+  let recognitionShouldRun = false;
 
   if (SpeechRecognitionAPI) {
     recognition = new SpeechRecognitionAPI();
@@ -630,7 +575,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if (clean) {
             rawSegments.push(clean);
             sessionMeta.rawSegments = rawSegments;
-            idbPutSession(sessionMeta); // fire-and-forget autosave of progress
+            idbPutSession(sessionMeta);
             appendLiveTranscript(clean);
           }
         } else {
@@ -646,13 +591,9 @@ document.addEventListener('DOMContentLoaded', () => {
         recognitionShouldRun = false;
         showToast('Microphone permission is needed for live captions.', 'error', 5000);
       }
-      // 'no-speech' fires constantly during natural pauses — not an error worth surfacing.
     };
 
     recognition.onend = () => {
-      // Chrome/Safari can end recognition on their own after a stretch of
-      // silence, even mid-session — restart it automatically as long as
-      // we're still meant to be listening.
       if (recognitionShouldRun) {
         try { recognition.start(); } catch (e) { /* already running */ }
       }
@@ -664,12 +605,6 @@ document.addEventListener('DOMContentLoaded', () => {
     recognitionShouldRun = true;
     try { recognition.start(); } catch (e) { /* already started */ }
 
-    // On some phones, the browser's speech engine and our own microphone
-    // stream both want the mic, and recognition can end up listening to
-    // silence without ever erroring — it just never produces a result.
-    // If nothing comes through for a while, let the person know the full
-    // recording will still be transcribed once they stop, rather than
-    // leaving them staring at an apparently-broken box.
     clearTimeout(noResultWatchdog);
     noResultWatchdog = setTimeout(() => {
       if (recognitionShouldRun && !hasReceivedAnyResult) {
@@ -706,17 +641,11 @@ document.addEventListener('DOMContentLoaded', () => {
     span.className = 'transcript-segment';
     const needsSpace = liveTranscriptText.textContent && !liveTranscriptText.textContent.endsWith(' ');
     span.textContent = (needsSpace ? ' ' : '') + text;
-    if (interimEl && interimEl.isConnected) {
-      liveTranscriptText.insertBefore(span, interimEl);
-    } else {
-      liveTranscriptText.appendChild(span);
-    }
+    if (interimEl && interimEl.isConnected) liveTranscriptText.insertBefore(span, interimEl);
+    else liveTranscriptText.appendChild(span);
     liveTranscriptText.scrollTop = liveTranscriptText.scrollHeight;
   }
 
-  // =========================================================================
-  // WHISPER TRANSCRIPTION (single blob/file -> text)
-  // =========================================================================
   async function transcribeBlob(blob) {
     if (!aiConfig.token) await loadAiConfig();
     if (!aiConfig.token) throw new Error('Transcription service is not configured right now.');
@@ -736,14 +665,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let msg = 'Transcription request failed';
       let errBody = '';
       try { const err = await response.json(); msg = err.error?.message || msg; errBody = JSON.stringify(err); } catch (e) {}
-      if (window.reportApiError) {
-        window.reportApiError({
-          status: response.status,
-          bodyText: errBody,
-          tool: 'audio',
-          context: 'transcribe audio'
-        });
-      }
+      if (window.reportApiError) window.reportApiError({ status: response.status, bodyText: errBody, tool: 'audio', context: 'transcribe audio' });
       throw new Error(msg);
     }
     const data = await response.json();
@@ -753,24 +675,12 @@ document.addEventListener('DOMContentLoaded', () => {
   async function loadAiConfig() {
     try {
       const tokens = await window.fetchTokens();
-      if (tokens) {
-        aiConfig.token = tokens.token;
-        aiConfig.endpoint = tokens.endpoint;
-      }
+      if (tokens) { aiConfig.token = tokens.token; aiConfig.endpoint = tokens.endpoint; }
     } catch (err) {
       console.error('Could not load AI config:', err);
     }
   }
 
-  // =========================================================================
-  // AI NARRATIVE PASS — turns the raw transcript into a professional
-  // session narrative, written from the perspective of the chosen
-  // professional's documentation style. Unlike a literal formatter, this
-  // may reorganize and paraphrase into flowing prose — but it must never
-  // invent facts, observations, or outcomes that weren't actually said.
-  // Long transcripts are split into pieces so nothing gets silently
-  // truncated by the model.
-  // =========================================================================
   function buildNarrativeSystemPrompt(professionalLabel) {
     return `You are helping a ${professionalLabel} turn a raw speech-to-text transcript of a real session into a professional session narrative — the kind of note this ${professionalLabel} would write to document what took place, for the clinical record.
 
@@ -795,7 +705,7 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     let remaining = text;
     while (remaining.length > CLEANUP_CHUNK_CHARS) {
       let splitAt = remaining.lastIndexOf('. ', CLEANUP_CHUNK_CHARS);
-      if (splitAt < CLEANUP_CHUNK_CHARS * 0.5) splitAt = CLEANUP_CHUNK_CHARS; // no good sentence break found
+      if (splitAt < CLEANUP_CHUNK_CHARS * 0.5) splitAt = CLEANUP_CHUNK_CHARS;
       pieces.push(remaining.slice(0, splitAt + 1));
       remaining = remaining.slice(splitAt + 1);
     }
@@ -806,7 +716,7 @@ Output ONLY the narrative text, as flowing paragraphs.`;
   async function cleanupTranscript(rawText, professionalKey, onProgress) {
     if (!rawText || !rawText.trim()) return '';
     if (!aiConfig.token) await loadAiConfig();
-    if (!aiConfig.token || !aiConfig.endpoint) return rawText; // graceful fallback: show raw text rather than fail entirely
+    if (!aiConfig.token || !aiConfig.endpoint) return rawText;
 
     const professionalLabel = PROFESSIONAL_LABELS[professionalKey] || 'clinician';
     const systemPrompt = buildNarrativeSystemPrompt(professionalLabel);
@@ -822,40 +732,25 @@ Output ONLY the narrative text, as flowing paragraphs.`;
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiConfig.token}` },
           body: JSON.stringify({
             model: aiConfig.model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: pieces[i] }
-            ],
-            max_tokens: 4000,
-            temperature: 0.3
+            messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: pieces[i] }],
+            max_tokens: 4000, temperature: 0.3
           })
         });
         if (!response.ok) {
           const errBody = await response.text().catch(() => '');
-          if (window.reportApiError) {
-            window.reportApiError({
-              status: response.status,
-              bodyText: errBody,
-              tool: 'audio',
-              context: 'narrative cleanup pass'
-            });
-          }
+          if (window.reportApiError) window.reportApiError({ status: response.status, bodyText: errBody, tool: 'audio', context: 'narrative cleanup pass' });
           throw new Error('Narrative request failed');
         }
         const data = await response.json();
         cleanedPieces.push(data.choices?.[0]?.message?.content?.trim() || pieces[i]);
       } catch (err) {
         console.error('Narrative pass failed for a section, keeping raw text for it:', err);
-        cleanedPieces.push(pieces[i]); // never lose content — fall back to raw for that piece
+        cleanedPieces.push(pieces[i]);
       }
     }
     return cleanedPieces.join('\n\n');
   }
 
-  // =========================================================================
-  // FINALIZE: run cleanup, save to Firebase history, update local state,
-  // show the result screen.
-  // =========================================================================
   async function finalizeSession() {
     const rawText = rawSegments.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
     const professionalKey = sessionMeta.professional || professionalSelect.value;
@@ -875,23 +770,13 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     showProcessing('Saving…', 'Almost done.', 95);
     try {
       const payload = {
-        title: sessionMeta.title,
-        sessionType: sessionMeta.sessionType,
-        professional: professionalKey,
-        sourceType: sessionMeta.sourceType,
-        createdAt: sessionMeta.startedAt,
-        updatedAt: new Date().toISOString(),
-        durationSeconds: sessionMeta.elapsedSeconds || 0,
-        rawTranscript: rawText,
-        cleanedTranscript: cleanedTranscript,
-        isPublic: false
+        title: sessionMeta.title, sessionType: sessionMeta.sessionType, professional: professionalKey,
+        sourceType: sessionMeta.sourceType, createdAt: sessionMeta.startedAt, updatedAt: new Date().toISOString(),
+        durationSeconds: sessionMeta.elapsedSeconds || 0, rawTranscript: rawText, cleanedTranscript, isPublic: false
       };
       const ref = await database.ref(`history/${scopeUid}/audio`).push(payload);
       firebaseAudioId = ref.key;
-
-      if (window.RehablixCenter) {
-        window.RehablixCenter.logActivity('audio', 'Transcribed session', sessionMeta.title).catch(() => {});
-      }
+      if (window.RehablixCenter) window.RehablixCenter.logActivity('audio', 'Transcribed session', sessionMeta.title).catch(() => {});
     } catch (err) {
       console.error('Could not save transcript to history:', err);
       showToast('Transcript ready, but saving to history failed — your text is still safe below.', 'error', 5000);
@@ -906,7 +791,6 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     processingStatus.textContent = status;
     processingProgressFill.style.width = progressPct + '%';
   }
-
   function updateProcessingProgress(pct, status) {
     processingProgressFill.style.width = pct + '%';
     if (status) processingStatus.textContent = status;
@@ -924,9 +808,7 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     viewCleanedBtn.classList.add('active');
     viewRawBtn.classList.remove('active');
     transcriptTextarea.value = sessionMeta.cleanedTranscript || sessionMeta.rawTranscript || '';
-
     downloadAudioBtn.style.display = (sessionMeta.sourceType === 'live' && localSessionId) ? 'inline-flex' : 'none';
-
     setStage(4);
   }
 
@@ -936,14 +818,12 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     viewRawBtn.classList.remove('active');
     transcriptTextarea.value = sessionMeta.cleanedTranscript || '';
   });
-
   viewRawBtn.addEventListener('click', () => {
     currentView = 'raw';
     viewRawBtn.classList.add('active');
     viewCleanedBtn.classList.remove('active');
     transcriptTextarea.value = sessionMeta.rawTranscript || '';
   });
-
   transcriptTextarea.addEventListener('input', () => {
     if (currentView === 'cleaned') sessionMeta.cleanedTranscript = transcriptTextarea.value;
     else sessionMeta.rawTranscript = transcriptTextarea.value;
@@ -985,20 +865,12 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     if (!firebaseAudioId) { showToast('Nothing to save yet', 'error'); return; }
     try {
       await database.ref(`history/${scopeUid}/audio/${firebaseAudioId}`).update({
-        cleanedTranscript: sessionMeta.cleanedTranscript,
-        rawTranscript: sessionMeta.rawTranscript,
-        title: sessionMeta.title,
-        updatedAt: new Date().toISOString()
+        cleanedTranscript: sessionMeta.cleanedTranscript, rawTranscript: sessionMeta.rawTranscript,
+        title: sessionMeta.title, updatedAt: new Date().toISOString()
       });
       showToast('Saved', 'success');
-      if (window.RehablixCenter) {
-        window.RehablixCenter.logActivity('audio', 'Edited transcript', sessionMeta.title).catch(() => {});
-      }
-      // Local copy no longer needs to be kept once safely saved.
-      if (localSessionId) {
-        await idbDeleteChunksForSession(localSessionId);
-        await idbDeleteSession(localSessionId);
-      }
+      if (window.RehablixCenter) window.RehablixCenter.logActivity('audio', 'Edited transcript', sessionMeta.title).catch(() => {});
+      if (localSessionId) { await idbDeleteChunksForSession(localSessionId); await idbDeleteSession(localSessionId); }
       loadHistory();
     } catch (err) {
       showToast('Save failed: ' + err.message, 'error');
@@ -1008,13 +880,8 @@ Output ONLY the narrative text, as flowing paragraphs.`;
   newSessionBtn.addEventListener('click', resetToSetup);
 
   function resetToSetup() {
-    localSessionId = null;
-    sessionMeta = null;
-    rawSegments = [];
-    cleanedTranscript = '';
-    uploadedFile = null;
-    firebaseAudioId = null;
-    chunkIndex = 0;
+    localSessionId = null; sessionMeta = null; rawSegments = []; cleanedTranscript = '';
+    uploadedFile = null; firebaseAudioId = null; chunkIndex = 0;
     stopLiveTranscription();
     uploadFileInfo.style.display = 'none';
     transcribeUploadBtn.disabled = true;
@@ -1023,9 +890,6 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     setStage(1);
   }
 
-  // =========================================================================
-  // RESUME BANNER — an interrupted session (reload/crash mid-recording)
-  // =========================================================================
   async function checkForInterruptedSession() {
     const all = await idbGetAllSessions();
     const interrupted = all.find(s => s.status === 'recording' || s.status === 'paused' || s.status === 'transcribing');
@@ -1048,26 +912,21 @@ Output ONLY the narrative text, as flowing paragraphs.`;
   });
 
   discardSessionBtn.addEventListener('click', async () => {
-    if (sessionMeta) {
-      await idbDeleteChunksForSession(sessionMeta.id);
-      await idbDeleteSession(sessionMeta.id);
-    }
+    if (sessionMeta) { await idbDeleteChunksForSession(sessionMeta.id); await idbDeleteSession(sessionMeta.id); }
     resumeBanner.style.display = 'none';
     resetToSetup();
     showToast('Discarded', 'info');
   });
 
-  // Warn before leaving mid-recording — browsers show their own generic text.
-  window.addEventListener('beforeunload', (e) => {
+  const onBeforeUnload = (e) => {
     if (sessionMeta && (sessionMeta.status === 'recording' || sessionMeta.status === 'paused')) {
       e.preventDefault();
       e.returnValue = '';
     }
-  });
+  };
+  window.addEventListener('beforeunload', onBeforeUnload);
+  cleanupFns.push(() => window.removeEventListener('beforeunload', onBeforeUnload));
 
-  // =========================================================================
-  // HISTORY DRAWER
-  // =========================================================================
   toggleHistoryBtn.addEventListener('click', () => {
     if (!currentUser) { showToast('Please log in to view history', 'error'); document.getElementById('loginBtn')?.click(); return; }
     loadHistory();
@@ -1075,20 +934,21 @@ Output ONLY the narrative text, as flowing paragraphs.`;
   });
   closeDrawerBtn.addEventListener('click', () => historyDrawer.classList.remove('active'));
 
-  document.addEventListener('click', (e) => {
+  const onDocClickCloseDrawer = (e) => {
     if (historyDrawer.classList.contains('active') &&
         !historyDrawer.contains(e.target) &&
         e.target !== toggleHistoryBtn &&
         !toggleHistoryBtn.contains(e.target)) {
       historyDrawer.classList.remove('active');
     }
-  });
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && historyDrawer.classList.contains('active')) {
-      historyDrawer.classList.remove('active');
-    }
-  });
+  };
+  const onDocKeydownCloseDrawer = (e) => {
+    if (e.key === 'Escape' && historyDrawer.classList.contains('active')) historyDrawer.classList.remove('active');
+  };
+  document.addEventListener('click', onDocClickCloseDrawer);
+  document.addEventListener('keydown', onDocKeydownCloseDrawer);
+  cleanupFns.push(() => document.removeEventListener('click', onDocClickCloseDrawer));
+  cleanupFns.push(() => document.removeEventListener('keydown', onDocKeydownCloseDrawer));
 
   async function loadHistory() {
     if (!scopeUid) return;
@@ -1099,28 +959,42 @@ Output ONLY the narrative text, as flowing paragraphs.`;
 
       if (!items.length) {
         historyList.innerHTML = `<div class="empty-state"><i class='bx bx-folder-open'></i><p>No history found</p></div>`;
-        return;
-      }
-      historyList.innerHTML = items.map(item => `
-        <div class="audio-history-item" data-key="${item.key}">
-          <button class="ahi-delete-btn" data-key="${item.key}" title="Delete"><i class="fas fa-trash-alt"></i></button>
-          <div class="ahi-title">${escapeHtml(item.title || 'Untitled')}</div>
-          <div class="ahi-meta">${capitalize(item.sessionType || '')} · ${formatTime(item.durationSeconds || 0)} · ${new Date(item.createdAt).toLocaleDateString()}</div>
-        </div>
-      `).join('');
+      } else {
+        historyList.innerHTML = items.map(item => `
+          <div class="audio-history-item" data-key="${item.key}">
+            <button class="ahi-delete-btn" data-key="${item.key}" title="Delete"><i class="fas fa-trash-alt"></i></button>
+            <div class="ahi-title">${escapeHtml(item.title || 'Untitled')}</div>
+            <div class="ahi-meta">${capitalize(item.sessionType || '')} · ${formatTime(item.durationSeconds || 0)} · ${new Date(item.createdAt).toLocaleDateString()}</div>
+          </div>
+        `).join('');
 
-      historyList.querySelectorAll('.audio-history-item').forEach(el => {
-        el.addEventListener('click', (e) => {
-          if (e.target.closest('.ahi-delete-btn')) return;
-          openHistoryItem(el.dataset.key, val[el.dataset.key]);
+        historyList.querySelectorAll('.audio-history-item').forEach(el => {
+          el.addEventListener('click', (e) => {
+            if (e.target.closest('.ahi-delete-btn')) return;
+            openHistoryItem(el.dataset.key, val[el.dataset.key]);
+          });
         });
-      });
-      historyList.querySelectorAll('.ahi-delete-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => deleteHistoryItem(btn.dataset.key, e));
-      });
+        historyList.querySelectorAll('.ahi-delete-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => deleteHistoryItem(btn.dataset.key, e));
+        });
+      }
+
+      maybeOpenFromDeepLink(val);
     } catch (err) {
       console.error('Could not load history:', err);
     }
+  }
+
+  // Deep-link support: Lixa's Files tab opens a specific saved transcript
+  // via index.html?openId=<id>#/audio.
+  function maybeOpenFromDeepLink(val) {
+    const params = new URLSearchParams(window.location.search);
+    const openId = params.get('openId');
+    if (!openId || !val[openId]) return;
+    openHistoryItem(openId, val[openId]);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('openId');
+    window.history.replaceState({}, '', url);
   }
 
   async function deleteHistoryItem(key, event) {
@@ -1140,45 +1014,29 @@ Output ONLY the narrative text, as flowing paragraphs.`;
 
   function openHistoryItem(key, data) {
     firebaseAudioId = key;
-    localSessionId = null; // no local audio for a re-opened saved item
+    localSessionId = null;
     sessionMeta = {
-      title: data.title,
-      sessionType: data.sessionType,
-      professional: data.professional,
-      sourceType: data.sourceType,
-      startedAt: data.createdAt,
-      elapsedSeconds: data.durationSeconds,
-      rawTranscript: data.rawTranscript,
-      cleanedTranscript: data.cleanedTranscript
+      title: data.title, sessionType: data.sessionType, professional: data.professional,
+      sourceType: data.sourceType, startedAt: data.createdAt, elapsedSeconds: data.durationSeconds,
+      rawTranscript: data.rawTranscript, cleanedTranscript: data.cleanedTranscript
     };
     downloadAudioBtn.style.display = 'none';
     historyDrawer.classList.remove('active');
     showResult();
   }
 
-  // =========================================================================
-  // HELPERS
-  // =========================================================================
   function defaultTitle() {
     const typeLabel = capitalize(sessionTypeSelect.value);
     return `${typeLabel} – ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   }
-
-  function capitalize(str) {
-    if (!str) return '';
-    return str.charAt(0).toUpperCase() + str.slice(1);
-  }
-
+  function capitalize(str) { if (!str) return ''; return str.charAt(0).toUpperCase() + str.slice(1); }
   function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str == null ? '' : String(str);
     return div.innerHTML;
   }
 
-  // =========================================================================
-  // AUTH + SCOPE RESOLUTION + INIT
-  // =========================================================================
-  firebase.auth().onAuthStateChanged(async (user) => {
+  const unsubAuth = firebase.auth().onAuthStateChanged(async (user) => {
     currentUser = user;
     if (!user) {
       toggleHistoryBtn.style.display = 'none';
@@ -1202,6 +1060,18 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     await loadAiConfig();
     loadHistory();
   });
+  cleanupFns.push(unsubAuth);
 
   openIDB().then(checkForInterruptedSession).catch(err => console.warn('IndexedDB unavailable:', err));
-});
+}
+
+function unmount() {
+  // Leaving mid-recording shouldn't leave the mic open in the background.
+  if (activeSessionStopper) { try { activeSessionStopper(); } catch (e) {} activeSessionStopper = null; }
+  cleanupFns.forEach(fn => { try { fn(); } catch (e) { /* best-effort */ } });
+  cleanupFns = [];
+}
+
+window.RehablixViews = window.RehablixViews || {};
+window.RehablixViews.audio = { mount, unmount };
+})();
