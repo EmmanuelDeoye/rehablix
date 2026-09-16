@@ -115,7 +115,7 @@ Return ONLY the HTML.`;
         toolId: 'format',
         recordId: ref.key,
         actions: [
-          { type: 'link', href: `formatresult.html?id=${ref.key}`, label: 'Open & Edit', primary: true, external: true, icon: 'fa-pen-to-square' }
+          { type: 'link', href: `index.html?id=${ref.key}#/formatresult`, label: 'Open & Edit', primary: true, external: true, icon: 'fa-pen-to-square' }
         ]
       }
     };
