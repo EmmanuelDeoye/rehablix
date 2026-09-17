@@ -18,6 +18,18 @@
     // change/value handling below is unchanged.
     const typeSelect = $('motionTypeSelect');
 
+    // History icon relocates into the shared navbar slot, same pattern as
+    // Lixa's #historyNavBtn — this is exactly the navbar space freed up by
+    // moving the Analysis Type dropdown out.
+    const historyBtn = $('motionHistoryBtn');
+    const navbarSlot = $('navbarViewSlot');
+    if (navbarSlot && historyBtn) navbarSlot.appendChild(historyBtn);
+    const historyDrawer = $('motionHistoryDrawer');
+    const historyCloseBtn = $('motionHistoryCloseBtn');
+    const historySearchInput = $('motionHistorySearchInput');
+    const historyList = $('motionHistoryList');
+    const historyLoading = $('motionHistoryLoading');
+
     const video = $('motionVideo');
     const placeholder = $('motionPlaceholder');
     const scanOverlay = $('motionScanOverlay');
@@ -77,7 +89,11 @@
     let sessionState = 'idle'; // idle | capturing | analyzing | results
     let stream = null;
     let paused = false;
-    let lastResult = null; // { text, historyKey, type }
+    let lastResult = null; // { html, historyKey, type, title }
+    let isEditingResults = false;
+
+    // History drawer state
+    let allHistoryItems = []; // merged analysisHistory + gaitHistory, newest first
 
     // ROM capture state
     let movementQueue = [];
@@ -530,7 +546,7 @@
           });
         }
 
-        lastResult = { text: fullResult, historyKey, type: 'rom', title: jointDescription };
+        lastResult = { html: renderMarkdown(fullResult), historyKey, type: 'rom', title: jointDescription };
         showResults(lastResult);
       } catch (err) {
         console.error('ROM analysis error:', err);
@@ -584,7 +600,7 @@
           historyKey = await core.saveGaitToHistory({ scopeUid, result: text, patientName: prefs.patientName, view: prefs.gaitView, notes: prefs.gaitNotes });
         }
 
-        lastResult = { text, historyKey, type: 'gait', title: `Gait Analysis${prefs.patientName ? ' — ' + prefs.patientName : ''}` };
+        lastResult = { html: renderMarkdown(text), historyKey, type: 'gait', title: `Gait Analysis${prefs.patientName ? ' — ' + prefs.patientName : ''}` };
         showResults(lastResult);
       } catch (err) {
         console.error('Gait analysis error:', err);
@@ -617,22 +633,72 @@
       analyzingEl.classList.remove('active');
     }
 
+    function renderMarkdown(text) {
+      return (typeof marked !== 'undefined') ? marked.parse(text || '') : `<pre>${text || ''}</pre>`;
+    }
+
     function showResults(result) {
       hideAnalyzing();
       sessionState = 'results';
       resultsTitle.textContent = result.title;
-      resultsBody.innerHTML = (typeof marked !== 'undefined') ? marked.parse(result.text) : `<pre>${result.text}</pre>`;
+      resultsBody.innerHTML = result.html;
+      setEditingResults(false);
       resultsEl.classList.add('active');
     }
-    function hideResults() { resultsEl.classList.remove('active'); }
+    function hideResults() {
+      if (isEditingResults) setEditingResults(false);
+      resultsEl.classList.remove('active');
+    }
 
-    editBtn.addEventListener('click', () => {
-      if (!lastResult?.historyKey) { showToast('Log in to open this in the editor', 'info'); return; }
-      window.open(`index.html?type=${lastResult.type}&id=${lastResult.historyKey}#/result`, '_blank');
+    // Edit-in-place: the pencil icon toggles resultsBody into an editable
+    // state (same idea as Lixa's document editor, just inline instead of a
+    // separate page) — clicking it again saves the edited HTML straight
+    // back to the same history record instead of opening #/result.
+    function setEditingResults(editing) {
+      isEditingResults = editing;
+      resultsBody.contentEditable = editing ? 'true' : 'false';
+      resultsBody.classList.toggle('motion-results-editing', editing);
+      const icon = editBtn.querySelector('i');
+      if (icon) icon.className = editing ? 'fas fa-check' : 'fas fa-pen';
+      editBtn.title = editing ? 'Save changes' : 'Edit';
+    }
+
+    async function saveResultEdits() {
+      const updatedHtml = resultsBody.innerHTML;
+      if (!lastResult) return;
+      lastResult.html = updatedHtml;
+      if (!lastResult.historyKey || !currentUser) {
+        showToast('Log in to keep edits saved', 'info');
+        return;
+      }
+      const path = lastResult.type === 'gait' ? 'gaitHistory' : 'analysisHistory';
+      try {
+        await firebase.database().ref(`history/${scopeUid}/${path}/${lastResult.historyKey}`).update({
+          resultsHtml: updatedHtml,
+          lastEditedDate: new Date().toLocaleString()
+        });
+        const cached = allHistoryItems.find(h => h.id === lastResult.historyKey && h.type === lastResult.type);
+        if (cached) cached.resultsHtml = updatedHtml;
+        showToast('Changes saved', 'success');
+      } catch (err) {
+        console.error('[motion] save edits error:', err);
+        showToast('Could not save changes', 'error');
+      }
+    }
+
+    editBtn.addEventListener('click', async () => {
+      if (!lastResult) return;
+      if (!isEditingResults) {
+        setEditingResults(true);
+        resultsBody.focus();
+        return;
+      }
+      setEditingResults(false);
+      await saveResultEdits();
     });
     shareBtn.addEventListener('click', async () => {
       if (!lastResult) return;
-      const shareText = `${lastResult.title}\n\n${lastResult.text}`.slice(0, 2000);
+      const shareText = `${lastResult.title}\n\n${resultsBody.innerText}`.slice(0, 2000);
       if (navigator.share) {
         try { await navigator.share({ title: lastResult.title, text: shareText }); } catch (e) { /* user cancelled */ }
       } else {
@@ -642,16 +708,15 @@
     printBtn.addEventListener('click', () => {
       if (!lastResult) return;
       const w = window.open('', '_blank');
-      const html = (typeof marked !== 'undefined') ? marked.parse(lastResult.text) : `<pre>${lastResult.text}</pre>`;
       w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${lastResult.title}</title>
         <style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:800px;margin:2rem auto;padding:0 1rem;line-height:1.6;color:#1f2933;} h1{color:#009688;}</style>
-        </head><body><h1>${lastResult.title}</h1>${html}</body></html>`);
+        </head><body><h1>${lastResult.title}</h1>${resultsBody.innerHTML}</body></html>`);
       w.document.close();
       setTimeout(() => w.print(), 300);
     });
     downloadBtn.addEventListener('click', () => {
       if (!lastResult) return;
-      const blob = new Blob([`${lastResult.title}\n\n${lastResult.text}`], { type: 'text/plain' });
+      const blob = new Blob([`${lastResult.title}\n\n${resultsBody.innerText}`], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = `${lastResult.title.replace(/[^\w\- ]/g, '')}.txt`;
@@ -671,6 +736,129 @@
       sessionState = 'idle';
       updatePromptChip();
     });
+
+    // =====================================================================
+    // History drawer — past ROM + Gait results, newest first
+    // =====================================================================
+    function escapeHtmlMotion(str) {
+      const div = document.createElement('div');
+      div.textContent = str == null ? '' : String(str);
+      return div.innerHTML;
+    }
+    function formatRelativeMotion(ts) {
+      if (!ts) return '';
+      const date = new Date(ts);
+      const isRecent = Date.now() - ts < 24 * 60 * 60 * 1000;
+      return isRecent
+        ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
+    function historyItemTitle(item) {
+      return item.fileName || item.documentType || (item.type === 'gait' ? 'Gait Analysis' : 'ROM Analysis');
+    }
+
+    // Loading skeleton (#motionHistoryLoading) is a permanent sibling, not
+    // a child we'd clobber — only the rendered rows/message get replaced
+    // here, same pattern as Lixa's own history drawer.
+    function clearMotionHistoryRows() {
+      historyList.querySelectorAll(':scope > *:not(#motionHistoryLoading)').forEach(el => el.remove());
+    }
+    function showMotionHistoryMessage(iconClass, text) {
+      clearMotionHistoryRows();
+      historyList.insertAdjacentHTML('beforeend', `<div class="empty-state"><i class="bx ${iconClass}"></i><p>${text}</p></div>`);
+    }
+
+    async function loadMotionHistory() {
+      if (!currentUser || !scopeUid) {
+        showMotionHistoryMessage('bx-lock-alt', 'Log in to see your history');
+        return;
+      }
+      const database = firebase.database();
+      clearMotionHistoryRows();
+      if (historyLoading) historyLoading.hidden = false;
+      try {
+        const [romSnap, gaitSnap] = await Promise.all([
+          database.ref(`history/${scopeUid}/analysisHistory`).once('value'),
+          database.ref(`history/${scopeUid}/gaitHistory`).once('value')
+        ]);
+        const romItems = romSnap.val() ? Object.entries(romSnap.val()).map(([id, item]) => ({ id, type: 'rom', ...item })) : [];
+        const gaitItems = gaitSnap.val() ? Object.entries(gaitSnap.val()).map(([id, item]) => ({ id, type: 'gait', ...item })) : [];
+        allHistoryItems = romItems.concat(gaitItems).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        renderMotionHistoryList();
+      } catch (err) {
+        console.error('[motion] failed to load history', err);
+        showMotionHistoryMessage('bx-error', 'Could not load history');
+      } finally {
+        if (historyLoading) historyLoading.hidden = true;
+      }
+    }
+
+    function renderMotionHistoryList() {
+      const term = (historySearchInput.value || '').toLowerCase().trim();
+      const filtered = allHistoryItems.filter(item => {
+        if (!term) return true;
+        return historyItemTitle(item).toLowerCase().includes(term) || (item.patientName || '').toLowerCase().includes(term);
+      });
+      if (filtered.length === 0) {
+        showMotionHistoryMessage('bx-folder-open', 'No results yet');
+        return;
+      }
+      clearMotionHistoryRows();
+      filtered.forEach(item => {
+        const div = document.createElement('div');
+        const isActive = !!(lastResult && lastResult.historyKey === item.id && lastResult.type === item.type && resultsEl.classList.contains('active'));
+        div.className = 'history-item' + (isActive ? ' active' : '');
+        const icon = item.type === 'gait' ? '🚶' : '🦵';
+        const title = historyItemTitle(item);
+        div.innerHTML = `
+          <span class="history-title" title="${escapeHtmlMotion(title)}">${icon} ${escapeHtmlMotion(title)}</span>
+          <button class="delete-btn" title="Delete"><i class="fas fa-trash-alt"></i></button>
+          <span class="history-time">${formatRelativeMotion(item.timestamp)}</span>
+        `;
+        div.addEventListener('click', (e) => {
+          if (e.target.closest('.delete-btn')) return;
+          openHistoricalResult(item);
+        });
+        div.querySelector('.delete-btn').addEventListener('click', (e) => deleteHistoricalResult(item, e));
+        historyList.appendChild(div);
+      });
+    }
+
+    function openHistoricalResult(item) {
+      if (sessionState === 'capturing') stopSessionAbort();
+      const html = item.resultsHtml || renderMarkdown(item.results);
+      lastResult = { html, historyKey: item.id, type: item.type, title: historyItemTitle(item) };
+      historyDrawer.classList.remove('active');
+      showResults(lastResult);
+    }
+
+    function deleteHistoricalResult(item, e) {
+      e.stopPropagation();
+      if (!confirm('Delete this result?')) return;
+      const path = item.type === 'gait' ? 'gaitHistory' : 'analysisHistory';
+      firebase.database().ref(`history/${scopeUid}/${path}/${item.id}`).remove().then(() => {
+        allHistoryItems = allHistoryItems.filter(h => !(h.id === item.id && h.type === item.type));
+        renderMotionHistoryList();
+        showToast('Deleted', 'success');
+        if (lastResult && lastResult.historyKey === item.id && lastResult.type === item.type) hideResults();
+      }).catch(() => showToast('Could not delete', 'error'));
+    }
+
+    if (historyBtn) {
+      historyBtn.addEventListener('click', () => {
+        if (!currentUser) {
+          showToast('Please log in to view history', 'error');
+          const loginBtn = document.getElementById('loginBtn');
+          if (loginBtn) loginBtn.click();
+          return;
+        }
+        historyDrawer.classList.add('active');
+        if (allHistoryItems.length === 0) loadMotionHistory();
+        else renderMotionHistoryList();
+      });
+    }
+    if (historyCloseBtn) historyCloseBtn.addEventListener('click', () => historyDrawer.classList.remove('active'));
+    if (historySearchInput) historySearchInput.addEventListener('input', () => renderMotionHistoryList());
 
     // =====================================================================
     // Auth
