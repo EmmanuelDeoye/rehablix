@@ -732,7 +732,7 @@
         return;
       }
       const links = {
-        format: `index.html?type=format&id=${id}#/result`,
+        format: `index.html?id=${id}#/formatview`,
         standardized: `index.html?openId=${id}#/standardized`,
         presentation: `index.html?type=case&id=${id}#/result`,
         audio: `index.html?openId=${id}#/audio`,

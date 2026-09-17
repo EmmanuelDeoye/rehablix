@@ -18,6 +18,18 @@
   const historyId = urlParams.get('id');
   const sharedOwnerUid = urlParams.get('uid'); // present on shared/public links so a non-owner can locate the record
 
+  // Assessment Format now has its own dedicated view/editor (#/formatview,
+  // js/views/formatview-view.js) instead of this shared multi-type editor —
+  // redirect old ?type=format#/result links straight there. A full
+  // navigation (not just a hash change) is needed since the id/uid live in
+  // the query string, which formatview reads the same way this page does.
+  if (type === 'format' && historyId) {
+    const params = new URLSearchParams({ id: historyId });
+    if (sharedOwnerUid) params.set('uid', sharedOwnerUid);
+    window.location.replace('index.html?' + params.toString() + '#/formatview');
+    return;
+  }
+
   const config = (window.RESULT_TYPES || {})[type];
 
   // DOM elements (shared shell, present on every result view)

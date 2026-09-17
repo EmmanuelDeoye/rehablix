@@ -27,11 +27,12 @@
     motion: { fragment: 'views/motion.fragment.html', title: 'Motion & Gait Analyzer | rehablix' },
     settings: { fragment: 'views/settings.fragment.html', title: 'rehablix · Account Settings' },
     subscription: { fragment: 'views/subscription.fragment.html', title: 'rehablix · Subscription Plans' },
-    // Format results render in the "result" route above (RESULT_TYPES.format
-    // in js/result-types.js), not a dedicated formatresult route — see
-    // formatresult.html, which now redirects old links into #/result.
     result: { fragment: 'views/result.fragment.html', title: 'rehablix · Result' },
-    docresult: { fragment: 'views/docresult.fragment.html', title: 'rehablix · Documentation Result' }
+    docresult: { fragment: 'views/docresult.fragment.html', title: 'rehablix · Documentation Result' },
+    // Assessment Format has its own dedicated view/editor (reusing the
+    // Motion results interface) instead of routing through "result" above
+    // — see js/views/formatview-view.js.
+    formatview: { fragment: 'views/formatview.fragment.html', title: 'rehablix · Assessment Format' }
   };
 
   const KEEP_ALIVE = new Set(['lixa', 'workspace']);
