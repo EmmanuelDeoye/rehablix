@@ -15,7 +15,12 @@
       <button class="motion-icon-btn" id="formatViewDownloadBtn" title="Download as PDF"><i class="fas fa-download"></i></button>
     </div>
   </div>
-  <div class="motion-results-body" id="formatViewBody" spellcheck="false">Loading…</div>
+  <!-- An iframe (not a plain contenteditable div) so the assessment form's
+       own <style>/@media print rules — it's generated as a full, print-
+       ready HTML document — render exactly as designed instead of going
+       inert inside a fragment. designMode is turned on/off on this same
+       document to edit in place (see js/views/formatview-view.js). -->
+  <iframe class="motion-results-body formatview-frame" id="formatViewFrame" title="Assessment Format"></iframe>
   <div class="motion-results-footer">
     <button class="btn-secondary" id="formatViewNewBtn"><i class="fas fa-plus"></i> New Assessment</button>
     <button class="btn-primary" id="formatViewCloseBtn"><i class="fas fa-check"></i> Done</button>
