@@ -722,7 +722,7 @@ The video frames show the patient walking. Please analyze the gait pattern and p
     
     modal.querySelector('#viewFullAnalysisBtn').addEventListener('click', () => {
       if (historyKey) {
-        window.open(`index.html?type=gait&id=${historyKey}#/result`, '_blank');
+        window.location.href = `index.html?type=gait&id=${historyKey}#/result`;
         closeModal();
       } else {
         showToast('Error: Analysis ID not found', 'error');
@@ -1145,11 +1145,11 @@ The video frames show the patient walking. Please analyze the gait pattern and p
       
       div.querySelector('.view-btn').addEventListener('click', (e) => {
         e.stopPropagation();
-        window.open(`index.html?type=gait&id=${key}#/result`, '_blank');
+        window.location.href = `index.html?type=gait&id=${key}#/result`;
       });
 
       div.addEventListener('click', () => {
-        window.open(`index.html?type=gait&id=${key}#/result`, '_blank');
+        window.location.href = `index.html?type=gait&id=${key}#/result`;
       });
       
       gaitHistoryList.appendChild(div);

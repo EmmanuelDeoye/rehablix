@@ -740,7 +740,14 @@
         study: `index.html?subject=${id}#/study`
       };
       const href = links[type];
-      if (href) window.open(href, '_blank');
+      // #/result and #/formatview open in the same tab now, not a new
+      // window — everything else (a genuinely separate tool page) still
+      // opens in a new tab.
+      const opensInSameTab = type === 'format' || type === 'presentation' || type === 'assignment';
+      if (href) {
+        if (opensInSameTab) window.location.href = href;
+        else window.open(href, '_blank');
+      }
       historyDrawer.classList.remove('active');
     }
 

@@ -224,6 +224,36 @@
         ['Assessment Type', data.assessmentType || 'N/A'],
         ['Department', data.department || 'N/A']
       ]
+    },
+
+    // ================= Audio Transcript =================
+    // Same history/{uid}/audio schema whether the record came from the
+    // standalone Audio Transcription page (js/audio.js, which still edits
+    // in-page) or Lixa's embedded tool (js/lixa-generators/audio-gen.js,
+    // which now opens the transcript here instead of a plain popup window).
+    audio: {
+      accent: '#7c3aed',
+      pageTitle: 'Audio Transcript',
+      shortLabel: 'transcript',
+      historyPath: (uid, id) => `history/${uid}/audio/${id}`,
+      validate: () => true,
+      titleFor: (data) => data.title || 'Audio Transcript',
+      shortTitleFor: () => 'transcript',
+      fileBase: (data) => `Transcript_${(data.title || 'Session').replace(/\s+/g, '_')}`,
+      metadata: (data) => [
+        { icon: 'fa-microphone', text: data.title || 'Audio Transcript' },
+        { icon: 'fa-tag', text: data.sessionType || 'Session' },
+        { icon: 'fa-calendar-alt', text: data.date || (data.createdAt ? new Date(data.createdAt).toLocaleDateString() : new Date().toLocaleDateString()) },
+        { icon: 'fa-clock', text: data.lastEditedDate || '-' }
+      ],
+      getContentHtml: (data) => fallbackContent(data, 'resultsHtml', 'cleanedTranscript', 'rawTranscript'),
+      buildSaveUpdates: ({ html, markdown }) => ({ cleanedTranscript: markdown, resultsHtml: html }),
+      closeUrl: 'index.html#/audio',
+      showPptExport: false,
+      shareSubject: (data) => `Audio Transcript: ${data.title || 'Session'}`,
+      printMeta: (data) => [
+        ['Type', data.sessionType || 'Session']
+      ]
     }
   };
 })();

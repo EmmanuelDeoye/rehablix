@@ -1145,7 +1145,7 @@ If the user's message includes content extracted from an uploaded file, an image
         date: new Date().toLocaleDateString(),
         createdAt: firebase.database.ServerValue.TIMESTAMP
       });
-      window.open(`index.html?type=ask&id=${ref.key}#/result`, '_blank');
+      window.location.href = `index.html?type=ask&id=${ref.key}#/result`;
     } catch (err) {
       console.error('Failed to open in editor:', err);
       showToast('Could not open the editor. Please try again.', 'error');

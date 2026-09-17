@@ -854,9 +854,9 @@ Return ONLY the polished HTML. No markdown fences.`;
     viewFullAssignmentBtn.addEventListener('click', () => {
       closePreviewModal();
       if (currentHistoryId) {
-        window.open(`index.html?type=answer&id=${currentHistoryId}#/result`, '_blank');
+        window.location.href = `index.html?type=answer&id=${currentHistoryId}#/result`;
       } else {
-        window.open('index.html?type=answer#/result', '_blank');
+        window.location.href = 'index.html?type=answer#/result';
       }
     });
   }
@@ -960,9 +960,7 @@ Return ONLY the polished HTML. No markdown fences.`;
           div.addEventListener('click', (e) => {
             if (e.target.closest('.delete-btn') || e.target.closest('.retrieve-btn')) return;
             localStorage.setItem('rehab_assignment_current_id', id);
-            window.open(`index.html?type=answer&id=${id}#/result`, '_blank');
-            historyDrawer.classList.remove('active');
-            document.body.style.overflow = '';
+            window.location.href = `index.html?type=answer&id=${id}#/result`;
           });
 
           div.querySelector('.delete-btn').addEventListener('click', (e) => {
@@ -974,9 +972,7 @@ Return ONLY the polished HTML. No markdown fences.`;
           div.querySelector('.retrieve-btn').addEventListener('click', (e) => {
             e.stopPropagation();
             localStorage.setItem('rehab_assignment_current_id', id);
-            window.open(`index.html?type=answer&id=${id}#/result`, '_blank');
-            historyDrawer.classList.remove('active');
-            document.body.style.overflow = '';
+            window.location.href = `index.html?type=answer&id=${id}#/result`;
           });
 
           historyList.appendChild(div);

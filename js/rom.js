@@ -1433,7 +1433,7 @@ The images show the progression from start position through full range of motion
     
     modal.querySelector('#viewFullAnalysisBtn').addEventListener('click', () => {
       if (historyKey) {
-        window.open(`index.html?type=rom&id=${historyKey}#/result`, '_blank');
+        window.location.href = `index.html?type=rom&id=${historyKey}#/result`;
         closeModal();
       } else {
         showToast('Error: Analysis ID not found', 'error');
@@ -1485,11 +1485,11 @@ The images show the progression from start position through full range of motion
           
           div.querySelector('.view-btn').addEventListener('click', (e) => {
             e.stopPropagation();
-            window.open(`index.html?type=rom&id=${key}#/result`, '_blank');
+            window.location.href = `index.html?type=rom&id=${key}#/result`;
           });
 
           div.addEventListener('click', () => {
-            window.open(`index.html?type=rom&id=${key}#/result`, '_blank');
+            window.location.href = `index.html?type=rom&id=${key}#/result`;
           });
           
           historyList.appendChild(div);

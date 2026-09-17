@@ -4,6 +4,15 @@
 // instead of routing Format results through the shared multi-type
 // #/result editor. Registered as the "formatview" SPA view.
 //
+// The generator (js/lixa-generators/format-gen.js / js/format.js) produces
+// a full, print-ready HTML document — its own @media print rules, table
+// styling, and "A4 page" layout only work correctly rendered as an actual
+// document, not injected as an innerHTML fragment (a `body { ... }` rule
+// in the generated HTML would simply never match anything if dropped into
+// a plain <div>). So the content lives in an <iframe srcdoc="...">, with
+// the iframe's own document.designMode toggled on/off to edit in place —
+// full editability, but rendered exactly as the form was designed.
+//
 // Deep link shape matches every other result-ish route: index.html?id=...
 // (optionally &uid=... for a shared/public link) #/formatview.
 
@@ -14,7 +23,7 @@
     const $ = (id) => document.getElementById(id);
 
     const titleEl = $('formatViewTitle');
-    const bodyEl = $('formatViewBody');
+    const frameEl = $('formatViewFrame');
     const backBtn = $('formatViewBackBtn');
     const editBtn = $('formatViewEditBtn');
     const shareBtn = $('formatViewShareBtn');
@@ -22,13 +31,14 @@
     const downloadBtn = $('formatViewDownloadBtn');
     const newBtn = $('formatViewNewBtn');
     const closeBtn = $('formatViewCloseBtn');
-    if (!bodyEl) return;
+    if (!frameEl) return;
 
     let record = null;
     let recordId = null;
     let ownerUid = null;
     let isOwner = false;
     let isEditing = false;
+    let frameLoaded = null; // Promise resolved once the current srcdoc has finished loading
 
     function showToast(message, type, duration) {
       type = type || 'success';
@@ -47,26 +57,64 @@
       window.location.hash = '#/format';
     }
 
-    // Edit-in-place, same pattern as Motion's results view: the pencil
-    // toggles the body editable, clicking it again saves straight back to
-    // the same history/{uid}/formats/{id} record.
-    function setEditing(editing) {
+    // The AI is asked for a full printable document and usually returns
+    // one (its own <style>/@media print block); if it ever returns a bare
+    // fragment instead, this still gives it sane, print-friendly defaults
+    // rather than rendering unstyled.
+    function wrapAssessmentHtml(rawHtml) {
+      if (/<html[\s>]/i.test(rawHtml)) return rawHtml;
+      return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; color:#1f2933; line-height:1.6; max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem; background:#fff; }
+  table { border-collapse: collapse; width:100%; margin: 1rem 0; }
+  td, th { border: 1px solid #ccc; padding: 0.5rem; text-align:left; }
+  textarea { font-family: inherit; }
+  h1, h2, h3 { color:#00695c; }
+  @media print { body { padding: 0; } }
+</style>
+</head><body>${rawHtml}</body></html>`;
+    }
+
+    function renderInFrame(rawHtml) {
+      frameLoaded = new Promise((resolve) => {
+        frameEl.addEventListener('load', function onLoad() {
+          frameEl.removeEventListener('load', onLoad);
+          resolve();
+        });
+      });
+      frameEl.srcdoc = wrapAssessmentHtml(rawHtml);
+      return frameLoaded;
+    }
+
+    // Edit-in-place: designMode on the iframe's own document, rather than
+    // contenteditable on a wrapping div — this is what lets the AI's own
+    // form styling (fonts, tables, print rules) stay exactly as rendered
+    // while still being fully editable.
+    async function setEditing(editing) {
       if (!isOwner) return;
+      await frameLoaded;
+      const doc = frameEl.contentDocument;
+      if (!doc) return;
       isEditing = editing;
-      bodyEl.contentEditable = editing ? 'true' : 'false';
-      bodyEl.classList.toggle('motion-results-editing', editing);
+      doc.designMode = editing ? 'on' : 'off';
+      frameEl.classList.toggle('motion-results-editing', editing);
       const icon = editBtn.querySelector('i');
       if (icon) icon.className = editing ? 'fas fa-check' : 'fas fa-pen';
       editBtn.title = editing ? 'Save changes' : 'Edit';
+      if (editing) doc.body && doc.body.focus();
     }
 
     async function saveEdits() {
-      const html = bodyEl.innerHTML;
       if (!recordId || !ownerUid) return;
+      await frameLoaded;
+      const doc = frameEl.contentDocument;
+      if (!doc) return;
+      const html = doc.documentElement.outerHTML;
+      const plainText = doc.body ? doc.body.innerText : '';
       try {
         await firebase.database().ref(`history/${ownerUid}/formats/${recordId}`).update({
           generatedText: html,
-          preview: html.replace(/<[^>]*>/g, ' ').substring(0, 150).replace(/\n/g, ' '),
+          preview: plainText.replace(/\s+/g, ' ').substring(0, 150),
           lastEditedDate: new Date().toLocaleString()
         });
         if (record) record.generatedText = html;
@@ -92,7 +140,7 @@
 
       if (!recordId) {
         titleEl.textContent = 'Not found';
-        bodyEl.innerHTML = '<p>No assessment was specified.</p>';
+        await renderInFrame('<p>No assessment was specified.</p>');
         return;
       }
 
@@ -100,7 +148,7 @@
       isOwner = !!user && !sharedUid;
       if (!ownerUid) {
         titleEl.textContent = 'Log in required';
-        bodyEl.innerHTML = '<p>Please log in to view this assessment.</p>';
+        await renderInFrame('<p>Please log in to view this assessment.</p>');
         return;
       }
 
@@ -109,30 +157,32 @@
         record = snap.val();
         if (!record) {
           titleEl.textContent = 'Not found';
-          bodyEl.innerHTML = "<p>This assessment could not be found, or you don't have access to it.</p>";
           isOwner = false;
+          await renderInFrame("<p>This assessment could not be found, or you don't have access to it.</p>");
           return;
         }
         titleEl.textContent = titleFor(record);
-        bodyEl.innerHTML = (record.generatedText && record.generatedText.trim().length > 0) ? record.generatedText : '<p>No content available</p>';
+        await renderInFrame((record.generatedText && record.generatedText.trim().length > 0) ? record.generatedText : '<p>No content available</p>');
         editBtn.style.display = isOwner ? '' : 'none';
       } catch (err) {
         console.error('[formatview] load error:', err);
         titleEl.textContent = 'Error';
-        bodyEl.innerHTML = '<p>Could not load this assessment.</p>';
+        await renderInFrame('<p>Could not load this assessment.</p>');
       }
     }
 
     editBtn.addEventListener('click', async () => {
       if (!record) return;
-      if (!isEditing) { setEditing(true); bodyEl.focus(); return; }
-      setEditing(false);
+      if (!isEditing) { await setEditing(true); return; }
+      await setEditing(false);
       await saveEdits();
     });
 
     shareBtn.addEventListener('click', async () => {
       if (!record) return;
-      const shareText = `${titleEl.textContent}\n\n${bodyEl.innerText}`.slice(0, 2000);
+      await frameLoaded;
+      const doc = frameEl.contentDocument;
+      const shareText = `${titleEl.textContent}\n\n${doc && doc.body ? doc.body.innerText : ''}`.slice(0, 2000);
       if (navigator.share) {
         try { await navigator.share({ title: titleEl.textContent, text: shareText }); } catch (e) { /* user cancelled */ }
       } else {
@@ -140,17 +190,21 @@
       }
     });
 
-    printBtn.addEventListener('click', () => {
+    // Printing the iframe's own contentWindow (rather than opening a new
+    // tab) uses the document's own @media print rules exactly as the
+    // generator wrote them, and needs no popup window at all.
+    printBtn.addEventListener('click', async () => {
       if (!record) return;
-      const w = window.open('', '_blank');
-      w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${titleEl.textContent}</title></head><body>${bodyEl.innerHTML}</body></html>`);
-      w.document.close();
-      setTimeout(() => w.print(), 300);
+      await frameLoaded;
+      if (frameEl.contentWindow) frameEl.contentWindow.print();
     });
 
-    downloadBtn.addEventListener('click', () => {
-      if (!record) { return; }
+    downloadBtn.addEventListener('click', async () => {
+      if (!record) return;
       if (!window.html2pdf) { showToast('PDF export library not loaded', 'error'); return; }
+      await frameLoaded;
+      const doc = frameEl.contentDocument;
+      if (!doc || !doc.body) return;
       const original = downloadBtn.innerHTML;
       downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
       const fileBase = titleFor(record).replace(/[^\w\- ]/g, '').replace(/\s+/g, '_') || 'Assessment';
@@ -160,7 +214,7 @@
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: { scale: 2 },
         jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
-      }).from(bodyEl).save().finally(() => { downloadBtn.innerHTML = original; });
+      }).from(doc.body).save().finally(() => { downloadBtn.innerHTML = original; });
     });
 
     backBtn.addEventListener('click', goBack);
