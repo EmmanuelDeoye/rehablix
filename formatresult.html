@@ -1,5 +1,5 @@
-<!-- formatresult.html — format results now render in the shared result.html
-     editor (RESULT_TYPES.format) at index.html?type=format&id=...#/result,
+<!-- formatresult.html — format results now render in their own dedicated
+     view/editor at index.html?id=...#/formatview (js/views/formatview-view.js),
      not their own page. Kept only to redirect old bookmarks/links. -->
 <!DOCTYPE html>
 <html lang="en">
@@ -9,8 +9,8 @@
   <script>
     (function () {
       const params = new URLSearchParams(window.location.search);
-      if (!params.has('type')) params.set('type', 'format');
-      window.location.replace('index.html?' + params.toString() + '#/result');
+      params.delete('type');
+      window.location.replace('index.html?' + params.toString() + '#/formatview');
     })();
   </script>
 </head>
