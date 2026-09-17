@@ -34,25 +34,22 @@ Return ONLY the HTML.`;
     return (html || '').replace(/```html?/g, '').replace(/```/g, '').trim();
   }
 
-  async function fetchOpenAiToken() {
-    const snap = await firebase.database().ref('tokens/open_ai').once('value');
-    const data = snap.val();
-    if (!data || !data.api_key) throw new Error('AI credentials are not configured.');
-    return data.api_key;
-  }
-
-  async function callAIWithValidation(prompt, token, attempt) {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  // Uses whichever of the 4 Lixa models the user has selected in the
+  // composer — this tool is embedded in Lixa, not a separate AI product,
+  // so it shares Lixa's model choice, token ceiling and quota instead of
+  // always hardcoding the top-tier model regardless of plan/selection.
+  async function callAIWithValidation(prompt, config, attempt) {
+    const response = await fetch(`${config.endpoint}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
       body: JSON.stringify({
-        model: 'gpt-4.1',
+        model: config.model,
         messages: [
           { role: 'system', content: 'You are a senior rehabilitation therapist. You always return clean, printable HTML forms. Never use Markdown or code fences.' },
           { role: 'user', content: prompt }
         ],
-        temperature: 0.7,
-        max_tokens: attempt === 1 ? 4000 : 5500
+        temperature: config.temperature ?? 0.7,
+        max_tokens: config.maxTokens
       })
     });
     if (!response.ok) throw new Error(`API error: ${response.status}`);
@@ -63,7 +60,7 @@ Return ONLY the HTML.`;
       throw new Error('The AI declined to generate this content — try rephrasing the diagnosis/notes.');
     }
     if (html.length < 20) {
-      if (attempt < 2) return callAIWithValidation(prompt, token, attempt + 1);
+      if (attempt < 2) return callAIWithValidation(prompt, config, attempt + 1);
       throw new Error('The AI returned an empty response. Please try again.');
     }
     return html;
@@ -84,9 +81,12 @@ Return ONLY the HTML.`;
       notes: data.notes || ''
     };
 
-    const token = await fetchOpenAiToken();
+    await window.LixaCore.checkToolQuota();
+    const config = await window.LixaCore.resolveToolModelConfig();
+    if (!config) throw new Error('AI service is not configured.');
     const prompt = buildPrompt(formData);
-    const html = await callAIWithValidation(prompt, token, 1);
+    const html = await callAIWithValidation(prompt, config, 1);
+    window.LixaCore.reportToolTokenUsage(prompt + html, config.weight);
 
     const historyItem = {
       patientName: formData.name,

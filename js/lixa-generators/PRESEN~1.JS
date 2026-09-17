@@ -14,24 +14,20 @@
     return 'report';
   }
 
-  async function fetchDeepSeekToken() {
-    const snap = await firebase.database().ref('tokens/deepseek').once('value');
-    const data = snap.val();
-    if (!data || !data.api_key) throw new Error('AI credentials are not configured.');
-    return data.api_key;
-  }
-
-  async function callAIWithValidation(messages, token, maxTokens, attempt) {
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+  // Uses whichever of the 4 Lixa models the user has selected, instead of
+  // always hardcoding DeepSeek — this tool is embedded in Lixa, not a
+  // separate AI product with its own model/gating.
+  async function callAIWithValidation(messages, config, attempt) {
+    const response = await fetch(`${config.endpoint}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ model: 'deepseek-v4-flash', messages, max_tokens: maxTokens, temperature: 0.3, top_p: 0.9 })
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+      body: JSON.stringify({ model: config.model, messages, max_tokens: config.maxTokens, temperature: config.temperature ?? 0.3, top_p: config.top_p ?? 0.9 })
     });
     if (!response.ok) throw new Error(`API error: ${response.status}`);
     const data = await response.json();
     const content = (data.choices?.[0]?.message?.content || '').trim();
     if (content.length < 20) {
-      if (attempt < 2) return callAIWithValidation(messages, token, maxTokens + 1000, attempt + 1);
+      if (attempt < 2) return callAIWithValidation(messages, config, attempt + 1);
       throw new Error('The AI returned an empty response. Please try again.');
     }
     return content;
@@ -65,11 +61,14 @@ CLINICIAN: ${profession}
 SOURCE NOTES / CONTENT:
 ${data.content}`;
 
-    const token = await fetchDeepSeekToken();
+    await window.LixaCore.checkToolQuota();
+    const config = await window.LixaCore.resolveToolModelConfig();
+    if (!config) throw new Error('AI service is not configured.');
     const rawMarkdown = await callAIWithValidation(
       [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }],
-      token, 3500, 1
+      config, 1
     );
+    window.LixaCore.reportToolTokenUsage(systemPrompt + userContent + rawMarkdown, config.weight);
     const htmlContent = marked.parse(rawMarkdown);
 
     const historyItem = {

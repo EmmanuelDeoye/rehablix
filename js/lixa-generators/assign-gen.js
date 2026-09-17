@@ -5,29 +5,25 @@
 // still produces natural, properly structured academic writing.
 
 (function () {
-  async function fetchDeepSeekToken() {
-    const snap = await firebase.database().ref('tokens/deepseek').once('value');
-    const data = snap.val();
-    if (!data || !data.api_key) throw new Error('AI credentials are not configured.');
-    return data.api_key;
-  }
-
   function cleanAIResponse(raw) {
     let cleaned = (raw || '').replace(/```html?/gi, '').replace(/```/g, '').trim();
     if (typeof marked !== 'undefined' && !/^\s*</.test(cleaned)) cleaned = marked.parse(cleaned);
     return cleaned;
   }
 
-  async function callAI(systemPrompt, userPrompt, token, maxTokens) {
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+  // Uses whichever of the 4 Lixa models the user has selected, instead of
+  // always hardcoding DeepSeek — this tool is embedded in Lixa, not a
+  // separate AI product with its own model/gating.
+  async function callAI(systemPrompt, userPrompt, config) {
+    const response = await fetch(`${config.endpoint}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
       body: JSON.stringify({
-        model: 'deepseek-v4-flash',
+        model: config.model,
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-        max_tokens: maxTokens,
-        temperature: 0.8,
-        top_p: 0.95,
+        max_tokens: config.maxTokens,
+        temperature: config.temperature ?? 0.8,
+        top_p: config.top_p ?? 0.95,
         frequency_penalty: 0.3,
         presence_penalty: 0.3
       })
@@ -51,8 +47,11 @@
     const systemPrompt = `You are an expert academic writer helping a healthcare student complete an assignment. Write in a natural, human tone (${tone}) — vary sentence length and structure, avoid robotic phrasing and repetitive transitions, and avoid clichéd AI-writing patterns. Structure the piece with clear headings where appropriate. Target roughly ${volume} of content. Return well-formatted markdown.`;
     const userPrompt = `Course/Subject: ${course}\nAssignment topic: ${topic}\n\nWrite a complete, well-researched assignment on this topic, citing general/foundational knowledge appropriately (no fabricated specific citations).`;
 
-    const token = await fetchDeepSeekToken();
-    const markdown = await callAI(systemPrompt, userPrompt, token, 3500);
+    await window.LixaCore.checkToolQuota();
+    const config = await window.LixaCore.resolveToolModelConfig();
+    if (!config) throw new Error('AI service is not configured.');
+    const markdown = await callAI(systemPrompt, userPrompt, config);
+    window.LixaCore.reportToolTokenUsage(systemPrompt + userPrompt + markdown, config.weight);
     const html = cleanAIResponse(markdown);
 
     const historyItem = {

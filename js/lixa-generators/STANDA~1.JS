@@ -23,25 +23,21 @@ Requirements:
 - Return ONLY the HTML (no markdown, no explanations).`;
   }
 
-  async function fetchOpenAiToken() {
-    const snap = await firebase.database().ref('tokens/open_ai').once('value');
-    const data = snap.val();
-    if (!data || !data.api_key) throw new Error('AI credentials are not configured.');
-    return data.api_key;
-  }
-
-  async function callAIWithValidation(prompt, token, attempt) {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  // Uses whichever of the 4 Lixa models the user has selected, instead of
+  // always hardcoding the top-tier model — this tool is embedded in Lixa,
+  // not a separate AI product with its own gating.
+  async function callAIWithValidation(prompt, config, attempt) {
+    const response = await fetch(`${config.endpoint}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
       body: JSON.stringify({
-        model: 'gpt-4.1',
+        model: config.model,
         messages: [
           { role: 'system', content: 'You output clean HTML with proper tables. No extra text.' },
           { role: 'user', content: prompt }
         ],
-        temperature: 0.3,
-        max_tokens: attempt === 1 ? 4000 : 5500
+        temperature: Math.min(config.temperature ?? 0.3, 0.3),
+        max_tokens: config.maxTokens
       })
     });
     if (!response.ok) throw new Error(`API error: ${response.status}`);
@@ -52,7 +48,7 @@ Requirements:
       throw new Error('The AI declined to generate this content — try again with a different tool name.');
     }
     if (content.length < 20) {
-      if (attempt < 2) return callAIWithValidation(prompt, token, attempt + 1);
+      if (attempt < 2) return callAIWithValidation(prompt, config, attempt + 1);
       throw new Error('The AI returned an empty response. Please try again.');
     }
     return content;
@@ -103,9 +99,12 @@ Requirements:
       recordId = existingEntry[0];
       content = existingEntry[1].generatedContent;
     } else {
-      const token = await fetchOpenAiToken();
+      await window.LixaCore.checkToolQuota();
+      const config = await window.LixaCore.resolveToolModelConfig();
+      if (!config) throw new Error('AI service is not configured.');
       const prompt = buildPrompt(toolName, includeGuides);
-      content = await callAIWithValidation(prompt, token, 1);
+      content = await callAIWithValidation(prompt, config, 1);
+      window.LixaCore.reportToolTokenUsage(prompt + content, config.weight);
       const historyItem = {
         toolName,
         includeGuides,

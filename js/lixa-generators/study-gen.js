@@ -4,22 +4,18 @@
 // same topic-mastery records that exam.js also reads).
 
 (function () {
-  async function fetchDeepSeekToken() {
-    const snap = await firebase.database().ref('tokens/deepseek').once('value');
-    const data = snap.val();
-    if (!data || !data.api_key) throw new Error('AI credentials are not configured.');
-    return data.api_key;
-  }
-
-  async function callAIOnce(systemPrompt, userPrompt, token, maxTokens) {
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+  // Uses whichever of the 4 Lixa models the user has selected, instead of
+  // always hardcoding DeepSeek — this tool is embedded in Lixa, not a
+  // separate AI product with its own model/gating.
+  async function callAIOnce(systemPrompt, userPrompt, config) {
+    const response = await fetch(`${config.endpoint}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
       body: JSON.stringify({
-        model: 'deepseek-v4-flash',
+        model: config.model,
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-        max_tokens: maxTokens,
-        temperature: 0.5
+        max_tokens: config.maxTokens,
+        temperature: config.temperature ?? 0.5
       })
     });
     if (!response.ok) throw new Error(`AI service error (${response.status})`);
@@ -32,9 +28,9 @@
   // and surface as "Unexpected end of JSON input" with no retry, unlike the
   // main chat flow (js/ask.js) which already retries once on the same
   // failure mode.
-  async function callAI(systemPrompt, userPrompt, token, maxTokens) {
-    let content = await callAIOnce(systemPrompt, userPrompt, token, maxTokens);
-    if (!content) content = await callAIOnce(systemPrompt, userPrompt, token, maxTokens);
+  async function callAI(systemPrompt, userPrompt, config) {
+    let content = await callAIOnce(systemPrompt, userPrompt, config);
+    if (!content) content = await callAIOnce(systemPrompt, userPrompt, config);
     if (!content) throw new Error('The AI returned an empty response. Please try again.');
     return content;
   }
@@ -82,13 +78,17 @@
 Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz questions.`;
     const userPrompt = `Subject: ${subjectName}\n\nMaterial:\n${notes.slice(0, 12000)}`;
 
-    const token = await fetchDeepSeekToken();
+    await window.LixaCore.checkToolQuota();
+    const config = await window.LixaCore.resolveToolModelConfig();
+    if (!config) throw new Error('AI service is not configured.');
     // 15 flashcards + 8 quiz questions (each with 4 options + an
-    // explanation) + a 200-400 word summary, all as one JSON blob, routinely
-    // runs past 4000 tokens — the model would hit that ceiling mid-object
-    // and cut the JSON off incomplete, which is what "Unexpected end of
-    // JSON input" / "not in the expected format" actually was.
-    const response = await callAI(systemPrompt, userPrompt, token, 8000);
+    // explanation) + a 200-400 word summary, all as one JSON blob, needs a
+    // real token budget — this now rides on whichever Lixa model is
+    // selected, same as everything else Lixa generates; a lower-tier
+    // model's smaller ceiling can mean a shorter/truncated set, same
+    // tradeoff a chat turn on that model would have.
+    const response = await callAI(systemPrompt, userPrompt, config);
+    window.LixaCore.reportToolTokenUsage(systemPrompt + userPrompt + response, config.weight);
     const parsed = parseAIJson(response);
     if (!parsed.flashcards || !parsed.quiz || !parsed.topics) throw new Error('The AI response was missing required fields.');
 

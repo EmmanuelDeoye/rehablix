@@ -47,29 +47,38 @@
     return pieces;
   }
 
+  // The transcription itself (transcribeBlob, above) always uses Whisper —
+  // that's a fixed transcription service, not a "Lixa model" choice. This
+  // narrative-writing pass, though, is a normal chat-completion call, so it
+  // uses whichever of the 4 Lixa models the user has selected rather than
+  // always hardcoding gpt-4.1.
   async function cleanupTranscript(rawText) {
     if (!rawText || !rawText.trim()) return '';
-    const tokens = await loadAiConfig().catch(() => null);
-    if (!tokens) return rawText;
+    const config = await window.LixaCore.resolveToolModelConfig().catch(() => null);
+    if (!config) return rawText;
+    const quotaOk = await window.LixaCore.checkToolQuota().then(() => true).catch(() => false);
+    if (!quotaOk) return rawText;
 
     const systemPrompt = `You are helping a ${PROFESSIONAL_LABEL} turn a raw speech-to-text transcript of a real session into a professional session narrative. Write clear, well-organized third-person prose describing what happened. You may paraphrase and smooth out filler words, but you must NEVER invent observations, measurements, or outcomes not present in the transcript. Output ONLY the narrative text.`;
     const pieces = splitForCleanup(rawText);
     const cleanedPieces = [];
     for (const piece of pieces) {
       try {
-        const response = await fetch(`${tokens.endpoint.replace(/\/$/, '')}/chat/completions`, {
+        const response = await fetch(`${config.endpoint.replace(/\/$/, '')}/chat/completions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokens.token}` },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
           body: JSON.stringify({
-            model: 'gpt-4.1',
+            model: config.model,
             messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: piece }],
-            max_tokens: 4000,
-            temperature: 0.3
+            max_tokens: config.maxTokens,
+            temperature: Math.min(config.temperature ?? 0.3, 0.3)
           })
         });
         if (!response.ok) throw new Error('narrative request failed');
         const data = await response.json();
-        cleanedPieces.push(data.choices?.[0]?.message?.content?.trim() || piece);
+        const cleanedPiece = data.choices?.[0]?.message?.content?.trim() || piece;
+        cleanedPieces.push(cleanedPiece);
+        window.LixaCore.reportToolTokenUsage(systemPrompt + piece + cleanedPiece, config.weight);
       } catch (err) {
         cleanedPieces.push(piece);
       }
