@@ -1,3 +1,9 @@
+<button class="icon-btn history-nav-btn" id="motionHistoryBtn" aria-label="History" title="History">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+    <path d="M12 8V12L15 15M12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12C21 16.9706 16.9706 21 12 21Z" stroke="currentColor" fill="none"/>
+  </svg>
+</button>
+
 <div id="motionRoot">
   <video id="motionVideo" class="motion-video" autoplay playsinline muted hidden></video>
   <div class="motion-camera-placeholder" id="motionPlaceholder">
@@ -126,9 +132,34 @@
       <button class="motion-icon-btn" id="motionDownloadBtn" title="Download"><i class="fas fa-download"></i></button>
     </div>
   </div>
-  <div class="motion-results-body" id="motionResultsBody"></div>
+  <div class="motion-results-body" id="motionResultsBody" spellcheck="false"></div>
   <div class="motion-results-footer">
     <button class="btn-secondary" id="motionRetakeBtn"><i class="fas fa-redo"></i> Retake Session</button>
     <button class="btn-primary" id="motionNewSessionBtn"><i class="fas fa-plus"></i> New Session</button>
   </div>
 </div>
+
+<!-- History drawer — past ROM + Gait results, newest first -->
+<aside class="history-drawer" id="motionHistoryDrawer">
+  <div class="drawer-header">
+    <h3><i class='bx bx-time-five'></i> History</h3>
+    <div class="drawer-header-actions">
+      <button id="motionHistoryCloseBtn" class="drawer-close-btn"><i class='bx bx-x'></i></button>
+    </div>
+  </div>
+  <div class="history-search" id="motionHistorySearchWrap">
+    <i class="fas fa-search"></i>
+    <input type="text" id="motionHistorySearchInput" placeholder="Search past results...">
+  </div>
+  <div class="history-content" id="motionHistoryList">
+    <div class="drawer-loading" id="motionHistoryLoading" hidden>
+      <div class="drawer-skeleton"></div>
+      <div class="drawer-skeleton"></div>
+      <div class="drawer-skeleton"></div>
+    </div>
+    <div class="empty-state" hidden>
+      <i class='bx bx-folder-open'></i>
+      <p>No results yet</p>
+    </div>
+  </div>
+</aside>
