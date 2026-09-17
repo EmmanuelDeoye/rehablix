@@ -96,18 +96,18 @@
 }
 .motion-angle-chip.visible { display: inline-flex; }
 
-/* Navbar dropdown (injected into #navbarViewSlot) */
-.motion-type-select {
-  background: var(--surface);
-  border: 1px solid var(--border-light);
-  border-radius: 1.5rem;
-  padding: 0.4rem 0.9rem;
-  font-size: 0.82rem;
-  color: var(--text-primary);
-  font-family: inherit;
-  max-width: 46vw;
+/* "Perfect frame" cue — the joint angle has settled within the same tight
+   spread the auto-capture waits for, so this is the moment to hold still. */
+.motion-angle-chip.motion-angle-stable {
+  background: rgba(34, 197, 94, 0.92);
+  animation: motionAngleStablePulse 0.8s ease-in-out infinite;
+}
+@keyframes motionAngleStablePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
 }
 
+/* Navbar dropdown (injected into #navbarViewSlot) */
 /* Floating controls: preferences | record/capture | camera settings */
 .motion-controls {
   position: fixed;

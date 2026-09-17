@@ -76,12 +76,12 @@
   }
 }
 
-.form-group {
+#assessmentForm .form-group {
   margin-bottom: 1rem;
   width: 100%;
 }
 
-.form-group label {
+#assessmentForm .form-group label {
   display: block;
   margin-bottom: 0.4rem;
   color: var(--text-secondary);
@@ -91,9 +91,9 @@
 }
 
 /* ===== Modern Input Styling ===== */
-.form-group input,
-.form-group select,
-.form-group textarea {
+#assessmentForm .form-group input,
+#assessmentForm .form-group select,
+#assessmentForm .form-group textarea {
   width: 100%;
   padding: 0.9rem 1.2rem;
   border: 2px solid transparent;
@@ -105,16 +105,16 @@
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
 }
 
-[data-theme="dark"] .form-group input,
-[data-theme="dark"] .form-group select,
-[data-theme="dark"] .form-group textarea {
+[data-theme="dark"] #assessmentForm .form-group input,
+[data-theme="dark"] #assessmentForm .form-group select,
+[data-theme="dark"] #assessmentForm .form-group textarea {
   background: rgba(30, 42, 50, 0.6);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
 }
 
-.form-group input:focus,
-.form-group select:focus,
-.form-group textarea:focus {
+#assessmentForm .form-group input:focus,
+#assessmentForm .form-group select:focus,
+#assessmentForm .form-group textarea:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 4px var(--accent-soft);
@@ -122,8 +122,10 @@
 }
 
 /* ===== Checkbox Styling ===== */
-.form-group.checkbox {
+#assessmentForm .form-group.checkbox {
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.8rem;
   margin: 1.2rem 0;
@@ -132,7 +134,7 @@
   border-radius: 1rem;
 }
 
-.form-group.checkbox input {
+#assessmentForm .form-group.checkbox input {
   width: 1.2rem;
   height: 1.2rem;
   accent-color: var(--accent);
@@ -963,8 +965,10 @@
 }
 
 /* Checkbox Group */
-.form-group.checkbox {
+#assessmentForm .form-group.checkbox {
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.8rem;
   margin: 1.2rem 0;
@@ -973,14 +977,14 @@
   border-radius: 1rem;
 }
 
-.form-group.checkbox input {
+#assessmentForm .form-group.checkbox input {
   width: 1.2rem;
   height: 1.2rem;
   accent-color: var(--accent);
   cursor: pointer;
 }
 
-.form-group.checkbox label {
+#assessmentForm .form-group.checkbox label {
   margin-bottom: 0;
   cursor: pointer;
 }
@@ -1094,9 +1098,9 @@
     padding: 1rem;
   }
   
-  .form-group input,
-  .form-group select,
-  .form-group textarea {
+  #assessmentForm .form-group input,
+  #assessmentForm .form-group select,
+  #assessmentForm .form-group textarea {
     padding: 0.7rem 1rem;
   }
   

@@ -69,6 +69,31 @@ main { flex: 1; }
   position: relative;
 }
 
+/* ===== Route loading shimmer (js/router.js) — overlays #appRoot only
+   while a view's fragment is being fetched for the first time, so
+   switching pages/tools never shows a blank/frozen gap. Reuses the same
+   shimmer sweep as the History drawer's .drawer-skeleton (css/lixa.css). */
+#routeLoadingSkeleton {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  background: var(--bg-page);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+#routeLoadingSkeleton[hidden] { display: none !important; }
+.route-skeleton-bar {
+  height: 4.5rem;
+  border-radius: 1rem;
+  background: linear-gradient(90deg, var(--surface) 25%, var(--border-light) 50%, var(--surface) 75%);
+  background-size: 200% 100%;
+  animation: drawerSkeletonShimmer 1.3s ease-in-out infinite;
+}
+.route-skeleton-bar--title { height: 2rem; width: 40%; }
+.route-skeleton-bar--short { width: 60%; }
+
 #transientHost {
   flex: 1 1 auto;
   display: flex;
@@ -407,6 +432,12 @@ main { flex: 1; }
 }
 
 /* empty state */
+/* ".empty-state" is redefined (unscoped) by several per-tool stylesheets
+   loaded later in the cascade — each with its own "display: flex/block",
+   which otherwise beats the [hidden] attribute's UA default regardless of
+   load order. This keeps hidden empty-states (e.g. the History drawer's,
+   shown only once a fetch confirms there's really nothing) hidden. */
+.empty-state[hidden] { display: none !important; }
 .empty-state {
   grid-column: 1 / -1;
   display: flex;
@@ -455,7 +486,11 @@ main { flex: 1; }
   }
 }
 
-.hidden { display: none; }
+/* A global utility class — must always win regardless of load order
+   against any other component's same-specificity ".foo { display: ... }"
+   rule (e.g. gait.css's unscoped ".empty-state" bleeding into the
+   Workspace empty state via the SPA's single shared stylesheet cascade). */
+.hidden { display: none !important; }
 
 /* footer */
 .site-footer {

@@ -92,6 +92,18 @@ body {
   margin: auto;
 }
 
+/* Shown in the chat pane while a picked history conversation is being
+   fetched (js/ask.js loadConversation) — reuses the .route-skeleton-bar
+   shimmer (css/main.css) so loading states look consistent app-wide. */
+.message-loading-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
 .empty-chat-icon { font-size: 3rem; margin-bottom: 0.8rem; opacity: 0.7; }
 .empty-chat p { margin: 0.3rem 0; font-size: 0.95rem; }
 .empty-chat-hint { font-size: 0.8rem; opacity: 0.7; }
@@ -520,6 +532,14 @@ body {
 .history-item:hover {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* The conversation currently loaded in the chat pane — distinct from
+   :hover so it stays visible once the pointer moves away. */
+.history-item.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .history-title {
