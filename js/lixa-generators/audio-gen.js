@@ -118,20 +118,13 @@
         snippet: (cleaned || rawText).slice(0, 150),
         toolId: 'audio',
         recordId: ref.key,
-        fullText: cleaned || rawText,
         actions: [
-          { type: 'button', id: 'view-transcript', label: 'Open Full Transcript', primary: true, icon: 'fa-file-lines' }
+          // Opens in the shared #/result editor (RESULT_TYPES.audio) in
+          // the same tab/window, same as every other generated result.
+          { type: 'link', href: `index.html?type=audio&id=${ref.key}#/result`, label: 'Open & Edit', primary: true, icon: 'fa-pen-to-square' }
         ]
       }
     };
-  }
-
-  function viewTranscript(title, text) {
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title} - rehablix</title>
-      <style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:2rem;max-width:800px;margin:0 auto;line-height:1.7;color:#1f2933;} h1{color:#009688;}</style>
-      </head><body><h1>${title}</h1><pre style="white-space:pre-wrap;font-family:inherit;">${(text || '').replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;')}</pre></body></html>`);
-    w.document.close();
   }
 
   window.RehablixGenerators = window.RehablixGenerators || {};
@@ -150,11 +143,10 @@
       'Writing the session narrative…'
     ],
     generate,
-    handleAction(actionId, card) {
-      if (actionId === 'view-transcript') viewTranscript(card.title, card.fullText);
-    },
-    openFromRecord(record) {
-      if (record) viewTranscript(record.title, record.cleanedTranscript || record.rawTranscript);
+    // No handleAction anymore — the fileCard's action is a plain link into
+    // #/result now, not a button that opens a custom popup window.
+    openFromRecord(record, id) {
+      if (id) window.location.href = `index.html?type=audio&id=${id}#/result`;
     }
   };
 })();

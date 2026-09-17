@@ -98,7 +98,7 @@ ${data.content}`;
         recordId: ref.key,
         exportData: { content: htmlContent, patientName, profession, diagnosis, modeLabel: modeText, mode },
         actions: [
-          { type: 'link', href: `index.html?type=case&id=${ref.key}#/result`, label: 'Open & Edit', primary: true, external: true, icon: 'fa-pen-to-square' },
+          { type: 'link', href: `index.html?type=case&id=${ref.key}#/result`, label: 'Open & Edit', primary: true, icon: 'fa-pen-to-square' },
           { type: 'button', id: 'export-pptx', label: 'Export to PPTX', icon: 'fa-file-powerpoint' }
         ]
       }

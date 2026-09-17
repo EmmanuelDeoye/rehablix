@@ -78,7 +78,7 @@
         toolId: 'assignment',
         recordId: ref.key,
         actions: [
-          { type: 'link', href: `index.html?type=answer&id=${ref.key}#/result`, label: 'Open & Edit', primary: true, external: true, icon: 'fa-pen-to-square' }
+          { type: 'link', href: `index.html?type=answer&id=${ref.key}#/result`, label: 'Open & Edit', primary: true, icon: 'fa-pen-to-square' }
         ]
       }
     };
