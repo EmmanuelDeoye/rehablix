@@ -1,9 +1,3 @@
-<!-- Relocated into #navbarViewSlot by js/views/motion-view.js's mount() -->
-<select class="motion-type-select" id="motionTypeSelect" aria-label="Analysis type">
-  <option value="rom">Range of Motion</option>
-  <option value="gait">Gait Analysis</option>
-</select>
-
 <div id="motionRoot">
   <video id="motionVideo" class="motion-video" autoplay playsinline muted hidden></video>
   <div class="motion-camera-placeholder" id="motionPlaceholder">
@@ -36,6 +30,14 @@
   <div class="motion-modal-card">
     <button class="motion-modal-close" id="motionPrefsClose">&times;</button>
     <h3><i class="fas fa-sliders-h"></i> Scan Preferences</h3>
+
+    <div class="form-group">
+      <label>Analysis Type</label>
+      <select class="motion-type-select" id="motionTypeSelect" aria-label="Analysis type">
+        <option value="rom">Range of Motion</option>
+        <option value="gait">Gait Analysis</option>
+      </select>
+    </div>
 
     <div class="form-group">
       <label>Patient Name (optional)</label>
