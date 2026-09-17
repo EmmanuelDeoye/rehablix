@@ -12,9 +12,11 @@
     const $ = (id) => document.getElementById(id);
 
     // ---- DOM refs ----
+    // Analysis Type now lives inside the Preferences modal (moved out of
+    // the navbar so that navbar space is free for other controls, e.g. a
+    // future history icon) — same #motionTypeSelect id, so its own
+    // change/value handling below is unchanged.
     const typeSelect = $('motionTypeSelect');
-    const navbarSlot = $('navbarViewSlot');
-    if (navbarSlot && typeSelect) navbarSlot.appendChild(typeSelect);
 
     const video = $('motionVideo');
     const placeholder = $('motionPlaceholder');
@@ -144,21 +146,30 @@
       }
     }
 
-    function syncPrefsModalFields() {
+    // Just the ROM-vs-Gait field visibility, split out from
+    // syncPrefsModalFields() so the Analysis Type select (now living
+    // inside this modal, not the navbar) can flip it live while the modal
+    // is open without also clobbering whatever the user has already typed
+    // into the other fields.
+    function syncPrefsFieldVisibility() {
       const isRom = analysisType === 'rom';
       romFieldsWrap.style.display = isRom ? '' : 'none';
       movementFieldWrap.style.display = isRom ? '' : 'none';
       gaitFieldsWrap.hidden = isRom;
       gaitNotesWrap.hidden = isRom;
+      if (isRom) populateMovementSelect();
+    }
+
+    function syncPrefsModalFields() {
+      const isRom = analysisType === 'rom';
+      typeSelect.value = analysisType;
+      syncPrefsFieldVisibility();
       patientNameInput.value = prefs.patientName;
       assessmentModeSelect.value = prefs.assessmentMode;
       gaitViewSelect.value = prefs.gaitView;
       gaitNotesInput.value = prefs.gaitNotes;
       autoGuidedCheckbox.checked = prefs.autoGuided;
-      if (isRom) {
-        populateMovementSelect();
-        if (prefs.movementKey) movementSelect.value = prefs.movementKey;
-      }
+      if (isRom && prefs.movementKey) movementSelect.value = prefs.movementKey;
     }
 
     function openPrefsModal(fromRecordTap) {
@@ -206,6 +217,7 @@
       if (sessionState === 'capturing') stopSessionAbort();
       analysisType = typeSelect.value;
       prefs.movementKey = '';
+      syncPrefsFieldVisibility(); // this select now lives inside the prefs modal, so flip ROM/Gait fields live
       updatePromptChip();
     });
 
@@ -421,12 +433,26 @@
               angleValue.textContent = angle + '°';
               autoScanAngleBuffer.push({ angle, t: Date.now() });
               autoScanAngleBuffer = autoScanAngleBuffer.filter(s => Date.now() - s.t < 700);
+
+              // "Perfect frame" indicator: the same spread check the
+              // auto-capture below waits for, surfaced as soon as it's true
+              // (from as few as 4 recent readings) so the chip turns
+              // green/pulses to tell the user to hold still right as the
+              // joint settles — not just at the exact instant of capture.
+              const recentAngles = autoScanAngleBuffer.map(s => s.angle);
+              const isHoldingSteady = recentAngles.length >= 4 &&
+                (Math.max(...recentAngles) - Math.min(...recentAngles)) <= 3;
+              const showStable = isHoldingSteady && !autoScanBusy;
+              angleChip.classList.toggle('motion-angle-stable', showStable);
+              const angleIcon = angleChip.querySelector('i');
+              if (angleIcon) angleIcon.className = showStable ? 'fas fa-check-circle' : 'fas fa-ruler';
+
               const ready = autoScanAngleBuffer.length >= 8 && Date.now() > autoScanCooldownUntil;
               if (ready && !autoScanBusy) {
-                const angles = autoScanAngleBuffer.map(s => s.angle);
-                const spread = Math.max(...angles) - Math.min(...angles);
+                const spread = Math.max(...recentAngles) - Math.min(...recentAngles);
                 if (spread <= 3) {
                   autoScanBusy = true;
+                  angleChip.classList.remove('motion-angle-stable');
                   if (navigator.vibrate) navigator.vibrate(60);
                   const dataUrl = core.captureFrameFromVideo(video);
                   core.compressImage(dataUrl, 0.8).then(compressed => onRomFrameCaptured(compressed)).finally(() => {
@@ -438,6 +464,7 @@
               }
             } else {
               angleValue.textContent = '—';
+              angleChip.classList.remove('motion-angle-stable');
             }
           } catch (e) { /* skip this frame */ }
 
@@ -450,7 +477,7 @@
     function stopAutoGuidedLoop() {
       if (autoScanRAF) { cancelAnimationFrame(autoScanRAF); autoScanRAF = null; }
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-      angleChip.classList.remove('visible');
+      angleChip.classList.remove('visible', 'motion-angle-stable');
       autoScanAngleBuffer = [];
       autoScanBusy = false;
     }

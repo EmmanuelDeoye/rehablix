@@ -11,7 +11,8 @@
     documentation: 'free',
     rom: 'free',        // free with limited usage (1/mo)
     gait: 'student',    // student gets 5/mo, pro unlimited
-    presentation: 'pro',
+    // presentation: no longer plan-gated — it shares Lixa's model choice
+    // and token quota (js/plan-tiers.js) instead.
     assignment: 'student',
     project: 'student',
     study: 'student',

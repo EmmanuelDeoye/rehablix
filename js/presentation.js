@@ -96,22 +96,19 @@ if (typeof marked !== 'undefined') {
     // =========================================================================
     let currentUser = null;
     let scopeUid = null; // center owner's uid for center members, so shared case history is used
+    // Generation now rides on whichever of the 4 Lixa models the user has
+    // selected (js/plan-tiers.js) and its token ceiling, instead of a
+    // hardcoded model here — resolvePresentationModelConfig() below fills
+    // this in per-generation.
     let aiConfig = { token: null, endpoint: 'https://api.deepseek.com/v1', model: 'deepseek-v4-flash' };
     let attachments = [];
     let isRestoring = false;
     let saveTimeout = null;
     let currentMode = 'presentation';
-    let currentPlan = 'free';  // 'free' | 'student' | 'pro'
-    let generationCount = 0;  // Track generations for free plan
-    let generationResetDate = null;  // 30-day reset date
+    let currentPlan = 'free';  // 'free' | 'student' | 'pro' | 'max' — only used for the shared token-quota lookup now
     const STORAGE_KEY = 'rehab_presentation_state_v5';
-    const PLAN_STORAGE_KEY = 'rehab_plan_generation_data';
 
     const database = firebase.database();
-
-    // Plan-based limits
-    const FREE_MONTHLY_LIMIT = 5;
-    const FREE_LIMIT_DAYS = 30;
 
     function showToast(message, type = 'success', duration = 3500) {
         const toast = document.createElement('div');
@@ -148,6 +145,53 @@ if (typeof marked !== 'undefined') {
         }
     }
 
+    // =========================================================================
+    // Shared Lixa model + token quota (js/plan-tiers.js) — generation here
+    // now rides on whichever of the 4 Lixa models the user picked in the
+    // composer, and counts against the same 4-hour token budget a Lixa
+    // chat turn or the embedded Presentation Maker tool would, instead of
+    // this page's own separate model/plan-tier logic.
+    // =========================================================================
+    async function resolvePresentationModelConfig() {
+        const tiers = window.RehabPlanTiers;
+        const modelId = localStorage.getItem('rehab-lixa-model') || 'corpus101';
+        const model = tiers ? tiers.getModel(modelId) : null;
+        if (!model) {
+            const ok = await fetchTokens();
+            return ok ? { ...aiConfig, maxTokens: 9000, weight: 1, temperature: 0.3, top_p: 0.9 } : null;
+        }
+        if (model.provider === 'openai') {
+            const snap = await database.ref('tokens/open_ai').once('value');
+            const data = snap.val();
+            if (!data?.api_key) return null;
+            return {
+                token: data.api_key, endpoint: model.endpoint, model: model.apiModel,
+                maxTokens: model.maxTokens, weight: model.weight, temperature: model.temperature, top_p: model.top_p
+            };
+        }
+        const ok = await fetchTokens();
+        if (!ok) return null;
+        return {
+            token: aiConfig.token, endpoint: model.endpoint, model: model.apiModel,
+            maxTokens: model.maxTokens, weight: model.weight, temperature: model.temperature, top_p: model.top_p
+        };
+    }
+
+    async function checkQuotaOrThrow() {
+        if (!currentUser || !window.RehabPlanTiers) return;
+        const quota = await window.RehabPlanTiers.hasQuota(currentUser.uid, currentPlan);
+        if (!quota.allowed) {
+            const resetMins = Math.max(1, Math.ceil((quota.resetAt - Date.now()) / 60000));
+            throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
+        }
+    }
+
+    function reportTokenUsage(text, weight) {
+        if (!currentUser || !window.RehabPlanTiers) return;
+        const rawTokens = window.RehabPlanTiers.estimateTokens(text || '');
+        window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlan, rawTokens, weight).catch(() => {});
+    }
+
     function updateWordCount() {
         if (textInput) {
             const words = textInput.value.trim().split(/\s+/).filter(w => w.length > 0).length;
@@ -155,110 +199,20 @@ if (typeof marked !== 'undefined') {
         }
     }
 
-    // =========================================================================
-    // Generation Tracking (Free Plan Limit)
-    // =========================================================================
-    function loadGenerationData() {
-        try {
-            const data = JSON.parse(localStorage.getItem(PLAN_STORAGE_KEY) || '{}');
-            generationCount = data.count || 0;
-            generationResetDate = data.resetDate ? new Date(data.resetDate) : null;
-            
-            // Check if 30 days have passed since last reset
-            const now = new Date();
-            if (!generationResetDate || (now - generationResetDate) >= (FREE_LIMIT_DAYS * 24 * 60 * 60 * 1000)) {
-                // Reset counter
-                generationCount = 0;
-                generationResetDate = now;
-                saveGenerationData();
-            }
-        } catch (e) {
-            generationCount = 0;
-            generationResetDate = new Date();
-            saveGenerationData();
-        }
-    }
-
-    function saveGenerationData() {
-        const data = {
-            count: generationCount,
-            resetDate: generationResetDate ? generationResetDate.toISOString() : new Date().toISOString()
-        };
-        localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(data));
-    }
-
-    function incrementGenerationCount() {
-        generationCount++;
-        saveGenerationData();
-        updateGenerationCounterUI();
-    }
-
-    function canGenerateMore() {
-        if (currentPlan === 'student' || currentPlan === 'pro') return true;
-        
-        const now = new Date();
-        if (!generationResetDate || (now - generationResetDate) >= (FREE_LIMIT_DAYS * 24 * 60 * 60 * 1000)) {
-            generationCount = 0;
-            generationResetDate = now;
-            saveGenerationData();
-            return true;
-        }
-        
-        return generationCount < FREE_MONTHLY_LIMIT;
-    }
-
-    function getRemainingGenerations() {
-        if (currentPlan === 'student' || currentPlan === 'pro') return Infinity;
-        return Math.max(0, FREE_MONTHLY_LIMIT - generationCount);
-    }
-
-    function getDaysUntilReset() {
-        if (!generationResetDate) return 0;
-        const now = new Date();
-        const diffTime = (FREE_LIMIT_DAYS * 24 * 60 * 60 * 1000) - (now - generationResetDate);
-        return Math.max(0, Math.ceil(diffTime / (24 * 60 * 60 * 1000)));
-    }
-
-    // =========================================================================
-    // Feature Access Control
-    // =========================================================================
-    function canAccessPresentationMode() {
-        return currentPlan === 'student' || currentPlan === 'pro';
-    }
-
-    function canUseCustomOutlines() {
-        return currentPlan === 'student' || currentPlan === 'pro';
-    }
-
-    function canUseFidelityFlexible() {
-        return currentPlan === 'pro';
-    }
-
-    function getAvailableOutputSizes() {
-        switch (currentPlan) {
-            case 'free': return ['3500'];  // Minimal only
-            case 'student': return ['3500', '5000'];  // Minimal & Moderate
-            case 'pro': return ['3500', '5000', '8000'];  // All
-            default: return ['3500'];
-        }
-    }
-
-    function getDefaultOutputSize() {
-        switch (currentPlan) {
-            case 'free': return '3500';
-            case 'student': return '5000';
-            case 'pro': return '8000';
-            default: return '3500';
-        }
-    }
+    // Generation used to be capped by a separate "5/month on Free" counter
+    // and these mode/output-size/fidelity locks keyed off subscription
+    // plan. Presentation generation now shares Lixa's model choice and its
+    // 4-hour token quota (js/plan-tiers.js) the same way the embedded Lixa
+    // tool does, so every mode/option below is available to everyone —
+    // these stay as functions (rather than being inlined at each call
+    // site) only so the rest of the file doesn't need touching.
+    function canAccessPresentationMode() { return true; }
+    function canUseCustomOutlines() { return true; }
+    function canUseFidelityFlexible() { return true; }
+    function getAvailableOutputSizes() { return ['3500', '5000', '8000']; }
+    function getDefaultOutputSize() { return '8000'; }
 
     function updatePlanUI() {
-        updateModeTabsUI();
-        updateCustomOutlineAccess();
-        updateUpgradeNotice();
-        updateFidelityOptions();
-        updateOutputSizeOptions();
-        updateGenerationCounterUI();
         validateForm();
     }
 
@@ -336,191 +290,6 @@ if (typeof marked !== 'undefined') {
                 if (badge) badge.remove();
             }
         });
-    }
-
-    function updateGenerationCounterUI() {
-        let counterEl = document.getElementById('generationCounter');
-        
-        if (currentPlan === 'student' || currentPlan === 'pro') {
-            if (counterEl) counterEl.remove();
-            return;
-        }
-
-        if (!counterEl) {
-            counterEl = document.createElement('div');
-            counterEl.id = 'generationCounter';
-            generateBtn.parentNode.insertBefore(counterEl, generateBtn.nextSibling);
-        }
-
-        const remaining = getRemainingGenerations();
-        const used = generationCount;
-        const total = FREE_MONTHLY_LIMIT;
-        const daysLeft = getDaysUntilReset();
-
-        let statusColor = '#059669';
-        let statusBg = '#f0fdf4';
-        let statusBorder = '#86efac';
-        
-        if (remaining <= 1) {
-            statusColor = '#dc2626';
-            statusBg = '#fef2f2';
-            statusBorder = '#fca5a5';
-        } else if (remaining <= 3) {
-            statusColor = '#d97706';
-            statusBg = '#fffbeb';
-            statusBorder = '#fcd34d';
-        }
-
-        counterEl.style.cssText = `
-            background: ${statusBg};
-            border: 1px solid ${statusBorder};
-            border-radius: 1rem;
-            padding: 0.8rem 1.2rem;
-            margin: 1rem 0;
-            color: ${statusColor};
-            font-size: 0.85rem;
-            text-align: center;
-            animation: fadeSlideDown 0.4s ease;
-        `;
-
-        counterEl.innerHTML = `
-            <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 0.5rem;">
-                <span style="font-size: 1.2rem;">📊</span>
-                <strong>Free Plan Limit</strong>
-            </div>
-            <div style="margin-bottom: 0.3rem;">
-                <strong>${used}/${total}</strong> generations used
-            </div>
-            <div style="font-size: 0.8rem; opacity: 0.8;">
-                ${remaining > 0 
-                    ? `<strong>${remaining}</strong> remaining · Resets in <strong>${daysLeft}</strong> days` 
-                    : `<strong style="color: #dc2626;">Limit reached!</strong> Resets in <strong>${daysLeft}</strong> days`}
-            </div>
-            <div style="margin-top: 0.4rem; font-size: 0.75rem;">
-                <a href="index.html#subscriptionPlans" style="color: #d97706; font-weight: 600; text-decoration: underline;">
-                    Upgrade for unlimited generations →
-                </a>
-            </div>
-        `;
-    }
-
-    function updateUpgradeNotice() {
-        let notice = document.getElementById('upgradeNotice');
-        
-        if (currentPlan === 'pro') {
-            if (notice) notice.remove();
-            return;
-        }
-
-        if (!notice) {
-            notice = document.createElement('div');
-            notice.id = 'upgradeNotice';
-            generateBtn.parentNode.insertBefore(notice, generateBtn.nextSibling);
-        }
-
-        if (currentPlan === 'free') {
-            notice.style.cssText = `
-                background: linear-gradient(135deg, #fef3c7, #fffbeb);
-                border: 2px solid #fbbf24;
-                border-radius: 1.2rem;
-                padding: 1.2rem;
-                margin: 1rem 0;
-                color: #92400e;
-                font-size: 0.85rem;
-                text-align: center;
-                box-shadow: 0 4px 12px rgba(251, 191, 36, 0.2);
-                position: relative;
-                overflow: hidden;
-            `;
-            notice.innerHTML = `
-                <div style="position: absolute; top: -8px; right: -8px; background: #fbbf24; color: white; padding: 3px 10px; border-radius: 1rem; font-size: 0.7rem; font-weight: 600; transform: rotate(3deg);">
-                    FREE PLAN
-                </div>
-                <div style="font-size: 1.8rem; margin-bottom: 0.3rem;">⭐</div>
-                <strong style="font-size: 1rem; display: block; margin-bottom: 0.5rem;">
-                    Unlock More Features
-                </strong>
-                <div style="color: #a16207; margin-bottom: 0.6rem; line-height: 1.6; font-size: 0.82rem;">
-                    <div style="margin-bottom: 0.3rem;">
-                        <span style="color: #dc2626;">✗</span> Presentation Mode &nbsp;
-                        <span style="color: #dc2626;">✗</span> Custom Outlines &nbsp;
-                        <span style="color: #dc2626;">✗</span> Moderate/Detailed Output
-                    </div>
-                    <div style="margin-bottom: 0.3rem;">
-                        <span style="color: #d97706;">⚠</span> Limited to <strong>5 generations/month</strong>
-                    </div>
-                    <div>
-                        <span style="color: #059669;">✓</span> Report Mode &nbsp;
-                        <span style="color: #059669;">✓</span> Documentation Mode &nbsp;
-                        <span style="color: #059669;">✓</span> File Upload & OCR
-                    </div>
-                </div>
-                <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
-                    <a href="index.html#subscriptionPlans" 
-                       style="display: inline-block; padding: 0.5rem 1.2rem; 
-                              background: linear-gradient(135deg, #0ea5e9, #0284c7); 
-                              color: white; border-radius: 2rem; text-decoration: none; 
-                              font-weight: 600; font-size: 0.85rem; transition: all 0.2s ease;"
-                       onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(14,165,233,0.4)';"
-                       onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='none';">
-                        🎓 Get Student
-                    </a>
-                    <a href="index.html#subscriptionPlans" 
-                       style="display: inline-block; padding: 0.5rem 1.2rem; 
-                              background: linear-gradient(135deg, #f59e0b, #d97706); 
-                              color: white; border-radius: 2rem; text-decoration: none; 
-                              font-weight: 600; font-size: 0.85rem; transition: all 0.2s ease;"
-                       onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(245,158,11,0.4)';"
-                       onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='none';">
-                        💎 Get Pro
-                    </a>
-                </div>
-            `;
-        } else if (currentPlan === 'student') {
-            notice.style.cssText = `
-                background: linear-gradient(135deg, #e0f2fe, #f0f9ff);
-                border: 2px solid #38bdf8;
-                border-radius: 1.2rem;
-                padding: 1.2rem;
-                margin: 1rem 0;
-                color: #075985;
-                font-size: 0.85rem;
-                text-align: center;
-                box-shadow: 0 4px 12px rgba(56, 189, 248, 0.2);
-                position: relative;
-                overflow: hidden;
-            `;
-            notice.innerHTML = `
-                <div style="position: absolute; top: -8px; right: -8px; background: #38bdf8; color: white; padding: 3px 10px; border-radius: 1rem; font-size: 0.7rem; font-weight: 600; transform: rotate(3deg);">
-                    STUDENT PLAN
-                </div>
-                <div style="font-size: 1.8rem; margin-bottom: 0.3rem;">🎓</div>
-                <strong style="font-size: 1rem; display: block; margin-bottom: 0.5rem;">
-                    Upgrade to Pro for Full Power
-                </strong>
-                <div style="color: #075985; margin-bottom: 0.6rem; line-height: 1.6; font-size: 0.82rem;">
-                    <div style="margin-bottom: 0.3rem;">
-                        <span style="color: #059669;">✓</span> Presentation Mode &nbsp;
-                        <span style="color: #059669;">✓</span> Custom Outlines &nbsp;
-                        <span style="color: #059669;">✓</span> Moderate Output &nbsp;
-                        <span style="color: #059669;">✓</span> Unlimited Generations
-                    </div>
-                    <div>
-                        <span style="color: #dc2626;">✗</span> Detailed Output (5000 tokens) &nbsp;
-                        <span style="color: #dc2626;">✗</span> Flexible AI Mode
-                    </div>
-                </div>
-                <a href="index.html#subscriptionPlans" 
-                   style="display: inline-block; padding: 0.5rem 1.5rem; 
-                          background: linear-gradient(135deg, #f59e0b, #d97706); 
-                          color: white; border-radius: 2rem; text-decoration: none; 
-                          font-weight: 600; font-size: 0.85rem; transition: all 0.2s ease;"
-                   onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(245,158,11,0.4)';"
-                   onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='none';">
-                    💎 Upgrade to Pro
-                </a>
-            `;
-        }
     }
 
     function updateFidelityOptions() {
@@ -638,20 +407,15 @@ if (typeof marked !== 'undefined') {
     }
 
     // =========================================================================
-    // Plan Management
+    // Plan Management — currentPlan is only kept for the shared token-quota
+    // lookup (window.RehabPlanTiers.hasQuota/consumeQuota) now, not for
+    // feature gating.
     // =========================================================================
     const onPlanUpdated = (e) => {
         const newPlan = e.detail?.plan || 'free';
         if (newPlan !== currentPlan) {
             currentPlan = newPlan;
             console.log('[PLAN] Updated to:', currentPlan);
-            loadGenerationData();  // Reload generation data
-            updatePlanUI();
-            
-            // If on Presentation mode and can't access, switch to Report
-            if (currentMode === 'presentation' && !canAccessPresentationMode()) {
-                switchMode('report');
-            }
         }
     };
     document.addEventListener('planUpdated', onPlanUpdated);
@@ -660,27 +424,12 @@ if (typeof marked !== 'undefined') {
     // Check initial plan
     if (window.rehabPlans) {
         currentPlan = window.rehabPlans.getCurrentPlan() || 'free';
-        loadGenerationData();
-        updatePlanUI();
     }
 
     // =========================================================================
     // Mode Switching
     // =========================================================================
     function switchMode(mode) {
-        if (mode === 'presentation' && !canAccessPresentationMode()) {
-            showToast('🎓 Presentation Mode requires Student plan or above. You can still use Report and Documentation modes.', 'info', 5000);
-            
-            const notice = document.getElementById('upgradeNotice');
-            if (notice) {
-                notice.style.animation = 'none';
-                notice.offsetHeight;
-                notice.style.animation = 'pulse 0.5s ease 2';
-                notice.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-            return;
-        }
-        
         if (mode === currentMode) return;
         
         currentMode = mode;
@@ -1377,10 +1126,9 @@ if (typeof marked !== 'undefined') {
     // AI Generation
     // =========================================================================
     async function generatePresentation() {
-        if (!aiConfig.token) {
-            const ok = await fetchTokens();
-            if (!ok) throw new Error('The AI service is not set up. Please contact support.');
-        }
+        const config = await resolvePresentationModelConfig();
+        if (!config) throw new Error('The AI service is not set up. Please contact support.');
+        await checkQuotaOrThrow();
 
         let combinedText = textInput.value.trim();
 
@@ -1414,7 +1162,10 @@ if (typeof marked !== 'undefined') {
         const profession = professionSelect.options[professionSelect.selectedIndex]?.text || 'Healthcare Professional';
         const outline = getSelectedOutline();
         const instructions = additionalInstructions.value.trim() || 'None';
-        const maxTokens = getSelectedOutputSize();
+        // The Minimal/Moderate/Detailed choice is still a genuine length
+        // preference, but it's capped by the selected Lixa model's own
+        // ceiling now rather than by a separate plan-based limit.
+        const maxTokens = Math.min(getSelectedOutputSize(), config.maxTokens);
         const fidelityMode = getContentFidelity();
         const isStrict = fidelityMode === 'strict';
 
@@ -1490,24 +1241,25 @@ ${combinedText || 'No notes provided.'}`;
         // retry once automatically (with headroom added to the token
         // budget, in case (b) was the cause), and only fail with a clear,
         // actionable message if it's still empty.
-        const result = await callAIWithValidation(messages, maxTokens);
+        const result = await callAIWithValidation(messages, config, maxTokens);
+        reportTokenUsage(messages.map(m => m.content).join(' ') + result.content, config.weight);
         return result.content;
     }
 
-    async function callAIWithValidation(messages, maxTokens, attempt = 1) {
-        const url = `${aiConfig.endpoint}/chat/completions`;
+    async function callAIWithValidation(messages, config, maxTokens, attempt = 1) {
+        const url = `${config.endpoint}/chat/completions`;
         const response = await fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${aiConfig.token}`
+                'Authorization': `Bearer ${config.token}`
             },
             body: JSON.stringify({
-                model: aiConfig.model,
+                model: config.model,
                 messages,
                 max_tokens: maxTokens,
-                temperature: 0.3,
-                top_p: 0.9
+                temperature: config.temperature ?? 0.3,
+                top_p: config.top_p ?? 0.9
             })
         });
 
@@ -1550,8 +1302,8 @@ ${combinedText || 'No notes provided.'}`;
         // before giving up, in case it was truncated mid-reasoning.
         if (content.length < 20) {
             if (attempt < 2) {
-                console.warn(`[AI] Empty/short response (finish_reason=${finishReason}). Retrying with more headroom…`);
-                return callAIWithValidation(messages, Math.min(maxTokens + 1500, 8000), attempt + 1);
+                console.warn(`[AI] Empty/short response (finish_reason=${finishReason}). Retrying…`);
+                return callAIWithValidation(messages, config, Math.min(maxTokens + 1500, config.maxTokens), attempt + 1);
             }
             if (window.reportApiError) {
                 window.reportApiError({
@@ -1699,17 +1451,7 @@ ${combinedText || 'No notes provided.'}`;
             return;
         }
         
-        // Check generation limit for free plan
-        if (!canGenerateMore()) {
-            const daysLeft = getDaysUntilReset();
-            showToast(`⚠️ You've reached your ${FREE_MONTHLY_LIMIT} generation limit. Upgrade to Student or Pro for unlimited access. Resets in ${daysLeft} days.`, 'error', 6000);
-            
-            const notice = document.getElementById('upgradeNotice');
-            if (notice) notice.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            return;
-        }
-        
-        if (!patientName.value.trim()) { 
+        if (!patientName.value.trim()) {
             showToast('Please enter the patient\'s name', 'error'); 
             patientName.focus(); 
             return; 
@@ -1759,10 +1501,7 @@ ${combinedText || 'No notes provided.'}`;
             const historyId = await saveToHistory(rawMarkdown, htmlContent);
             currentHistoryIdInput.value = historyId || '';
             localStorage.removeItem(STORAGE_KEY);
-            
-            // Increment generation count for free plan
-            incrementGenerationCount();
-            
+
             showPreviewModal(htmlContent, historyId);
             const secs = ((Date.now() - start) / 1000).toFixed(1);
             showToast(`Generated in ${secs}s`, 'success');
@@ -1938,7 +1677,6 @@ ${combinedText || 'No notes provided.'}`;
         console.log('[INIT] Starting...');
         
         await fetchTokens();
-        loadGenerationData();
         updateWordCount();
         updatePlanUI();
         validateForm();
@@ -1950,7 +1688,7 @@ ${combinedText || 'No notes provided.'}`;
             });
         }, 100);
         
-        console.log('[INIT] Ready - Plan:', currentPlan, '| Gen count:', generationCount);
+        console.log('[INIT] Ready - Plan:', currentPlan);
     }
 
     initialize();

@@ -22,34 +22,52 @@
   // fast a model drains the shared per-plan token budget relative to its
   // raw token usage (Blix 360 costs 4x its actual tokens against the
   // budget, Basal 100 costs half).
+  //
+  // Each tier is deliberately distinct on four axes, not just a maxTokens
+  // number: `apiModel`/`provider` (the actual underlying model — Basal and
+  // Corpus used to both silently call the exact same DeepSeek model, which
+  // made them identical in every way that mattered), `temperature`/`top_p`
+  // (how exploratory vs. deterministic responses are), `responseStyle` (a
+  // system-prompt instruction that genuinely changes reasoning depth —
+  // Basal is told to answer briefly with no elaboration, Blix is told to
+  // reason exhaustively), and `maxTokens` (the output ceiling, strictly
+  // increasing Basal < Corpus < Medulla < Blix per the required hierarchy).
   const MODELS = [
     {
       id: 'blix360', label: 'Blix 360', rank: 1,
       provider: 'openai', apiModel: 'gpt-4.1', endpoint: 'https://api.openai.com/v1',
-      maxTokens: 4096, weight: 4, minPlan: 'pro',
-      strength: 'Strongest reasoning and understands images — best for complex or multi-image clinical cases.',
+      maxTokens: 20000, weight: 4, minPlan: 'pro',
+      temperature: 0.75, top_p: 0.95,
+      responseStyle: 'Think deeply before answering. Consider edge cases, differential possibilities, and clinical nuance; structure complex answers with headings and sub-points. Depth and completeness matter more than brevity — this is the mode for genuinely hard or multi-part cases.',
+      strength: 'Deepest reasoning and the only model that understands images — best for complex or multi-image clinical cases, with the highest token ceiling for long, thorough answers.',
       weakness: 'Slowest and most expensive; drains your token budget fastest.'
     },
     {
       id: 'medulla200', label: 'Medulla 200', rank: 2,
       provider: 'deepseek', apiModel: 'deepseek-reasoner', endpoint: 'https://api.deepseek.com/v1',
-      maxTokens: 3000, weight: 2, minPlan: 'student',
-      strength: 'Strong step-by-step reasoning for multi-part clinical questions.',
-      weakness: 'Text-only — no image support.'
+      maxTokens: 14000, weight: 2, minPlan: 'student',
+      temperature: 0.6, top_p: 0.9,
+      responseStyle: 'Reason step by step before giving your final answer — briefly show the logical/clinical-reasoning chain that gets you there, then state a clear conclusion. Prioritize rigor for multi-part or differential-reasoning questions.',
+      strength: 'A dedicated chain-of-thought reasoning model — strong step-by-step logic for multi-part clinical questions, with a generous token ceiling for working through them.',
+      weakness: 'Text-only — no image support — and slower than Corpus/Basal since it reasons before answering.'
     },
     {
       id: 'corpus101', label: 'Corpus 101', rank: 3,
       provider: 'deepseek', apiModel: 'deepseek-v4-flash', endpoint: 'https://api.deepseek.com/v1',
-      maxTokens: 2000, weight: 1, minPlan: 'free',
-      strength: 'Balanced everyday chat — the default for most questions.',
-      weakness: 'Less thorough than Medulla/Blix on long, complex reasoning.'
+      maxTokens: 9000, weight: 1, minPlan: 'free',
+      temperature: 0.7, top_p: 0.9,
+      responseStyle: 'Give clear, well-organized, moderately detailed answers — balance thoroughness with readability. This is the everyday, general-purpose mode: enough room to be complete without the deep multi-step reasoning of Medulla or Blix.',
+      strength: 'Balanced everyday chat with real room for detail — the default for most questions.',
+      weakness: 'Less rigorous step-by-step reasoning than Medulla/Blix on long, complex tasks.'
     },
     {
       id: 'basal100', label: 'Basal 100', rank: 4,
       provider: 'deepseek', apiModel: 'deepseek-v4-flash', endpoint: 'https://api.deepseek.com/v1',
-      maxTokens: 1000, weight: 0.5, minPlan: 'free',
-      strength: 'Fastest and cheapest — ideal for quick, simple questions.',
-      weakness: 'Shorter responses; weaker on long or complex tasks.'
+      maxTokens: 5000, weight: 0.5, minPlan: 'free',
+      temperature: 0.4, top_p: 0.85,
+      responseStyle: 'Be concise and direct. Answer in as few words as possible while staying accurate — skip elaboration, background, and extra examples unless explicitly asked for more.',
+      strength: 'Fastest and cheapest — short, direct answers for quick, simple questions.',
+      weakness: 'Deliberately brief with the smallest token ceiling of the four — not built for long or multi-part reasoning.'
     }
   ];
 

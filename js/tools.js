@@ -25,7 +25,7 @@
       { name: 'Smart EMR', url: 'doc.html', icon: '🗂️' },
       { name: 'Audio Transcription', url: 'index.html#/audio', icon: '🎧' },
       { name: 'Motion & Gait', url: 'index.html#/motion', icon: '🦵' },
-      { name: 'Report & Presentation', url: 'presentation.html', icon: '📑' },
+      { name: 'Report & Presentation', url: 'index.html#/presentation', icon: '📑' },
       { name: 'Assignment Maker', url: 'index.html#/assignment', icon: '📝' },
       { name: 'Project Maker', url: 'project.html', icon: '📚' },
       { name: 'Study Buddy', url: 'index.html#/study', icon: '🧠' },

@@ -88,6 +88,28 @@
     return { appRoot, keepAliveHost, transientHost };
   }
 
+  // Shown as an overlay over #appRoot only while a route's fragment is
+  // being fetched for the first time (repeat visits to a kept-alive route
+  // are instant and skip this entirely) — without it, the gap between the
+  // old view disappearing and the new fragment's HTML landing is a blank
+  // page, which reads as a freeze rather than a page changing.
+  function getRouteShimmer(appRoot) {
+    let el = document.getElementById('routeLoadingSkeleton');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'routeLoadingSkeleton';
+      el.hidden = true;
+      el.innerHTML = `
+        <div class="route-skeleton-bar route-skeleton-bar--title"></div>
+        <div class="route-skeleton-bar"></div>
+        <div class="route-skeleton-bar"></div>
+        <div class="route-skeleton-bar route-skeleton-bar--short"></div>
+      `;
+      appRoot.appendChild(el);
+    }
+    return el;
+  }
+
   async function navigate(routeName) {
     const name = routes[routeName] ? routeName : 'lixa';
     const route = routes[name];
@@ -128,14 +150,22 @@
       return;
     }
 
+    // Only the actual first-ever fetch of a fragment can take noticeable
+    // time — a cached repeat visit resolves in a microtask, so skip the
+    // shimmer there to avoid a pointless flash.
+    const needsFetch = !fragmentCache[route.fragment];
+    const shimmer = needsFetch ? getRouteShimmer(document.getElementById('appRoot')) : null;
+    if (shimmer) shimmer.hidden = false;
+
     let html;
     try {
       html = await fetchFragment(route.fragment);
     } catch (err) {
       console.error('[router] failed to load view:', err);
+      if (shimmer) shimmer.hidden = true;
       return;
     }
-    if (myToken !== navToken) return; // a newer navigation superseded this one
+    if (myToken !== navToken) { if (shimmer) shimmer.hidden = true; return; } // a newer navigation superseded this one
 
     resetSharedNavbar();
 
@@ -155,6 +185,8 @@
       transientHost.hidden = false;
       transientHost.innerHTML = html;
     }
+
+    if (shimmer) shimmer.hidden = true;
 
     document.body.dataset.route = name;
     if (route.title) document.title = route.title;

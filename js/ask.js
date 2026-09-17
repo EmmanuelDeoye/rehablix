@@ -162,7 +162,7 @@
   async function resolveModelConfig(needsVision) {
     if (needsVision) {
       const ok = await fetchVisionTokens();
-      if (ok) return { ...visionConfig, maxTokens: 4096, weight: 4 };
+      if (ok) return { ...visionConfig, maxTokens: 4096, weight: 4, temperature: 0.7, top_p: 0.9 };
       showToast('Vision model is not configured — answering from extracted text only.', 'info', 4000);
       // fall through to the selected text model so the turn can still proceed
     }
@@ -171,7 +171,11 @@
     if (model && model.provider === 'openai') {
       const ok = await fetchVisionTokens();
       if (!ok) return null;
-      return { token: visionConfig.token, endpoint: model.endpoint, model: model.apiModel, maxTokens: model.maxTokens, weight: model.weight };
+      return {
+        token: visionConfig.token, endpoint: model.endpoint, model: model.apiModel,
+        maxTokens: model.maxTokens, weight: model.weight,
+        temperature: model.temperature, top_p: model.top_p, responseStyle: model.responseStyle
+      };
     }
     const ok = await fetchTokens();
     if (!ok) return null;
@@ -180,7 +184,10 @@
       endpoint: (model && model.endpoint) || aiConfig.endpoint,
       model: (model && model.apiModel) || aiConfig.model,
       maxTokens: (model && model.maxTokens) || 2000,
-      weight: (model && model.weight) || 1
+      weight: (model && model.weight) || 1,
+      temperature: (model && model.temperature) ?? 0.7,
+      top_p: (model && model.top_p) ?? 0.9,
+      responseStyle: model && model.responseStyle
     };
   }
 
@@ -247,8 +254,9 @@
   // =========================================================================
   // Site & company knowledge baked into the system prompt (feature 7 & 8)
   // =========================================================================
-  function buildSystemPrompt() {
+  function buildSystemPrompt(responseStyle) {
     return `You are "Lixa", the AI copilot embedded as the home page of rehablix (rehablix.com), an AI toolkit for rehabilitation professionals and healthcare students. You provide accurate, evidence-based answers about rehabilitation, medical conditions, treatments, clinical reasoning, and academic work. Use clear language and markdown formatting (headings, bullet points, bold, tables) to keep answers readable. Be concise but thorough.
+${responseStyle ? `\nResponse style for this session: ${responseStyle}\n` : ''}
 
 Unlike a typical chatbot, you can also personally CREATE things for the user directly in this conversation — an assessment format, a standardized assessment tool, an audio transcript, a presentation/report, a study set (flashcards/quiz), or an academic assignment. That routing happens automatically outside of you (by keyword detection or the user typing "@toolname"), so you never need to tell the user to go to a separate page for any of those six things — if they ask for one, the app will already be handling it as a generation request, not a chat question. Never suggest visiting format.html, standardized.html, audio.html, presentation.html, study.html, or assignment.html — you ARE that functionality now.
 
@@ -1365,8 +1373,8 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
         model: config.model,
         messages: apiMessages,
         max_tokens: maxTokens || config.maxTokens || 2000,
-        temperature: 0.7,
-        top_p: 0.9,
+        temperature: config.temperature ?? 0.7,
+        top_p: config.top_p ?? 0.9,
         stream: true
       })
     });
@@ -1433,17 +1441,14 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   // with no visible content). Retrying once, silently, fixes the vast
   // majority of "Lixa just shows a blank reply" complaints without the user
   // needing to notice or manually hit regenerate.
-  async function callAI(onToken) {
-    const recentMessages = messages.slice(-20);
-    const needsVision = recentMessages.some(m => m.visionImages && m.visionImages.length > 0);
-
-    const config = await resolveModelConfig(needsVision);
-    if (!config) throw new Error('AI service is not configured.');
-
-    // Quota is a soft, per-plan budget on a 4-hour rolling window — checked
-    // before sending (not per-message-exact, since real cost isn't known
-    // until the response completes) so an exhausted budget blocks the next
-    // send rather than the app trying to guess mid-flight.
+  // Quota is a soft, per-plan budget on a 4-hour rolling window — checked
+  // before sending (not per-message-exact, since real cost isn't known
+  // until the response completes) so an exhausted budget blocks the next
+  // send rather than the app trying to guess mid-flight. Shared by plain
+  // chat turns and by Lixa's embedded tools (js/lixa-generators/*.js call
+  // this via window.LixaCore) so a generation counts against the exact
+  // same budget a chat turn would.
+  async function checkQuotaOrThrow() {
     if (currentUser && window.RehabPlanTiers && window.rehabPlans) {
       const plan = window.rehabPlans.getCurrentPlan() || 'free';
       const quota = await window.RehabPlanTiers.hasQuota(currentUser.uid, plan);
@@ -1452,9 +1457,29 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
         throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
       }
     }
+  }
+
+  // Records actual usage against the same quota checkQuotaOrThrow() reads —
+  // called after a chat turn OR an embedded tool generation completes.
+  function reportTokenUsage(text, weight) {
+    if (currentUser && window.RehabPlanTiers && window.rehabPlans) {
+      const plan = window.rehabPlans.getCurrentPlan() || 'free';
+      const rawTokens = window.RehabPlanTiers.estimateTokens(text || '');
+      window.RehabPlanTiers.consumeQuota(currentUser.uid, plan, rawTokens, weight).catch(() => {});
+    }
+  }
+
+  async function callAI(onToken) {
+    const recentMessages = messages.slice(-20);
+    const needsVision = recentMessages.some(m => m.visionImages && m.visionImages.length > 0);
+
+    const config = await resolveModelConfig(needsVision);
+    if (!config) throw new Error('AI service is not configured.');
+
+    await checkQuotaOrThrow();
 
     const apiMessages = [
-      { role: 'system', content: buildSystemPrompt() },
+      { role: 'system', content: buildSystemPrompt(config.responseStyle) },
       ...recentMessages.map(m => ({ role: m.role, content: buildApiContent(m) }))
     ];
 
@@ -1492,7 +1517,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     if (!config) { showToast('AI service is not configured.', 'error'); return; }
 
     const apiMessages = [
-      { role: 'system', content: buildSystemPrompt() },
+      { role: 'system', content: buildSystemPrompt(config.responseStyle) },
       ...recentMessages.map(m => ({ role: m.role, content: buildApiContent(m) })),
       { role: 'assistant', content: assistantMsg.content },
       { role: 'user', content: 'Continue exactly where you left off. Do not repeat anything you already said, and do not add any preamble.' }
@@ -1725,8 +1750,25 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   // =========================================================================
   // LOAD CONVERSATION - FIXED: No automatic save/update timestamp
   // =========================================================================
+  function renderChatLoadingSkeleton() {
+    chatMessages.innerHTML = `
+      <div class="message-loading-skeleton">
+        <div class="route-skeleton-bar route-skeleton-bar--short"></div>
+        <div class="route-skeleton-bar"></div>
+        <div class="route-skeleton-bar route-skeleton-bar--short"></div>
+      </div>
+    `;
+  }
+
   async function loadConversation(convId) {
     if (!currentUser) return;
+    // Immediate feedback: close the drawer and show a shimmer in the chat
+    // pane right away. The Firebase read below is a real round-trip, and
+    // leaving the drawer open with no visible reaction until it resolves
+    // is what reads as a freeze — especially on a slow connection or the
+    // first load, before anything is cached.
+    historyDrawer.classList.remove('active');
+    renderChatLoadingSkeleton();
     try {
       const snap = await database.ref(`history/${currentUser.uid}/askConversations/${convId}`).once('value');
       const data = snap.val();
@@ -1735,7 +1777,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
         conversationTitle = data.title || null;
         titleIsFinal = true;
         messages = data.messages || [];
-        
+
         // Generate suggestions for the last assistant message
         if (messages.length >= 2) {
           const lastAi = messages[messages.length - 1];
@@ -1743,7 +1785,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
           if (lastAi.role === 'assistant' && lastUser.role === 'user') {
             try {
               const suggestions = await generateSuggestions(
-                lastUser.displayContent || lastUser.content, 
+                lastUser.displayContent || lastUser.content,
                 lastAi.content
               );
               lastAi.suggestions = suggestions;
@@ -1753,17 +1795,22 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
             }
           }
         }
-        
+
         renderMessages();
-        historyDrawer.classList.remove('active');
         showToast('Conversation loaded', 'success');
-        
+
         // FIXED: Do NOT automatically save/update the timestamp.
         // Only update the timestamp when the user actually sends a new message.
         // Removed the setTimeout(() => saveConversation(), 1000) call.
+      } else {
+        // Conversation no longer exists (e.g. deleted elsewhere) — clear
+        // the skeleton instead of leaving it stuck on screen forever.
+        renderMessages();
+        showToast('That conversation could not be found', 'error');
       }
     } catch (error) {
       console.error('[loadConversation] Error:', error);
+      renderMessages();
       showToast('Failed to load conversation', 'error');
     }
   }
@@ -1865,7 +1912,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
 
     filtered.forEach(conv => {
       const div = document.createElement('div');
-      div.className = 'history-item';
+      div.className = 'history-item' + (conv.id === currentConversationId ? ' active' : '');
       const ts = conv.updatedAt || conv.createdAt;
       div.innerHTML = `
         <span class="history-title" title="${escapeHtml(conv.title || 'Untitled')}">${escapeHtml(conv.title || 'Untitled')}</span>
@@ -2119,6 +2166,14 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     save: () => saveConversation(),
     getCurrentUser: () => currentUser,
     getDatabase: () => database,
+    // Lets js/lixa-generators/*.js (tools embedded directly in Lixa) use
+    // the exact same model the user picked in the composer, and count
+    // against the exact same 4-hour token budget a chat turn would —
+    // instead of each tool hardcoding its own model/token/plan gating as
+    // if it were a separate product.
+    resolveToolModelConfig: () => resolveModelConfig(false),
+    checkToolQuota: () => checkQuotaOrThrow(),
+    reportToolTokenUsage: (text, weight) => reportTokenUsage(text, weight),
     showToast,
     escapeHtml,
     renderFileCard,

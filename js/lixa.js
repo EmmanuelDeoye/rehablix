@@ -15,6 +15,46 @@
   // to plain chat far too often.
   const CONFIDENCE_THRESHOLD = 1; // min keyword score before auto-triggering a tool
 
+  // A keyword/pattern hit only proves the message is ABOUT a tool's topic,
+  // not that the user wants the tool run right now — "what's a good
+  // assessment format for a stroke patient?" should get a normal answer,
+  // not silently launch the Assessment Format generator. These two signals
+  // let isGenuineToolRequest() (below) tell "talking/asking about it" apart
+  // from "actually requesting it":
+  //  - an action verb/phrase ("generate", "I need a...", "can you make...")
+  //    always wins, even inside a question ("can you generate...?");
+  //  - failing that, a message phrased as a question is treated as chat.
+  const QUESTION_STARTERS = /^(what|why|how|when|where|who|which|whom|whose|is|are|was|were|does|do|did|can|could|should|would|will|explain|describe|define)\b/i;
+  const ACTION_INTENT = /\b(generate|create|make|build|draft|prepare|write|produce|compose|put together|draw up|fill out|complete|start (?:a|an|my)|need (?:a|an|to)|want (?:a|an|to)|give me|help me (?:create|make|generate|write|build|draft|prepare)|let'?s (?:create|make|generate|build|do|start))\b/i;
+
+  function looksLikeQuestion(text) {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return false;
+    return /\?\s*$/.test(trimmed) || QUESTION_STARTERS.test(trimmed);
+  }
+
+  function hasActionIntent(text) {
+    return ACTION_INTENT.test(text || '');
+  }
+
+  // A bare mention of a tool's own keyword phrase (e.g. just typing
+  // "assessment format") is exactly as ambiguous as a question about it —
+  // Lixa shouldn't guess. The moment the message carries any real extra
+  // content beyond that phrase (a diagnosis, a body part, a patient
+  // detail...), it's treated as the deliberate one-liner request it almost
+  // certainly is — that's the "legitimate short request" case the
+  // CONFIDENCE_THRESHOLD comment above already protects.
+  function isGenuineToolRequest(text, detected, attachedFiles) {
+    // Attaching an audio file is itself an unambiguous action, regardless
+    // of whatever (or however little) text comes with it.
+    if (detected.toolId === 'audio' && attachedFiles && attachedFiles.some(a => a.type && a.type.startsWith('audio/'))) return true;
+    if (hasActionIntent(text) || detected.patternMatched) return true;
+    if (looksLikeQuestion(text)) return false;
+    const wordCount = (text || '').trim().split(/\s+/).filter(Boolean).length;
+    const longestKeywordWords = (detected.matchedKeywords || []).reduce((max, kw) => Math.max(max, kw.split(/\s+/).length), 0);
+    return (wordCount - longestKeywordWords) >= 2;
+  }
+
   // Native Firebase history paths each tool already writes to (used to
   // build the unified Files view without a separate data store). Each
   // record's own schema differs per tool (format saves diagnosis/
@@ -80,6 +120,7 @@
     const filesSearchInput = document.getElementById('filesSearchInput');
     const fileFilterSelect = document.getElementById('fileFilterSelect');
     const filesList = document.getElementById('filesList');
+    const filesLoading = document.getElementById('filesLoading');
 
     if (!messageInput) return;
 
@@ -234,17 +275,22 @@
       let best = null;
       Object.values(TOOLS).forEach(tool => {
         let score = 0;
+        const matchedKeywords = [];
         (tool.meta.keywords || []).forEach(kw => {
-          if (lower.includes(kw)) score += 1;
+          if (lower.includes(kw)) { score += 1; matchedKeywords.push(kw); }
         });
         // A regex pattern is a stronger, more general signal than any single
         // keyword phrase (catches e.g. "generate the Oswestry Disability
-        // Index" without needing every possible scale name enumerated).
-        if (tool.meta.pattern && tool.meta.pattern.test(text || '')) score += 2;
+        // Index" without needing every possible scale name enumerated) —
+        // the ones in use already bake an action verb into the regex itself,
+        // so a pattern match doubles as a genuine-request signal too (see
+        // isGenuineToolRequest above).
+        let patternMatched = false;
+        if (tool.meta.pattern && tool.meta.pattern.test(text || '')) { score += 2; patternMatched = true; }
         if (tool.meta.id === 'audio' && attachedFiles && attachedFiles.some(a => a.type && a.type.startsWith('audio/'))) {
           score += 5;
         }
-        if (!best || score > best.score) best = { toolId: tool.meta.id, score };
+        if (!best || score > best.score) best = { toolId: tool.meta.id, score, matchedKeywords, patternMatched };
       });
       return best;
     }
@@ -537,7 +583,7 @@
 
       if (!text) return false;
       const detected = detectToolIntent(text, attachedFiles);
-      if (detected && detected.score >= CONFIDENCE_THRESHOLD) {
+      if (detected && detected.score >= CONFIDENCE_THRESHOLD && isGenuineToolRequest(text, detected, attachedFiles)) {
         return await startTool(detected.toolId, text, text, attachedFiles, { confirmed: false });
       }
 
@@ -587,14 +633,27 @@
       filesToggleBtn.addEventListener('click', () => setView(currentView === 'chats' ? 'files' : 'chats'));
     }
 
+    // Loading skeleton (#filesLoading) is a permanent sibling, not a child
+    // we'd clobber — only the rendered rows/message get replaced here, the
+    // same pattern renderHistoryList() uses for the Chats tab.
+    function clearFilesRows() {
+      filesList.querySelectorAll(':scope > *:not(#filesLoading)').forEach(el => el.remove());
+    }
+
+    function showFilesMessage(iconClass, text) {
+      clearFilesRows();
+      filesList.insertAdjacentHTML('beforeend', `<div class="empty-state"><i class="bx ${iconClass}"></i><p>${text}</p></div>`);
+    }
+
     async function loadFilesList() {
       const user = core.getCurrentUser();
       if (!user) {
-        filesList.innerHTML = '<div class="empty-state"><i class="bx bx-lock-alt"></i><p>Log in to see your files</p></div>';
+        showFilesMessage('bx-lock-alt', 'Log in to see your files');
         return;
       }
       const database = core.getDatabase();
-      filesList.innerHTML = '<div class="empty-state"><i class="bx bx-loader-alt"></i><p>Loading…</p></div>';
+      clearFilesRows();
+      if (filesLoading) filesLoading.hidden = false;
       try {
         const results = await Promise.all(FILE_SOURCES.map(src =>
           database.ref(`history/${user.uid}/${src.path}`).once('value').then(snap => {
@@ -613,7 +672,9 @@
         renderFilesList();
       } catch (err) {
         console.error('[lixa] failed to load files', err);
-        filesList.innerHTML = '<div class="empty-state"><i class="bx bx-error"></i><p>Could not load files</p></div>';
+        showFilesMessage('bx-error', 'Could not load files');
+      } finally {
+        if (filesLoading) filesLoading.hidden = true;
       }
     }
 
@@ -642,10 +703,11 @@
         (!term || f.title.toLowerCase().includes(term))
       );
       if (filtered.length === 0) {
-        filesList.innerHTML = '<div class="empty-state"><i class="bx bx-file-blank"></i><p>No files yet</p></div>';
+        showFilesMessage('bx-file-blank', 'No files yet');
         return;
       }
-      filesList.innerHTML = filtered.map(f => `
+      clearFilesRows();
+      filesList.insertAdjacentHTML('beforeend', filtered.map(f => `
         <div class="history-file-item" data-id="${f.id}" data-type="${f.type}">
           <span class="file-icon">${f.icon}</span>
           <span class="file-info">
@@ -653,7 +715,7 @@
             <span class="file-tool-label">${core.escapeHtml(f.label)}</span>
           </span>
         </div>
-      `).join('');
+      `).join(''));
       filesList.querySelectorAll('.history-file-item').forEach(el => {
         el.addEventListener('click', () => openFile(el.dataset.type, el.dataset.id));
       });
