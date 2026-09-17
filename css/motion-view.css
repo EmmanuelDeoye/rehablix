@@ -302,6 +302,11 @@
   backdrop-filter: var(--backdrop-blur);
 }
 .motion-results-header h3 { margin: 0; font-size: 1rem; color: var(--text-primary); }
+/* views/formatview.fragment.html reuses .motion-results* wholesale, adding
+   only this one wrapper so a back button can sit beside the title without
+   upsetting the header's existing 2-group space-between layout. */
+.formatview-header-title { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
+.formatview-header-title h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .motion-results-actions { display: flex; gap: 0.5rem; }
 .motion-icon-btn {
   width: 38px; height: 38px;
@@ -325,6 +330,15 @@
 }
 .motion-results-body h2, .motion-results-body h3 { color: var(--text-primary); }
 .motion-results-body ul { padding-left: 1.2rem; }
+/* Edit-in-place state (js/views/motion-view.js setEditingResults) — the
+   dashed outline is the only visual cue needed since contenteditable
+   already shows a text cursor; no separate "editing" chrome/toolbar. */
+.motion-results-body.motion-results-editing {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+  border-radius: 0.5rem;
+  cursor: text;
+}
 .motion-results-footer {
   flex-shrink: 0;
   display: flex;
