@@ -119,9 +119,10 @@
         toolId: 'audio',
         recordId: ref.key,
         actions: [
-          // Opens in the shared #/result editor (RESULT_TYPES.audio) in
-          // the same tab/window, same as every other generated result.
-          { type: 'link', href: `index.html?type=audio&id=${ref.key}#/result`, label: 'Open & Edit', primary: true, icon: 'fa-pen-to-square' }
+          // Opens in the dedicated Audio Transcript view (reuses the Motion
+          // results interface — see js/views/audioview-view.js), same
+          // tab/window as every other generated result.
+          { type: 'link', href: `index.html?id=${ref.key}#/audioview`, label: 'Open & Edit', primary: true, icon: 'fa-pen-to-square' }
         ]
       }
     };
@@ -144,9 +145,9 @@
     ],
     generate,
     // No handleAction anymore — the fileCard's action is a plain link into
-    // #/result now, not a button that opens a custom popup window.
+    // #/audioview now, not a button that opens a custom popup window.
     openFromRecord(record, id) {
-      if (id) window.location.href = `index.html?type=audio&id=${id}#/result`;
+      if (id) window.location.href = `index.html?id=${id}#/audioview`;
     }
   };
 })();
