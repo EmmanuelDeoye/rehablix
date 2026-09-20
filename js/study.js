@@ -71,9 +71,8 @@
 
   // ===== DOM refs =====
   const $ = (id) => document.getElementById(id);
-  const navbarSlot = $('navbarViewSlot');
-  const historyNavBtnEl = $('historyNavBtn');
-  if (navbarSlot && historyNavBtnEl) navbarSlot.appendChild(historyNavBtnEl);
+  // History lives in the shell's single global drawer (js/history-drawer.js);
+  // this view registers its data source as a provider (see the History section).
   const viewDashboard = $('viewDashboard');
   const viewCreate = $('viewCreate');
   const viewSubject = $('viewSubject');
@@ -643,32 +642,38 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
   // =========================================================================
   // History Drawer
   // =========================================================================
-  function renderHistoryList() {
-    const list = $('historyList');
-    const ids = Object.keys(studySets).sort((a, b) => (studySets[b].createdAt || 0) - (studySets[a].createdAt || 0));
-    if (ids.length === 0) {
-      list.innerHTML = `<div class="empty-state"><i class='bx bx-folder-open'></i><p>No study sets yet</p></div>`;
-      return;
-    }
-    list.innerHTML = ids.map(id => {
-      const s = studySets[id];
-      return `<div class="history-item" data-subject="${s.subjectId}">
-        <div class="history-item-title">${escapeHtml(s.title)}</div>
-        <div class="history-item-meta">${(s.flashcards || []).length} cards · ${(s.quiz || []).length} questions</div>
-      </div>`;
-    }).join('');
-    list.querySelectorAll('.history-item').forEach(item => {
-      item.addEventListener('click', () => {
-        openSubject(item.dataset.subject);
-        closeDrawer();
+  function historyDrawerItems() {
+    return Object.keys(studySets)
+      .sort((a, b) => (studySets[b].createdAt || 0) - (studySets[a].createdAt || 0))
+      .map(id => {
+        const s = studySets[id];
+        return {
+          id,
+          title: s.title || 'Untitled',
+          meta: `${(s.flashcards || []).length} cards · ${(s.quiz || []).length} questions`,
+          time: s.createdAt,
+          raw: s
+        };
       });
-    });
   }
 
-  function openDrawer() { $('historyDrawer').classList.add('open'); renderHistoryList(); }
-  function closeDrawer() { $('historyDrawer').classList.remove('open'); }
-  $('historyNavBtn')?.addEventListener('click', openDrawer);
-  $('closeDrawerBtn')?.addEventListener('click', closeDrawer);
+  // Same data (history/{scopeUid}/study/sets) and the same "open its
+  // subject" behaviour as the old private drawer — now rendered by the
+  // shell's one global drawer (js/history-drawer.js).
+  if (window.RehablixHistoryDrawer) {
+    window.RehablixHistoryDrawer.register('study', {
+      label: 'Study Sets',
+      icon: '🧠',
+      searchPlaceholder: 'Search study sets...',
+      emptyText: 'No study sets yet',
+      async load() {
+        await loadStudySets();
+        return historyDrawerItems();
+      },
+      open: (item) => openSubject(item.raw.subjectId)
+    });
+    cleanupFns.push(() => window.RehablixHistoryDrawer.unregister('study'));
+  }
 
   // =========================================================================
   // Init
@@ -677,15 +682,12 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
     await loadSubjects();
     await loadStudySets();
     renderDashboard();
+    if (window.RehablixHistoryDrawer) window.RehablixHistoryDrawer.refresh('study');
   }
 
   const unsubAuth = auth.onAuthStateChanged(async (user) => {
     currentUser = user;
-    if (!user) {
-      $('historyNavBtn').style.display = 'none';
-      return;
-    }
-    $('historyNavBtn').style.display = '';
+    if (!user) return;
 
     if (window.RehablixCenter && typeof window.RehablixCenter.getEffectiveScopeUid === 'function') {
       try { scopeUid = await window.RehablixCenter.getEffectiveScopeUid('study'); }

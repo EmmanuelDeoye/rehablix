@@ -13,7 +13,6 @@ if (typeof marked !== 'undefined') {
 
 (function () {
     let cleanupFns = [];
-    let historyListenerRef = null;
 
     async function mount() {
 
@@ -79,14 +78,8 @@ if (typeof marked !== 'undefined') {
     // Hidden history ID
     const currentHistoryIdInput = document.getElementById('currentHistoryId');
 
-    // History drawer
-    const historyDrawer = document.getElementById('historyDrawer');
-    const historyNavBtn = document.getElementById('historyNavBtn');
-    const navbarSlot = document.getElementById('navbarViewSlot');
-    if (navbarSlot && historyNavBtn) navbarSlot.appendChild(historyNavBtn);
-    const closeDrawerBtn = document.getElementById('closeDrawerBtn');
-    const historyList = document.getElementById('historyList');
-    const historySearchInput = document.getElementById('historySearchInput');
+    // (History is the shell's single global drawer, js/history-drawer.js — this
+    // view registers its data source as a provider in the History section below.)
 
     // Toast
     const toastContainer = document.getElementById('toast-container');
@@ -1360,6 +1353,7 @@ ${combinedText || 'No notes provided.'}`;
             if (window.RehablixCenter) {
                 window.RehablixCenter.logActivity('presentation', `Generated ${docType}`, patientName.value.trim() || 'Patient').catch(() => {});
             }
+            if (window.RehablixHistoryDrawer) window.RehablixHistoryDrawer.refresh('presentation');
             return ref.key;
         } catch (error) {
             showToast('Could not save to history.', 'error');
@@ -1517,131 +1511,54 @@ ${combinedText || 'No notes provided.'}`;
     // =========================================================================
     // History drawer
     // =========================================================================
-    let allHistoryEntries = [];
-
-    async function deleteHistoryItem(key, event) {
-        event.stopPropagation();
-        if (!currentUser) return showToast('Log in to manage history', 'error');
-        if (!confirm('Delete this document?')) return;
+    // Same data (history/{scopeUid}/caseHistory) and the same open/delete
+    // rules as the old private drawer — now rendered by the shell's one
+    // global drawer (js/history-drawer.js).
+    async function deleteHistoryItem(key) {
+        if (!currentUser) { showToast('Log in to manage history', 'error'); return false; }
+        if (!confirm('Delete this document?')) return false;
         try {
             await database.ref(`history/${scopeUid}/caseHistory/${key}`).remove();
             showToast('Deleted', 'success');
-            loadHistory();
+            return true;
         } catch (error) {
             showToast('Failed to delete.', 'error');
+            return false;
         }
     }
 
-    function renderHistory(entries) {
-        if (!historyList) return;
-        historyList.innerHTML = '';
-        if (!entries.length) {
-            historyList.innerHTML = `
-                <div class="empty-state">
-                    <i class="bx bx-folder-open"></i>
-                    <p>No document history</p>
-                    <small>Generate your first document</small>
-                </div>
-            `;
-            return;
-        }
-        entries.forEach(([key, item]) => {
-            const div = document.createElement('div');
-            div.className = 'history-item';
-            
-            const modeLabel = item.mode === 'report' ? 'Report' : 
-                             item.mode === 'documentation' ? 'Documentation' : 'Presentation';
-            
-            div.innerHTML = `
-                <div class="history-info" style="flex:1;">
-                    <span class="history-name">${escapeHtml(item.patientName || 'Unknown')}</span>
-                    <span style="font-size: 0.85rem; color: var(--text-secondary);">${escapeHtml(modeLabel)}</span>
-                    <div class="history-meta">
-                        <span><i class="far fa-calendar-alt"></i> ${escapeHtml(item.date || '')}</span>
-                        <span><i class="far fa-clock"></i> ${escapeHtml(item.time || '')}</span>
-                    </div>
-                </div>
-                <div class="history-actions">
-                    <button class="delete-btn" data-key="${key}" title="Delete">
-                        <i class="fas fa-trash-alt"></i>
-                    </button>
-                </div>
-            `;
-            
-            div.querySelector('.delete-btn')?.addEventListener('click', (e) => deleteHistoryItem(key, e));
-            
-            div.addEventListener('click', (e) => {
-                if (!e.target.closest('button')) window.location.href = `index.html?type=case&id=${key}#/result`;
-            });
-            
-            historyList.appendChild(div);
+    async function fetchHistoryEntries() {
+        if (!currentUser || !scopeUid) return [];
+        const snapshot = await database.ref(`history/${scopeUid}/caseHistory`).orderByChild('timestamp').once('value');
+        const data = snapshot.val();
+        if (!data) return [];
+        return Object.entries(data)
+            .filter(([_, item]) => ['presentation', 'report', 'documentation'].includes(item.contentType))
+            .sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0));
+    }
+
+    if (window.RehablixHistoryDrawer) {
+        window.RehablixHistoryDrawer.register('presentation', {
+            label: 'Documents & Reports',
+            icon: '📑',
+            searchPlaceholder: 'Search documents...',
+            emptyText: 'No document history',
+            emptyHint: 'Generate your first document',
+            async load() {
+                const entries = await fetchHistoryEntries();
+                return entries.map(([key, item]) => ({
+                    id: key,
+                    title: item.patientName || 'Unknown',
+                    meta: item.mode === 'report' ? 'Report' : item.mode === 'documentation' ? 'Documentation' : 'Presentation',
+                    time: item.timestamp,
+                    searchText: [item.patientName, item.profession, item.diagnosis].filter(Boolean).join(' '),
+                    raw: item
+                }));
+            },
+            open: (item) => { window.location.href = `index.html?type=case&id=${item.id}#/result`; },
+            remove: (item) => deleteHistoryItem(item.id)
         });
-    }
-
-    function filterHistory(term) {
-        const s = term.toLowerCase().trim();
-        if (!s) renderHistory(allHistoryEntries);
-        else {
-            const filtered = allHistoryEntries.filter(([_, item]) =>
-                (item.patientName || '').toLowerCase().includes(s) ||
-                (item.profession || '').toLowerCase().includes(s) ||
-                (item.diagnosis || '').toLowerCase().includes(s)
-            );
-            renderHistory(filtered);
-        }
-    }
-
-    function loadHistory() {
-        if (!currentUser) return;
-        if (historyListenerRef) historyListenerRef.off();
-        historyListenerRef = database.ref(`history/${scopeUid}/caseHistory`).orderByChild('timestamp');
-        historyListenerRef
-            .on('value', snapshot => {
-                const data = snapshot.val();
-                if (!data) { allHistoryEntries = []; renderHistory([]); return; }
-                allHistoryEntries = Object.entries(data)
-                    .filter(([_, item]) => ['presentation', 'report', 'documentation'].includes(item.contentType))
-                    .sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0));
-                filterHistory(historySearchInput?.value || '');
-            }, error => {
-                console.error('History error:', error);
-                allHistoryEntries = [];
-                renderHistory([]);
-            });
-    }
-
-    if (historyNavBtn) {
-        historyNavBtn.addEventListener('click', () => {
-            if (!currentUser) { showToast('Log in first', 'error'); return; }
-            historyDrawer.classList.add('active');
-            loadHistory();
-        });
-    }
-    
-    if (closeDrawerBtn) {
-        closeDrawerBtn.addEventListener('click', () => historyDrawer.classList.remove('active'));
-    }
-    
-    // FIXED: Use contains() to check if click target is inside history button
-    const onDocClickCloseHistory = e => {
-        if (historyDrawer?.classList.contains('active') &&
-            !historyDrawer.contains(e.target) &&
-            !historyNavBtn?.contains(e.target)) {
-            historyDrawer.classList.remove('active');
-        }
-    };
-    const onDocKeydownCloseHistory = e => {
-        if (e.key === 'Escape' && historyDrawer?.classList.contains('active')) {
-            historyDrawer.classList.remove('active');
-        }
-    };
-    document.addEventListener('click', onDocClickCloseHistory);
-    document.addEventListener('keydown', onDocKeydownCloseHistory);
-    cleanupFns.push(() => document.removeEventListener('click', onDocClickCloseHistory));
-    cleanupFns.push(() => document.removeEventListener('keydown', onDocKeydownCloseHistory));
-    
-    if (historySearchInput) {
-        historySearchInput.addEventListener('input', e => filterHistory(e.target.value));
+        cleanupFns.push(() => window.RehablixHistoryDrawer.unregister('presentation'));
     }
 
     // =========================================================================
@@ -1662,11 +1579,8 @@ ${combinedText || 'No notes provided.'}`;
             } else if (scopeUid !== user.uid) {
                 showToast('Working on your center\'s shared documents', 'info', 3000);
             }
-            if (historyNavBtn) historyNavBtn.style.display = 'block';
-            loadHistory();
         } else {
             console.log('[AUTH] Logged out');
-            if (historyNavBtn) historyNavBtn.style.display = 'none';
         }
         validateForm();
     });
@@ -1702,7 +1616,6 @@ ${combinedText || 'No notes provided.'}`;
     } // end mount()
 
     function unmount() {
-        if (historyListenerRef) { historyListenerRef.off(); historyListenerRef = null; }
         cleanupFns.forEach(fn => { try { fn(); } catch (e) { /* best-effort */ } });
         cleanupFns = [];
     }

@@ -1,6 +1,6 @@
 // docresult.js - Complete document editor with full synchronization to doc.html
 // Registered as the "docresult" SPA view (js/router.js calls mount() after
-// injecting views/docresult.fragment.html into #appRoot).
+// injecting the "docresult" template (js/view-templates.js) into #appRoot).
 
 (function () {
   let cleanupFns = [];

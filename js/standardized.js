@@ -123,17 +123,17 @@ async function mount() {
   const downloadPdfBtn = document.getElementById('downloadPdfBtn');
   const toast = document.getElementById('toast');
 
-  const historyList = document.getElementById('historyList');
-  const clearHistoryBtn = document.getElementById('clearHistoryBtn');
-  const totalCountSpan = document.getElementById('totalCount');
-  const latestDateSpan = document.getElementById('latestDate');
-
   if (typeof firebase === 'undefined') {
     console.error('Firebase SDK not loaded!');
     return;
   }
 
   const database = firebase.database();
+
+  // History lives in the shell's single global drawer (js/history-drawer.js);
+  // register right away (before any awaited setup) so the button is ready.
+  registerHistoryProvider();
+  cleanupFns.push(() => { if (window.RehablixHistoryDrawer) window.RehablixHistoryDrawer.unregister('standardized'); });
 
   loadGenerationData();
   if (window.rehabPlans) currentPlan = window.rehabPlans.getCurrentPlan() || 'free';
@@ -152,7 +152,6 @@ async function mount() {
       loadUserHistory().then(maybeOpenFromDeepLink);
     } else {
       historyItems = [];
-      updateHistoryUI();
     }
   });
   cleanupFns.push(unsubAuth);
@@ -289,14 +288,13 @@ async function mount() {
   }
 
   async function loadUserHistory() {
-    if (!currentUser) { historyItems = []; updateHistoryUI(); return; }
+    if (!currentUser) { historyItems = []; return; }
     try {
       const snapshot = await database.ref(`history/${currentUser.uid}/standardizedTools`).once('value');
       const data = snapshot.val();
       historyItems = data
         ? Object.entries(data).map(([id, item]) => ({ id, ...item })).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
         : [];
-      updateHistoryUI();
     } catch (error) {
       console.error('Error loading history:', error);
       showToast('Failed to load history', true);
@@ -324,7 +322,7 @@ async function mount() {
       await newRef.set(historyItem);
       const newItem = { id: newRef.key, ...historyItem };
       historyItems.unshift(newItem);
-      updateHistoryUI();
+      if (window.RehablixHistoryDrawer) window.RehablixHistoryDrawer.refresh('standardized');
       return newItem.id;
     } catch (error) {
       console.error('Error saving to history:', error);
@@ -334,28 +332,30 @@ async function mount() {
   }
 
   async function removeFromHistory(id) {
-    if (!currentUser) return;
+    if (!currentUser) return false;
     try {
       await database.ref(`history/${currentUser.uid}/standardizedTools/${id}`).remove();
       historyItems = historyItems.filter(item => item.id !== id);
-      updateHistoryUI();
+      return true;
     } catch (error) {
       console.error('Error removing history item:', error);
       showToast('Failed to delete item', true);
+      return false;
     }
   }
 
   async function clearAllHistory() {
-    if (historyItems.length === 0) { showToast('No history to clear', true); return; }
-    if (!confirm('Are you sure you want to clear all history?')) return;
+    if (historyItems.length === 0) { showToast('No history to clear', true); return false; }
+    if (!confirm('Are you sure you want to clear all history?')) return false;
     try {
       await database.ref(`history/${currentUser.uid}/standardizedTools`).remove();
       historyItems = [];
-      updateHistoryUI();
       showToast('All history cleared');
+      return true;
     } catch (error) {
       console.error('Error clearing history:', error);
       showToast('Failed to clear history', true);
+      return false;
     }
   }
 
@@ -369,48 +369,39 @@ async function mount() {
     }
   }
 
-  function updateHistoryUI() {
-    if (!historyList) return;
-    if (totalCountSpan) totalCountSpan.textContent = historyItems.length;
-    if (latestDateSpan && historyItems.length > 0) {
-      latestDateSpan.textContent = new Date(historyItems[0].timestamp).toLocaleDateString();
-    } else if (latestDateSpan) {
-      latestDateSpan.textContent = '-';
-    }
-
-    if (historyItems.length === 0) {
-      historyList.innerHTML = currentUser ? `
-        <div class="empty-history"><p>No history yet</p><small>Generate your first standardized tool to see it here</small></div>
-      ` : `
-        <div class="empty-history"><p>Log in to see your history</p><small>Your generated tools sync across all your devices once you're logged in</small></div>
-      `;
-      return;
-    }
-
-    historyList.innerHTML = historyItems.map(item => {
-      const date = new Date(item.timestamp);
-      const formattedDate = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-      return `
-        <div class="history-item" data-id="${item.id}">
-          <div class="history-item-header">
-            <span class="history-item-title">${escapeHtml(item.toolName || 'Unknown Tool')}</span>
-            <span class="history-item-date">${formattedDate}</span>
-          </div>
-          <div class="history-item-actions">
-            <button class="history-item-btn retrieve" onclick="window.retrieveHistoryItem('${item.id}')"><span>📖</span> View PDF</button>
-            <button class="history-item-btn delete" onclick="window.deleteHistoryItem('${item.id}')"><span>🗑️</span> Delete</button>
-          </div>
-        </div>`;
-    }).join('');
+  // ===== Global history drawer provider =====
+  // Same data (history/{uid}/standardizedTools) and the same view/delete/clear
+  // behaviour the old inline history section had, rendered by the shell's
+  // one drawer.
+  function registerHistoryProvider() {
+    if (!window.RehablixHistoryDrawer) return;
+    window.RehablixHistoryDrawer.register('standardized', {
+      label: 'Standardized Tools',
+      icon: '⚖️',
+      searchPlaceholder: 'Search tools...',
+      emptyText: 'No history yet',
+      emptyHint: 'Generate your first standardized tool to see it here',
+      async load() {
+        await loadUserHistory();
+        return historyItems.map(item => ({
+          id: item.id,
+          title: item.toolName || 'Unknown Tool',
+          meta: item.includeGuides ? 'With guides' : '',
+          time: item.timestamp,
+          searchText: `${item.toolName || ''} ${item.preview || ''}`,
+          raw: item
+        }));
+      },
+      open: (item) => retrieveFromHistory(item.id),
+      async remove(item) {
+        if (!confirm('Delete this item from history?')) return false;
+        const ok = await removeFromHistory(item.id);
+        if (ok) showToast('Item deleted');
+        return ok;
+      },
+      clearAll: () => clearAllHistory()
+    });
   }
-
-  window.retrieveHistoryItem = (id) => retrieveFromHistory(id);
-  window.deleteHistoryItem = async (id) => {
-    if (confirm('Delete this item from history?')) {
-      await removeFromHistory(id);
-      showToast('Item deleted');
-    }
-  };
 
   function buildPrompt(toolName, includeGuides) {
     const guides = includeGuides
@@ -548,8 +539,6 @@ Requirements:
     generatedHtmlContent = '';
     showToast('Form cleared');
   });
-
-  if (clearHistoryBtn) clearHistoryBtn.addEventListener('click', clearAllHistory);
 
   if (downloadPdfBtn) {
     downloadPdfBtn.addEventListener('click', () => {

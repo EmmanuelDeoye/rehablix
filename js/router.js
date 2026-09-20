@@ -1,7 +1,9 @@
 // js/router.js — small hash router for the rehablix SPA shell (index.html).
-// Each route fetches a static HTML fragment into #appRoot, then calls the
-// matching window.RehablixViews[name].mount()/.unmount() (registered by
-// that view's own script, loaded once up front like every other script).
+// Each route's HTML lives as a plain string in js/view-templates.js
+// (window.RehablixTemplates), injected into #appRoot synchronously — no
+// runtime fetch() of separate fragment files — then the matching
+// window.RehablixViews[name].mount()/.unmount() (registered by that view's
+// own script, loaded once up front like every other script) is called.
 //
 // Lixa and Workspace are the two primary bottom-nav tabs users flip between
 // constantly, so they're kept alive: mounted once, then just shown/hidden on
@@ -15,55 +17,47 @@
 
 (function () {
   const routes = {
-    lixa: { fragment: 'views/lixa.fragment.html', title: 'rehablix | Lixa — AI Clinical Copilot' },
-    workspace: { fragment: 'views/workspace.fragment.html', title: 'Workspace | rehablix' },
-    format: { fragment: 'views/format.fragment.html', title: 'Assessment Format Generator | rehablix' },
-    standardized: { fragment: 'views/standardized.fragment.html', title: 'Standardized Tools | rehablix' },
-    audio: { fragment: 'views/audio.fragment.html', title: 'Audio Transcription | rehablix' },
-    presentation: { fragment: 'views/presentation.fragment.html', title: 'Presentation & Report Studio | rehablix' },
-    study: { fragment: 'views/study.fragment.html', title: 'Study Buddy | rehablix' },
-    assignment: { fragment: 'views/assignment.fragment.html', title: 'Assignment Maker | rehablix' },
-    exam: { fragment: 'views/exam.fragment.html', title: 'Exam Simulator | rehablix' },
-    motion: { fragment: 'views/motion.fragment.html', title: 'Motion & Gait Analyzer | rehablix' },
-    settings: { fragment: 'views/settings.fragment.html', title: 'rehablix · Account Settings' },
-    subscription: { fragment: 'views/subscription.fragment.html', title: 'rehablix · Subscription Plans' },
-    result: { fragment: 'views/result.fragment.html', title: 'rehablix · Result' },
-    docresult: { fragment: 'views/docresult.fragment.html', title: 'rehablix · Documentation Result' },
+    lixa: { template: 'lixa', title: 'rehablix | Lixa — AI Clinical Copilot' },
+    workspace: { template: 'workspace', title: 'Workspace | rehablix' },
+    format: { template: 'format', title: 'Assessment Format Generator | rehablix' },
+    standardized: { template: 'standardized', title: 'Standardized Tools | rehablix' },
+    audio: { template: 'audio', title: 'Audio Transcription | rehablix' },
+    presentation: { template: 'presentation', title: 'Presentation & Report Studio | rehablix' },
+    study: { template: 'study', title: 'Study Buddy | rehablix' },
+    assignment: { template: 'assignment', title: 'Assignment Maker | rehablix' },
+    exam: { template: 'exam', title: 'Exam Simulator | rehablix' },
+    motion: { template: 'motion', title: 'Motion & Gait Analyzer | rehablix' },
+    settings: { template: 'settings', title: 'rehablix · Account Settings' },
+    subscription: { template: 'subscription', title: 'rehablix · Subscription Plans' },
+    result: { template: 'result', title: 'rehablix · Result' },
+    docresult: { template: 'docresult', title: 'rehablix · Documentation Result' },
     // Assessment Format has its own dedicated view/editor (reusing the
     // Motion results interface) instead of routing through "result" above
     // — see js/views/formatview-view.js.
-    formatview: { fragment: 'views/formatview.fragment.html', title: 'rehablix · Assessment Format' }
+    formatview: { template: 'formatview', title: 'rehablix · Assessment Format' },
+    // Audio transcripts have the same treatment — see js/views/audioview-view.js.
+    audioview: { template: 'audioview', title: 'rehablix · Audio Transcript' }
   };
 
   const KEEP_ALIVE = new Set(['lixa', 'workspace']);
 
-  const fragmentCache = {};
   const keepAliveWrappers = {}; // routeName -> wrapper element, once mounted
   let currentView = null;
-  let navToken = 0; // guards against a slow fetch resolving after a newer navigation started
 
   function parseHash() {
     const m = (window.location.hash || '').match(/^#\/([a-z]+)/i);
     return m ? m[1].toLowerCase() : null;
   }
 
-  async function fetchFragment(url) {
-    if (fragmentCache[url]) return fragmentCache[url];
-    const res = await fetch(url, { cache: 'no-cache' }); // always revalidate — fragments change during development and shouldn't serve a stale disk cache across full page loads
-    if (!res.ok) throw new Error(`Failed to load ${url} (${res.status})`);
-    const html = await res.text();
-    fragmentCache[url] = html;
-    return html;
-  }
-
   // Shared navbar affordances that individual views opt into during their
-  // own mount() (e.g. ask.js shows #historyNavBtn once logged in) — reset
-  // them before every navigation so a leftover control from the previous
-  // view never lingers into a view that doesn't use it. A kept-alive view
-  // being re-shown re-attaches its own controls itself, right after this.
+  // own mount() (e.g. ask.js re-attaches #newChatNavBtn once logged in) —
+  // reset them before every navigation so a leftover control from the
+  // previous view never lingers into a view that doesn't use it. A
+  // kept-alive view being re-shown re-attaches its own controls itself,
+  // right after this. (The single global History button/drawer is NOT reset
+  // here: js/history-drawer.js owns it and re-evaluates it on every
+  // rehablix:routechange.)
   function resetSharedNavbar() {
-    const historyBtn = document.getElementById('historyNavBtn');
-    if (historyBtn) historyBtn.style.display = 'none';
     const newChatBtn = document.getElementById('newChatNavBtn');
     if (newChatBtn) newChatBtn.style.display = 'none';
     const switcher = document.getElementById('workspaceSwitcher');
@@ -89,32 +83,9 @@
     return { appRoot, keepAliveHost, transientHost };
   }
 
-  // Shown as an overlay over #appRoot only while a route's fragment is
-  // being fetched for the first time (repeat visits to a kept-alive route
-  // are instant and skip this entirely) — without it, the gap between the
-  // old view disappearing and the new fragment's HTML landing is a blank
-  // page, which reads as a freeze rather than a page changing.
-  function getRouteShimmer(appRoot) {
-    let el = document.getElementById('routeLoadingSkeleton');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'routeLoadingSkeleton';
-      el.hidden = true;
-      el.innerHTML = `
-        <div class="route-skeleton-bar route-skeleton-bar--title"></div>
-        <div class="route-skeleton-bar"></div>
-        <div class="route-skeleton-bar"></div>
-        <div class="route-skeleton-bar route-skeleton-bar--short"></div>
-      `;
-      appRoot.appendChild(el);
-    }
-    return el;
-  }
-
-  async function navigate(routeName) {
+  function navigate(routeName) {
     const name = routes[routeName] ? routeName : 'lixa';
     const route = routes[name];
-    const myToken = ++navToken;
     const { keepAliveHost, transientHost } = getHosts();
     const isKeepAlive = KEEP_ALIVE.has(name);
     const alreadyMounted = isKeepAlive && !!keepAliveWrappers[name];
@@ -134,7 +105,7 @@
 
     if (alreadyMounted) {
       // Fast path: already-visited keep-alive route — just show it again,
-      // no re-fetch, no re-mount, no reset state.
+      // no re-mount, no reset state.
       resetSharedNavbar();
       transientHost.hidden = true;
       transientHost.innerHTML = '';
@@ -151,22 +122,11 @@
       return;
     }
 
-    // Only the actual first-ever fetch of a fragment can take noticeable
-    // time — a cached repeat visit resolves in a microtask, so skip the
-    // shimmer there to avoid a pointless flash.
-    const needsFetch = !fragmentCache[route.fragment];
-    const shimmer = needsFetch ? getRouteShimmer(document.getElementById('appRoot')) : null;
-    if (shimmer) shimmer.hidden = false;
-
-    let html;
-    try {
-      html = await fetchFragment(route.fragment);
-    } catch (err) {
-      console.error('[router] failed to load view:', err);
-      if (shimmer) shimmer.hidden = true;
+    const html = window.RehablixTemplates && window.RehablixTemplates[route.template];
+    if (!html) {
+      console.error('[router] no template registered for route:', name, '— is js/view-templates.js loaded before js/router.js?');
       return;
     }
-    if (myToken !== navToken) { if (shimmer) shimmer.hidden = true; return; } // a newer navigation superseded this one
 
     resetSharedNavbar();
 
@@ -186,8 +146,6 @@
       transientHost.hidden = false;
       transientHost.innerHTML = html;
     }
-
-    if (shimmer) shimmer.hidden = true;
 
     document.body.dataset.route = name;
     if (route.title) document.title = route.title;

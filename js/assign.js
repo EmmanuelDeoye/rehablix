@@ -7,7 +7,6 @@ if (typeof marked !== 'undefined') {
 
 (function () {
   let cleanupFns = [];
-  let historyListenerRef = null;
 
   async function mount() {
 
@@ -48,14 +47,8 @@ if (typeof marked !== 'undefined') {
   const previewOutlineBadge = document.getElementById('previewOutlineBadge');
   const viewFullAssignmentBtn = document.getElementById('viewFullAssignmentBtn');
 
-  // History
-  const historyDrawer = document.getElementById('historyDrawer');
-  const historyNavBtn = document.getElementById('historyNavBtn');
-  const navbarSlot = document.getElementById('navbarViewSlot');
-  if (navbarSlot && historyNavBtn) navbarSlot.appendChild(historyNavBtn);
-  const closeDrawerBtn = document.getElementById('closeDrawerBtn');
-  const historyList = document.getElementById('historyList');
-  const historySearchInput = document.getElementById('historySearchInput');
+  // History lives in the shell's single global drawer (js/history-drawer.js);
+  // this view registers its data source as a provider (see the History section).
 
   // Toast
   const toastContainer = document.getElementById('toast-container');
@@ -892,168 +885,60 @@ Return ONLY the polished HTML. No markdown fences.`;
   }
 
   // ===== History =====
-  function loadHistoryList() {
-    if (!currentUser) return;
-    if (historyListenerRef) historyListenerRef.off();
-    historyListenerRef = database.ref(`history/${currentUser.uid}/assignments`).orderByChild('timestamp');
-
-    historyListenerRef
-      .on('value', snap => {
-        const data = snap.val();
-        if (!historyList) return;
-
-        historyList.innerHTML = '';
-
-        if (!data) {
-          historyList.innerHTML = `
-            <div class="empty-state">
-              <i class='bx bx-folder-open'></i>
-              <p>No assignments yet</p>
-              <small>Generated assignments will appear here</small>
-            </div>`;
-          return;
-        }
-
-        const entries = Object.entries(data)
-          .sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0));
-
-        const searchTerm = historySearchInput?.value.toLowerCase().trim() || '';
-        const filtered = entries.filter(([_, item]) => {
-          if (!searchTerm) return true;
-          return (item.topic || '').toLowerCase().includes(searchTerm) ||
-                 (item.course || '').toLowerCase().includes(searchTerm) ||
-                 (item.typeLabel || '').toLowerCase().includes(searchTerm);
-        });
-
-        if (filtered.length === 0) {
-          historyList.innerHTML = `
-            <div class="empty-state">
-              <i class='bx bx-search'></i>
-              <p>No matching assignments</p>
-            </div>`;
-          return;
-        }
-
-        filtered.forEach(([id, item]) => {
-          const div = document.createElement('div');
-          div.className = 'history-item';
-
-          const outlineIndicator = item.hasOutline
-            ? '<span style="font-size:0.65rem;background:#e0f2f1;color:#00695c;padding:2px 6px;border-radius:4px;margin-left:6px;">outline</span>'
-            : '';
-
-          div.innerHTML = `
-            <button class="delete-btn" data-id="${id}" title="Delete assignment">
-              <i class="fas fa-trash-alt"></i>
-            </button>
-            <span class="history-title">${escapeHtml(item.topic || 'Untitled')}${outlineIndicator}</span>
-            <div class="history-meta">
-              <span><i class="far fa-calendar-alt"></i> ${escapeHtml(item.date || '')}</span>
-              <span><i class="far fa-clock"></i> ${escapeHtml(item.time || '')}</span>
-              <span>${escapeHtml(item.course || '')}</span>
-              <span>${escapeHtml(item.toneLabel || '')}</span>
-            </div>
-            <div style="margin-top:0.5rem;">
-              <button class="retrieve-btn" data-id="${id}">📂 Open in Editor</button>
-            </div>`;
-
-          div.addEventListener('click', (e) => {
-            if (e.target.closest('.delete-btn') || e.target.closest('.retrieve-btn')) return;
-            localStorage.setItem('rehab_assignment_current_id', id);
-            window.location.href = `index.html?type=answer&id=${id}#/result`;
-          });
-
-          div.querySelector('.delete-btn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            deleteAssignment(id);
-          });
-
-          div.querySelector('.retrieve-btn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            localStorage.setItem('rehab_assignment_current_id', id);
-            window.location.href = `index.html?type=answer&id=${id}#/result`;
-          });
-
-          historyList.appendChild(div);
-        });
-      }, error => {
-        console.error('History load error:', error);
-        if (historyList) {
-          historyList.innerHTML = `
-            <div class="empty-state">
-              <i class='bx bx-error'></i>
-              <p>Failed to load history</p>
-            </div>`;
-        }
-      });
+  // Same data (history/{uid}/assignments) and the same open/delete rules as
+  // the old private drawer — now rendered by the shell's one global drawer
+  // (js/history-drawer.js).
+  async function fetchAssignmentHistory() {
+    if (!currentUser) return [];
+    const snap = await database.ref(`history/${currentUser.uid}/assignments`).orderByChild('timestamp').once('value');
+    const data = snap.val();
+    if (!data) return [];
+    return Object.entries(data).sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0));
   }
 
+  function openAssignment(id) {
+    localStorage.setItem('rehab_assignment_current_id', id);
+    window.location.href = `index.html?type=answer&id=${id}#/result`;
+  }
+
+  // Resolves true if the assignment was deleted (the drawer then drops its row).
   async function deleteAssignment(id) {
-    if (!currentUser) return;
-    if (!confirm('Permanently delete this assignment?')) return;
+    if (!currentUser) return false;
+    if (!confirm('Permanently delete this assignment?')) return false;
     try {
       await database.ref(`history/${currentUser.uid}/assignments/${id}`).remove();
       try { await database.ref(`publicAssignments/${id}`).remove(); } catch (e) { /* ignore */ }
       showToast('Assignment deleted', 'success');
+      return true;
     } catch (error) {
       console.error('Delete error:', error);
       showToast('Failed to delete assignment', 'error');
+      return false;
     }
   }
 
-  // ===== History Drawer Controls =====
-  if (historyNavBtn) {
-    historyNavBtn.addEventListener('click', () => {
-      if (!currentUser) {
-        showToast('Please log in to view history', 'error');
-        const loginBtn = document.getElementById('loginBtn');
-        if (loginBtn) loginBtn.click();
-        return;
-      }
-      historyDrawer.classList.add('active');
-      document.body.style.overflow = 'hidden';
-      loadHistoryList();
+  if (window.RehablixHistoryDrawer) {
+    window.RehablixHistoryDrawer.register('assignment', {
+      label: 'Assignments',
+      icon: '📝',
+      searchPlaceholder: 'Search assignments...',
+      emptyText: 'No assignments yet',
+      emptyHint: 'Generated assignments will appear here',
+      async load() {
+        const entries = await fetchAssignmentHistory();
+        return entries.map(([id, item]) => ({
+          id,
+          title: item.topic || 'Untitled',
+          meta: [item.course, item.toneLabel, item.hasOutline ? 'outline' : ''].filter(Boolean).join(' · '),
+          time: item.timestamp,
+          searchText: [item.topic, item.course, item.typeLabel].filter(Boolean).join(' '),
+          raw: item
+        }));
+      },
+      open: (item) => openAssignment(item.id),
+      remove: (item) => deleteAssignment(item.id)
     });
-  }
-
-  if (closeDrawerBtn) {
-    closeDrawerBtn.addEventListener('click', () => {
-      historyDrawer.classList.remove('active');
-      document.body.style.overflow = '';
-    });
-  }
-
-  const onDocClickCloseHistory = (e) => {
-    if (historyDrawer?.classList.contains('active') &&
-        !historyDrawer.contains(e.target) &&
-        e.target !== historyNavBtn &&
-        !historyNavBtn?.contains(e.target)) {
-      historyDrawer.classList.remove('active');
-      document.body.style.overflow = '';
-    }
-  };
-  const onDocKeydownCloseHistory = (e) => {
-    if (e.key === 'Escape' && historyDrawer?.classList.contains('active')) {
-      historyDrawer.classList.remove('active');
-      document.body.style.overflow = '';
-    }
-  };
-  document.addEventListener('click', onDocClickCloseHistory);
-  document.addEventListener('keydown', onDocKeydownCloseHistory);
-  cleanupFns.push(() => document.removeEventListener('click', onDocClickCloseHistory));
-  cleanupFns.push(() => document.removeEventListener('keydown', onDocKeydownCloseHistory));
-
-  if (historySearchInput) {
-    historySearchInput.addEventListener('input', () => {
-      const term = historySearchInput.value.toLowerCase().trim();
-      const items = document.querySelectorAll('.history-item');
-      items.forEach(item => {
-        const title = item.querySelector('.history-title')?.textContent.toLowerCase() || '';
-        const meta  = item.querySelector('.history-meta')?.textContent.toLowerCase() || '';
-        item.style.display = (!term || title.includes(term) || meta.includes(term)) ? '' : 'none';
-      });
-    });
+    cleanupFns.push(() => window.RehablixHistoryDrawer.unregister('assignment'));
   }
 
   // =========================================================================
@@ -1081,11 +966,8 @@ Return ONLY the polished HTML. No markdown fences.`;
     currentUser = user;
     if (user) {
       console.log('[AUTH] User logged in:', user.email);
-      if (historyNavBtn) historyNavBtn.style.display = 'block';
-      loadHistoryList();
     } else {
       console.log('[AUTH] User logged out');
-      if (historyNavBtn) historyNavBtn.style.display = 'none';
       currentHistoryId = null;
     }
   });
@@ -1113,7 +995,6 @@ Return ONLY the polished HTML. No markdown fences.`;
   } // end mount()
 
   function unmount() {
-    if (historyListenerRef) { historyListenerRef.off(); historyListenerRef = null; }
     cleanupFns.forEach(fn => { try { fn(); } catch (e) { /* best-effort */ } });
     cleanupFns = [];
   }

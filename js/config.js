@@ -17,7 +17,22 @@ const firebaseConfig = {
         // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
         console.log('Firebase initialized successfully');
-        
+
+        // Single shared "has Firebase finished restoring the persisted
+        // session" signal for the whole SPA. firebase.auth().currentUser
+        // is null until the FIRST onAuthStateChanged callback fires — any
+        // view that reads it synchronously at mount time (e.g. right after
+        // a fresh page load / deep link) will see a false "not logged in"
+        // even when a session is about to be restored. Views should
+        // `await window.RehablixAuthReady` instead of reading
+        // firebase.auth().currentUser directly on first load.
+        window.RehablixAuthReady = new Promise((resolve) => {
+            const unsubscribe = firebase.auth().onAuthStateChanged((user) => {
+                unsubscribe();
+                resolve(user);
+            });
+        });
+
         // Set auth persistence
         firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL)
             .then(() => {

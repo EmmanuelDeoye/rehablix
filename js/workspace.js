@@ -187,9 +187,9 @@
     // =========================================================================
     // Center/workspace context (merged from the old js/index-center.js):
     // "Welcome to {center}" banner, per-tool visibility gating, and the
-    // navbar workspace switcher. The switcher markup lives in this fragment
+    // navbar workspace switcher. The switcher markup lives in this view's template
     // but visually belongs in the shared navbar — relocate it into the
-    // shell's #navbarViewSlot, same pattern as ask.js's history button.
+    // shell's #navbarViewSlot, same pattern as ask.js's new-chat button.
     // =========================================================================
     const banner = document.getElementById('centerContextBanner');
     const switcherWrap = document.getElementById('workspaceSwitcher');

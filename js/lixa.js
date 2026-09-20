@@ -71,7 +71,7 @@
   ];
 
   // Registered as (the rest of) the "lixa" SPA view — js/router.js calls
-  // mount()/unmount() around views/lixa.fragment.html. ask.js owns the
+  // mount()/unmount() around the "lixa" template (js/view-templates.js). ask.js owns the
   // chat-core mount/unmount (exposed as window.RehablixAskView) and this
   // file's mount() calls it first so window.LixaCore exists before init()
   // wires up the @mention/intent-routing layer on top of it.
@@ -94,7 +94,7 @@
 
   // Lixa is kept alive by js/router.js — mount() only runs on the first
   // visit; every later visit calls onShow() instead, which just re-attaches
-  // the navbar controls ask.js relocated out of the fragment (the router
+  // the navbar controls ask.js relocated out of the view (the router
   // clears #navbarViewSlot on every navigation) without re-running init()
   // or touching any state.
   function onShow() {
@@ -735,7 +735,7 @@
         format: `index.html?id=${id}#/formatview`,
         standardized: `index.html?openId=${id}#/standardized`,
         presentation: `index.html?type=case&id=${id}#/result`,
-        audio: `index.html?openId=${id}#/audio`,
+        audio: `index.html?id=${id}#/audioview`,
         assignment: `index.html?type=answer&id=${id}#/result`,
         study: `index.html?subject=${id}#/study`
       };

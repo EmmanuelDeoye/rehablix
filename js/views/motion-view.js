@@ -18,17 +18,8 @@
     // change/value handling below is unchanged.
     const typeSelect = $('motionTypeSelect');
 
-    // History icon relocates into the shared navbar slot, same pattern as
-    // Lixa's #historyNavBtn — this is exactly the navbar space freed up by
-    // moving the Analysis Type dropdown out.
-    const historyBtn = $('motionHistoryBtn');
-    const navbarSlot = $('navbarViewSlot');
-    if (navbarSlot && historyBtn) navbarSlot.appendChild(historyBtn);
-    const historyDrawer = $('motionHistoryDrawer');
-    const historyCloseBtn = $('motionHistoryCloseBtn');
-    const historySearchInput = $('motionHistorySearchInput');
-    const historyList = $('motionHistoryList');
-    const historyLoading = $('motionHistoryLoading');
+    // History lives in the shell's single global drawer (js/history-drawer.js);
+    // this view registers its data source as a provider (see the History section).
 
     const video = $('motionVideo');
     const placeholder = $('motionPlaceholder');
@@ -72,6 +63,7 @@
     const resultsEl = $('motionResults');
     const resultsTitle = $('motionResultsTitle');
     const resultsBody = $('motionResultsBody');
+    const resultsBackBtn = $('motionResultsBackBtn');
     const editBtn = $('motionEditBtn');
     const shareBtn = $('motionShareBtn');
     const printBtn = $('motionPrintBtn');
@@ -547,6 +539,7 @@
         }
 
         lastResult = { html: renderMarkdown(fullResult), historyKey, type: 'rom', title: jointDescription };
+        if (historyKey) refreshHistoryDrawer();
         showResults(lastResult);
       } catch (err) {
         console.error('ROM analysis error:', err);
@@ -601,6 +594,7 @@
         }
 
         lastResult = { html: renderMarkdown(text), historyKey, type: 'gait', title: `Gait Analysis${prefs.patientName ? ' — ' + prefs.patientName : ''}` };
+        if (historyKey) refreshHistoryDrawer();
         showResults(lastResult);
       } catch (err) {
         console.error('Gait analysis error:', err);
@@ -737,128 +731,92 @@
       updatePromptChip();
     });
 
-    // =====================================================================
-    // History drawer — past ROM + Gait results, newest first
-    // =====================================================================
-    function escapeHtmlMotion(str) {
-      const div = document.createElement('div');
-      div.textContent = str == null ? '' : String(str);
-      return div.innerHTML;
+    // Dismisses the result view and returns to the Motion/Gait capture
+    // screen — same "back to idle" outcome as New Session, just from a
+    // clearly-labeled back arrow instead of relying on that button's text.
+    if (resultsBackBtn) {
+      resultsBackBtn.addEventListener('click', () => {
+        hideResults();
+        capturedFrames = []; allCapturedFrames = {}; recordedChunks = [];
+        sessionState = 'idle';
+        updatePromptChip();
+      });
     }
-    function formatRelativeMotion(ts) {
-      if (!ts) return '';
-      const date = new Date(ts);
-      const isRecent = Date.now() - ts < 24 * 60 * 60 * 1000;
-      return isRecent
-        ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-    }
+
+    // =====================================================================
+    // =====================================================================
+    // History — past ROM + Gait results, newest first. Rendered by the
+    // shell's one global drawer (js/history-drawer.js); same data
+    // (history/{scopeUid}/analysisHistory + gaitHistory), same open/delete
+    // rules as the old private drawer.
+    // =====================================================================
     function historyItemTitle(item) {
       return item.fileName || item.documentType || (item.type === 'gait' ? 'Gait Analysis' : 'ROM Analysis');
     }
 
-    // Loading skeleton (#motionHistoryLoading) is a permanent sibling, not
-    // a child we'd clobber — only the rendered rows/message get replaced
-    // here, same pattern as Lixa's own history drawer.
-    function clearMotionHistoryRows() {
-      historyList.querySelectorAll(':scope > *:not(#motionHistoryLoading)').forEach(el => el.remove());
-    }
-    function showMotionHistoryMessage(iconClass, text) {
-      clearMotionHistoryRows();
-      historyList.insertAdjacentHTML('beforeend', `<div class="empty-state"><i class="bx ${iconClass}"></i><p>${text}</p></div>`);
-    }
-
     async function loadMotionHistory() {
-      if (!currentUser || !scopeUid) {
-        showMotionHistoryMessage('bx-lock-alt', 'Log in to see your history');
-        return;
-      }
+      if (!currentUser || !scopeUid) { allHistoryItems = []; return allHistoryItems; }
       const database = firebase.database();
-      clearMotionHistoryRows();
-      if (historyLoading) historyLoading.hidden = false;
-      try {
-        const [romSnap, gaitSnap] = await Promise.all([
-          database.ref(`history/${scopeUid}/analysisHistory`).once('value'),
-          database.ref(`history/${scopeUid}/gaitHistory`).once('value')
-        ]);
-        const romItems = romSnap.val() ? Object.entries(romSnap.val()).map(([id, item]) => ({ id, type: 'rom', ...item })) : [];
-        const gaitItems = gaitSnap.val() ? Object.entries(gaitSnap.val()).map(([id, item]) => ({ id, type: 'gait', ...item })) : [];
-        allHistoryItems = romItems.concat(gaitItems).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-        renderMotionHistoryList();
-      } catch (err) {
-        console.error('[motion] failed to load history', err);
-        showMotionHistoryMessage('bx-error', 'Could not load history');
-      } finally {
-        if (historyLoading) historyLoading.hidden = true;
-      }
+      const [romSnap, gaitSnap] = await Promise.all([
+        database.ref(`history/${scopeUid}/analysisHistory`).once('value'),
+        database.ref(`history/${scopeUid}/gaitHistory`).once('value')
+      ]);
+      const romItems = romSnap.val() ? Object.entries(romSnap.val()).map(([id, item]) => ({ id, type: 'rom', ...item })) : [];
+      const gaitItems = gaitSnap.val() ? Object.entries(gaitSnap.val()).map(([id, item]) => ({ id, type: 'gait', ...item })) : [];
+      allHistoryItems = romItems.concat(gaitItems).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      return allHistoryItems;
     }
 
-    function renderMotionHistoryList() {
-      const term = (historySearchInput.value || '').toLowerCase().trim();
-      const filtered = allHistoryItems.filter(item => {
-        if (!term) return true;
-        return historyItemTitle(item).toLowerCase().includes(term) || (item.patientName || '').toLowerCase().includes(term);
-      });
-      if (filtered.length === 0) {
-        showMotionHistoryMessage('bx-folder-open', 'No results yet');
-        return;
-      }
-      clearMotionHistoryRows();
-      filtered.forEach(item => {
-        const div = document.createElement('div');
-        const isActive = !!(lastResult && lastResult.historyKey === item.id && lastResult.type === item.type && resultsEl.classList.contains('active'));
-        div.className = 'history-item' + (isActive ? ' active' : '');
-        const icon = item.type === 'gait' ? '🚶' : '🦵';
-        const title = historyItemTitle(item);
-        div.innerHTML = `
-          <span class="history-title" title="${escapeHtmlMotion(title)}">${icon} ${escapeHtmlMotion(title)}</span>
-          <button class="delete-btn" title="Delete"><i class="fas fa-trash-alt"></i></button>
-          <span class="history-time">${formatRelativeMotion(item.timestamp)}</span>
-        `;
-        div.addEventListener('click', (e) => {
-          if (e.target.closest('.delete-btn')) return;
-          openHistoricalResult(item);
-        });
-        div.querySelector('.delete-btn').addEventListener('click', (e) => deleteHistoricalResult(item, e));
-        historyList.appendChild(div);
-      });
+    function refreshHistoryDrawer() {
+      if (window.RehablixHistoryDrawer) window.RehablixHistoryDrawer.refresh('motion');
     }
 
     function openHistoricalResult(item) {
       if (sessionState === 'capturing') stopSessionAbort();
       const html = item.resultsHtml || renderMarkdown(item.results);
       lastResult = { html, historyKey: item.id, type: item.type, title: historyItemTitle(item) };
-      historyDrawer.classList.remove('active');
       showResults(lastResult);
     }
 
-    function deleteHistoricalResult(item, e) {
-      e.stopPropagation();
-      if (!confirm('Delete this result?')) return;
+    // Resolves true if the result was deleted (the drawer then drops its row).
+    async function deleteHistoricalResult(item) {
+      if (!confirm('Delete this result?')) return false;
       const path = item.type === 'gait' ? 'gaitHistory' : 'analysisHistory';
-      firebase.database().ref(`history/${scopeUid}/${path}/${item.id}`).remove().then(() => {
-        allHistoryItems = allHistoryItems.filter(h => !(h.id === item.id && h.type === item.type));
-        renderMotionHistoryList();
-        showToast('Deleted', 'success');
-        if (lastResult && lastResult.historyKey === item.id && lastResult.type === item.type) hideResults();
-      }).catch(() => showToast('Could not delete', 'error'));
+      try {
+        await firebase.database().ref(`history/${scopeUid}/${path}/${item.id}`).remove();
+      } catch (err) {
+        showToast('Could not delete', 'error');
+        return false;
+      }
+      allHistoryItems = allHistoryItems.filter(h => !(h.id === item.id && h.type === item.type));
+      showToast('Deleted', 'success');
+      if (lastResult && lastResult.historyKey === item.id && lastResult.type === item.type) hideResults();
+      return true;
     }
 
-    if (historyBtn) {
-      historyBtn.addEventListener('click', () => {
-        if (!currentUser) {
-          showToast('Please log in to view history', 'error');
-          const loginBtn = document.getElementById('loginBtn');
-          if (loginBtn) loginBtn.click();
-          return;
-        }
-        historyDrawer.classList.add('active');
-        if (allHistoryItems.length === 0) loadMotionHistory();
-        else renderMotionHistoryList();
+    if (window.RehablixHistoryDrawer) {
+      window.RehablixHistoryDrawer.register('motion', {
+        label: 'Motion & Gait Results',
+        searchPlaceholder: 'Search results...',
+        emptyText: 'No results yet',
+        async load() {
+          const items = await loadMotionHistory();
+          return items.map(item => ({
+            id: `${item.type}:${item.id}`,
+            title: historyItemTitle(item),
+            meta: [item.type === 'gait' ? 'Gait analysis' : 'ROM analysis', item.patientName].filter(Boolean).join(' · '),
+            time: item.timestamp,
+            icon: item.type === 'gait' ? '🚶' : '🦵',
+            searchText: `${historyItemTitle(item)} ${item.patientName || ''}`,
+            active: !!(lastResult && lastResult.historyKey === item.id && lastResult.type === item.type && resultsEl.classList.contains('active')),
+            raw: item
+          }));
+        },
+        open: (item) => openHistoricalResult(item.raw),
+        remove: (item) => deleteHistoricalResult(item.raw)
       });
+      cleanupFns.push(() => window.RehablixHistoryDrawer.unregister('motion'));
     }
-    if (historyCloseBtn) historyCloseBtn.addEventListener('click', () => historyDrawer.classList.remove('active'));
-    if (historySearchInput) historySearchInput.addEventListener('input', () => renderMotionHistoryList());
 
     // =====================================================================
     // Auth

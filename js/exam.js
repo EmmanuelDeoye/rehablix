@@ -93,9 +93,8 @@
   let topicChartInstance = null;
 
   const $ = (id) => document.getElementById(id);
-  const navbarSlot = $('navbarViewSlot');
-  const historyNavBtnEl = $('historyNavBtn');
-  if (navbarSlot && historyNavBtnEl) navbarSlot.appendChild(historyNavBtnEl);
+  // History lives in the shell's single global drawer (js/history-drawer.js);
+  // this view registers its data source as a provider (see the History section).
   const viewSetup = $('viewSetup');
   const viewExam = $('viewExam');
   const viewResults = $('viewResults');
@@ -388,6 +387,7 @@ Generate exactly ${questionCount} multiple-choice questions at "${difficulty}" d
     };
     await attemptRef.set(attemptRecord);
     attempts[attemptRef.key] = { ...attemptRecord, createdAt: Date.now() };
+    if (window.RehablixHistoryDrawer) window.RehablixHistoryDrawer.refresh('exam');
 
     renderResults(attemptRecord);
   }
@@ -455,33 +455,45 @@ Generate exactly ${questionCount} multiple-choice questions at "${difficulty}" d
   // =========================================================================
   // History Drawer
   // =========================================================================
-  function renderHistoryList() {
-    const list = $('historyList');
-    const ids = Object.keys(attempts).sort((a, b) => (attempts[b].createdAt || 0) - (attempts[a].createdAt || 0));
-    if (ids.length === 0) { list.innerHTML = `<div class="empty-state"><i class='bx bx-folder-open'></i><p>No exam attempts yet</p></div>`; return; }
-    list.innerHTML = ids.map(id => {
-      const a = attempts[id];
-      return `<div class="history-item" data-id="${id}">
-        <div class="history-item-title">${escapeHtml(a.title)}</div>
-        <div class="history-item-meta">${a.score}% · ${a.correctCount}/${a.totalQuestions}</div>
-      </div>`;
-    }).join('');
-    list.querySelectorAll('.history-item').forEach(item => {
-      item.addEventListener('click', () => { renderResults(attempts[item.dataset.id]); closeDrawer(); });
-    });
+  function historyDrawerItems() {
+    return Object.keys(attempts)
+      .sort((a, b) => (attempts[b].createdAt || 0) - (attempts[a].createdAt || 0))
+      .map(id => {
+        const a = attempts[id];
+        return {
+          id,
+          title: a.title || 'Exam attempt',
+          meta: `${a.score}% · ${a.correctCount}/${a.totalQuestions}`,
+          time: a.createdAt,
+          raw: a
+        };
+      });
   }
-  function openDrawer() { $('historyDrawer').classList.add('open'); renderHistoryList(); }
-  function closeDrawer() { $('historyDrawer').classList.remove('open'); }
-  $('historyNavBtn')?.addEventListener('click', openDrawer);
-  $('closeDrawerBtn')?.addEventListener('click', closeDrawer);
+
+  // Same data (history/{scopeUid}/exam/attempts) and the same "reopen the
+  // results" behaviour as the old private drawer — now rendered by the
+  // shell's one global drawer (js/history-drawer.js).
+  if (window.RehablixHistoryDrawer) {
+    window.RehablixHistoryDrawer.register('exam', {
+      label: 'Exam Attempts',
+      icon: '📝',
+      searchPlaceholder: 'Search exam attempts...',
+      emptyText: 'No exam attempts yet',
+      async load() {
+        await loadAttempts();
+        return historyDrawerItems();
+      },
+      open: (item) => renderResults(attempts[item.id] || item.raw)
+    });
+    cleanupFns.push(() => window.RehablixHistoryDrawer.unregister('exam'));
+  }
 
   // =========================================================================
   // Init
   // =========================================================================
   const unsubAuth = auth.onAuthStateChanged(async (user) => {
     currentUser = user;
-    if (!user) { $('historyNavBtn').style.display = 'none'; return; }
-    $('historyNavBtn').style.display = '';
+    if (!user) return;
 
     if (window.RehablixCenter && typeof window.RehablixCenter.getEffectiveScopeUid === 'function') {
       try { scopeUid = await window.RehablixCenter.getEffectiveScopeUid('exam'); }

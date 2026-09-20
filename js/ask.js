@@ -1,12 +1,12 @@
 // js/ask.js – Ask AI: chat with history, file attachments (incl. real
 // image/video vision), voice input, editable prompts, link/URL reading,
 // site-aware system knowledge, cross-page handoff, and "export to
-// result.html" for AI answers.
+// the #/result view" for AI answers.
 //
 // Registered as the "lixa" SPA view (js/router.js calls mount() after
-// injecting views/lixa.fragment.html into #appRoot, and unmount() before
+// injecting the "lixa" template (js/view-templates.js) into #appRoot, and unmount() before
 // navigating away) rather than running once on DOMContentLoaded, since the
-// fragment can be mounted/unmounted repeatedly across a single page load.
+// view can be mounted/unmounted repeatedly across a single page load.
 
 (function () {
   // Marked configuration
@@ -21,7 +21,7 @@
 
   // Cleanup for listeners attached to long-lived targets (document/window/
   // firebase.auth) that outlive this view's own DOM — anything attached to
-  // an element inside the fragment needs no cleanup, it's GC'd when the
+  // an element inside the view needs no cleanup, it's GC'd when the
   // router replaces #appRoot's content on the next navigation.
   let cleanupFns = [];
   // Assigned inside mount() (needs its closure over navbarSlot/currentUser/
@@ -46,18 +46,18 @@
   const modelPickerLabel = document.getElementById('modelPickerLabel');
   const modelPickerPopup = document.getElementById('modelPickerPopup');
 
+  // The history drawer + its navbar button are the shell's single global
+  // drawer now (index.html, js/history-drawer.js) — this file only fills its
+  // Chats list. Opening/closing, the button, outside-click and Escape are
+  // all owned by js/history-drawer.js.
   const historyDrawer = document.getElementById('historyDrawer');
   const newChatNavBtn = document.getElementById('newChatNavBtn');
-  const historyNavBtn = document.getElementById('historyNavBtn');
-  // These buttons visually belong in the shared shell navbar, not the
-  // fragment body — relocate them into the shell's nav slot on mount, in
-  // order (new-chat plus icon just before the history icon). The router
-  // destroys/recreates #navbarViewSlot's contents on every navigation, so
-  // this never needs explicit unmount cleanup.
+  // The new-chat button visually belongs in the shared shell navbar, not the
+  // view body — relocate it into the shell's nav slot on mount. The router
+  // clears #navbarViewSlot on every navigation, so onShow() (below) puts it
+  // back whenever Lixa is re-shown.
   const navbarSlot = document.getElementById('navbarViewSlot');
   if (navbarSlot && newChatNavBtn) navbarSlot.appendChild(newChatNavBtn);
-  if (navbarSlot && historyNavBtn) navbarSlot.appendChild(historyNavBtn);
-  const closeDrawerBtn = document.getElementById('closeDrawerBtn');
   const historyList = document.getElementById('historyList');
   const historySearchInput = document.getElementById('historySearchInput');
   const historyLoading = document.getElementById('historyLoading');
@@ -2085,58 +2085,24 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   }
 
   // =========================================================================
-  // History drawer controls
+  // History drawer (Lixa mode)
   // =========================================================================
-  if (historyNavBtn) {
-    historyNavBtn.addEventListener('click', () => {
-      if (!currentUser) {
-        showToast('Please log in to view history', 'error');
-        const loginBtn = document.getElementById('loginBtn');
-        if (loginBtn) loginBtn.click();
-        return;
-      }
-      historyDrawer.classList.add('active');
-      // Only hit Firebase (and flash the loading skeleton over already-
-      // visible rows) the first time — reopening the drawer with nothing
-      // changed should show what's already loaded instantly. New/updated
-      // conversations already trigger a fresh loadHistoryList() themselves
-      // via refreshHistoryList() in window.LixaCore.
-      if (allConversations.length === 0) {
-        loadHistoryList();
-      } else {
-        renderHistoryList(allConversations);
-      }
-    });
-  }
-
-  if (closeDrawerBtn) {
-    closeDrawerBtn.addEventListener('click', () => {
-      historyDrawer.classList.remove('active');
-    });
+  // js/history-drawer.js opens the drawer and calls this when it opens in
+  // Lixa mode. Only hit Firebase (and flash the loading skeleton over
+  // already-visible rows) the first time — reopening the drawer with nothing
+  // changed should show what's already loaded instantly. New/updated
+  // conversations already trigger a fresh loadHistoryList() themselves via
+  // refreshHistoryList() in window.LixaCore.
+  function onHistoryOpen() {
+    if (allConversations.length === 0) {
+      loadHistoryList();
+    } else {
+      renderHistoryList(allConversations);
+    }
   }
 
   // The Chats/Files toggle button itself is wired by js/lixa.js (it owns
   // the Files data source).
-
-  const onDocClickCloseHistoryDrawer = (e) => {
-    if (historyDrawer?.classList.contains('active') &&
-        !historyDrawer.contains(e.target) &&
-        e.target !== historyNavBtn &&
-        !historyNavBtn?.contains(e.target) &&
-        e.target !== newChatNavBtn &&
-        !newChatNavBtn?.contains(e.target)) {
-      historyDrawer.classList.remove('active');
-    }
-  };
-  const onDocKeydownCloseHistoryDrawer = (e) => {
-    if (e.key === 'Escape' && historyDrawer?.classList.contains('active')) {
-      historyDrawer.classList.remove('active');
-    }
-  };
-  document.addEventListener('click', onDocClickCloseHistoryDrawer);
-  document.addEventListener('keydown', onDocKeydownCloseHistoryDrawer);
-  cleanupFns.push(() => document.removeEventListener('click', onDocClickCloseHistoryDrawer));
-  cleanupFns.push(() => document.removeEventListener('keydown', onDocKeydownCloseHistoryDrawer));
 
   if (historySearchInput) {
     historySearchInput.addEventListener('input', () => renderHistoryList(allConversations));
@@ -2147,9 +2113,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   // =========================================================================
   const unsubAuth = firebase.auth().onAuthStateChanged(user => {
     currentUser = user;
-    const display = user ? 'block' : 'none';
-    historyNavBtn.style.display = display;
-    if (newChatNavBtn) newChatNavBtn.style.display = display;
+    if (newChatNavBtn) newChatNavBtn.style.display = user ? 'block' : 'none';
     if (user) loadHistoryList();
   });
   cleanupFns.push(unsubAuth);
@@ -2187,6 +2151,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     isWaiting: () => isWaiting,
     scrollToBottom: () => { chatMessages.scrollTop = chatMessages.scrollHeight; },
     refreshHistoryList: () => loadHistoryList(),
+    onHistoryOpen,
     // Called by js/lixa.js once a tool's generation actually succeeds — a
     // tool flow's FIRST assistant message is usually just "which details do
     // you still need?", not real content, so titling off it (the way plain
@@ -2225,17 +2190,14 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   // later visit just re-shows the already-live DOM/state instead of
   // rebuilding it. resetSharedNavbar() still clears #navbarViewSlot on every
   // navigation (so other views don't inherit stale controls), so this only
-  // needs to re-attach the buttons and their current visibility — the node
-  // references themselves, and everything else (messages, scroll position,
+  // needs to re-attach the new-chat button and its current visibility — the
+  // node reference itself, and everything else (messages, scroll position,
   // draft text), are untouched since nothing was ever torn down. Assigned
   // to the outer `onShow` variable so window.RehablixAskView.onShow (bound
   // once, below, outside mount()) always delegates to this mount's closure.
   onShow = function () {
     if (navbarSlot && newChatNavBtn) navbarSlot.appendChild(newChatNavBtn);
-    if (navbarSlot && historyNavBtn) navbarSlot.appendChild(historyNavBtn);
-    const display = currentUser ? 'block' : 'none';
-    if (historyNavBtn) historyNavBtn.style.display = display;
-    if (newChatNavBtn) newChatNavBtn.style.display = display;
+    if (newChatNavBtn) newChatNavBtn.style.display = currentUser ? 'block' : 'none';
   };
   } // end mount()
 

@@ -136,7 +136,12 @@
       const params = new URLSearchParams(window.location.search);
       recordId = params.get('id');
       const sharedUid = params.get('uid');
-      const user = firebase.auth().currentUser;
+      // Wait for the shared SPA auth-ready signal instead of reading
+      // firebase.auth().currentUser synchronously — on a fresh load/deep
+      // link, Firebase hasn't finished restoring the persisted session yet
+      // at the moment this view mounts, so currentUser would read null
+      // even for an already-logged-in user (the "log in required" bug).
+      const user = window.RehablixAuthReady ? await window.RehablixAuthReady : firebase.auth().currentUser;
 
       if (!recordId) {
         titleEl.textContent = 'Not found';
@@ -222,6 +227,20 @@
     newBtn.addEventListener('click', goBack);
 
     load();
+
+    // Self-correct if the user logs in (or out) while this view is
+    // showing — e.g. they hit "log in required" and use the navbar login
+    // button without leaving this page.
+    let lastAuthUid = undefined;
+    const unsubAuth = firebase.auth().onAuthStateChanged((user) => {
+      const uid = user ? user.uid : null;
+      if (lastAuthUid === undefined) { lastAuthUid = uid; return; } // skip the initial callback — load() already handled it
+      if (uid !== lastAuthUid) {
+        lastAuthUid = uid;
+        load();
+      }
+    });
+    cleanupFns.push(unsubAuth);
   }
 
   function unmount() {

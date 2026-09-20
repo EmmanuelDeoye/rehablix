@@ -1,10 +1,10 @@
 // js/format.js - Complete Assessment Format Generator with Subscription Check
 // Registered as the "format" SPA view (js/router.js calls mount()/unmount()
-// around views/format.fragment.html).
+// around the "format" template (js/view-templates.js)).
 
 (function () {
 // Module-level state persists across mounts (fine — none of it references
-// fragment DOM, only plain values/localStorage).
+// view DOM, only plain values/localStorage).
 let githubToken = '';
 let apiEndpoint = '';
 let currentUser = null;
@@ -74,7 +74,7 @@ document.addEventListener('planUpdated', (e) => {
 });
 
 // ===== Diagnosis picker (referenced by inline onchange= attributes in the
-// fragment, so must live on window — inline handler attributes only see
+// template, so must live on window — inline handler attributes only see
 // the global scope) =====
 const diagnosisMap = {
   neurological: [
@@ -138,29 +138,14 @@ async function mount() {
   const clearBtn = document.getElementById('clearBtn');
   const toast = document.getElementById('toast');
 
-  // DOM elements - History Drawer
-  const historyNavBtn = document.getElementById('historyNavBtn');
-  const navbarSlot = document.getElementById('navbarViewSlot');
-  if (navbarSlot && historyNavBtn) navbarSlot.appendChild(historyNavBtn);
-  const historyDrawer = document.getElementById('historyDrawer');
-  const closeDrawer = document.getElementById('closeDrawer');
-  const historyList = document.getElementById('historyList');
-  const historySearch = document.getElementById('historySearch');
-  const clearHistoryBtn = document.getElementById('clearHistoryBtn');
-  const totalCountSpan = document.getElementById('totalCount');
-  const latestDateSpan = document.getElementById('latestDate');
+  // History lives in the shell's single global drawer (js/history-drawer.js);
+  // this view just registers its data source (see registerHistoryProvider).
 
   // DOM elements - Download Modal
   const downloadModal = document.getElementById('downloadModal');
   const downloadWordOption = document.getElementById('downloadWordOption');
   const downloadPdfOption = document.getElementById('downloadPdfOption');
   const cancelDownload = document.getElementById('cancelDownload');
-
-  // DOM elements - Delete Confirmation
-  const deleteConfirmModal = document.getElementById('deleteConfirmModal');
-  const cancelDeleteBtn = document.getElementById('cancelDeleteBtn');
-  const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
-  let itemToDelete = null;
 
   // ===== LOCALSTORAGE PERSISTENCE FUNCTIONS =====
   const formFields = [
@@ -226,6 +211,11 @@ async function mount() {
 
   const database = firebase.database();
 
+  // Register right away (before any awaited setup) so the shell's History
+  // button is ready as soon as the page is.
+  registerHistoryProvider();
+  cleanupFns.push(() => { if (window.RehablixHistoryDrawer) window.RehablixHistoryDrawer.unregister('format'); });
+
   loadGenerationData();
   if (window.rehabPlans) currentPlan = window.rehabPlans.getCurrentPlan() || 'free';
 
@@ -243,7 +233,6 @@ async function mount() {
       loadUserHistory();
     } else {
       historyItems = [];
-      updateHistoryUI();
     }
   });
   cleanupFns.push(unsubAuth);
@@ -536,7 +525,6 @@ Return ONLY the HTML.`;
         historyItems = Object.entries(data).map(([id, item]) => ({ id, ...item }))
           .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       }
-      updateHistoryUI();
     } catch (error) {
       console.error('Error loading history:', error);
       showToast('Failed to load history', true);
@@ -570,7 +558,7 @@ Return ONLY the HTML.`;
       await newHistoryRef.set(historyItem);
       const newId = newHistoryRef.key;
       historyItems.unshift({ id: newId, ...historyItem });
-      updateHistoryUI();
+      if (window.RehablixHistoryDrawer) window.RehablixHistoryDrawer.refresh('format');
       showToast('Assessment saved to history');
       return newId;
     } catch (error) {
@@ -581,29 +569,30 @@ Return ONLY the HTML.`;
   }
 
   async function deleteHistoryItem(itemId) {
-    if (!currentUser || !itemId) return;
+    if (!currentUser || !itemId) return false;
     try {
       await database.ref(`history/${currentUser.uid}/formats/${itemId}`).remove();
       historyItems = historyItems.filter(item => item.id !== itemId);
-      updateHistoryUI();
       showToast('Item deleted from history');
+      return true;
     } catch (error) {
       console.error('Error deleting history item:', error);
       showToast('Failed to delete item', true);
+      return false;
     }
   }
 
   async function clearAllHistory() {
-    if (!currentUser) return;
+    if (!currentUser) return false;
     try {
       await database.ref(`history/${currentUser.uid}/formats`).remove();
       historyItems = [];
-      updateHistoryUI();
       showToast('All history cleared');
-      deleteConfirmModal.classList.remove('show');
+      return true;
     } catch (error) {
       console.error('Error clearing history:', error);
       showToast('Failed to clear history', true);
+      return false;
     }
   }
 
@@ -611,67 +600,40 @@ Return ONLY the HTML.`;
     window.location.href = `index.html?id=${item.id}#/formatview`;
   }
 
-  function updateHistoryUI(searchTerm = '') {
-    if (!historyList) return;
-    if (totalCountSpan) totalCountSpan.textContent = historyItems.length;
-    if (latestDateSpan && historyItems.length > 0) {
-      latestDateSpan.textContent = new Date(historyItems[0].timestamp).toLocaleDateString();
-    } else if (latestDateSpan) {
-      latestDateSpan.textContent = '-';
-    }
-
-    let filteredItems = historyItems;
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      filteredItems = historyItems.filter(item =>
-        item.patientName?.toLowerCase().includes(term) ||
-        item.assessmentType?.toLowerCase().includes(term) ||
-        item.department?.toLowerCase().includes(term) ||
-        item.category?.toLowerCase().includes(term) ||
-        item.diagnosis?.toLowerCase().includes(term) ||
-        item.preview?.toLowerCase().includes(term)
-      );
-    }
-
-    if (filteredItems.length === 0) {
-      historyList.innerHTML = `
-        <div class="empty-history">
-          <p>${searchTerm ? 'No matching history items' : 'No history yet'}</p>
-          <small>${searchTerm ? 'Try a different search term' : 'Generate your first assessment to see it here'}</small>
-        </div>`;
-      return;
-    }
-
-    historyList.innerHTML = filteredItems.map(item => {
-      const date = new Date(item.timestamp);
-      const formattedDate = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-      return `
-        <div class="history-item" data-id="${item.id}">
-          <div class="history-item-header">
-            <span class="history-item-title">${escapeHtml(item.patientName || 'Unknown Patient')}</span>
-            <span class="history-item-date">${formattedDate}</span>
-          </div>
-          <div class="history-item-details">
-            <span class="history-item-badge">${escapeHtml(item.assessmentType || 'Assessment')}</span>
-            ${item.clinicalSetting ? `<span class="history-item-badge">${escapeHtml(item.clinicalSetting)}</span>` : ''}
-          </div>
-          <div class="history-item-actions">
-            <button class="history-item-btn retrieve" onclick="window.retrieveItem('${item.id}')"><span>📂</span> Retrieve</button>
-            <button class="history-item-btn delete" onclick="window.deleteItem('${item.id}')"><span>🗑️</span> Delete</button>
-          </div>
-        </div>`;
-    }).join('');
+  // ===== Global history drawer provider =====
+  // Same data (history/{uid}/formats), same open/delete/clear behaviour the
+  // old private drawer had — just rendered by the shell's one drawer.
+  function registerHistoryProvider() {
+    if (!window.RehablixHistoryDrawer) return;
+    window.RehablixHistoryDrawer.register('format', {
+      label: 'Assessment Formats',
+      icon: '📋',
+      searchPlaceholder: 'Search assessments...',
+      emptyText: 'No assessments yet',
+      emptyHint: 'Generate your first assessment to see it here',
+      async load() {
+        await loadUserHistory();
+        return historyItems.map(item => ({
+          id: item.id,
+          title: item.patientName || 'Unknown Patient',
+          meta: [item.assessmentType || 'Assessment', item.clinicalSetting].filter(Boolean).join(' · '),
+          time: item.timestamp,
+          searchText: [item.patientName, item.assessmentType, item.department, item.category, item.diagnosis, item.preview].filter(Boolean).join(' '),
+          raw: item
+        }));
+      },
+      open: (item) => retrieveHistoryItem(item.raw),
+      async remove(item) {
+        if (!confirm('Delete this assessment from your history? This cannot be undone.')) return false;
+        return deleteHistoryItem(item.id);
+      },
+      async clearAll() {
+        if (historyItems.length === 0) { showToast('No history to clear', true); return false; }
+        if (!confirm('Clear ALL assessment history? This cannot be undone.')) return false;
+        return clearAllHistory();
+      }
+    });
   }
-
-  window.retrieveItem = (itemId) => {
-    const item = historyItems.find(i => i.id === itemId);
-    if (item) retrieveHistoryItem(item);
-  };
-
-  window.deleteItem = (itemId) => {
-    itemToDelete = itemId;
-    deleteConfirmModal.classList.add('show');
-  };
 
   // ===== Form Submission =====
   form.addEventListener('submit', async (e) => {
@@ -903,70 +865,12 @@ Return ONLY the HTML.`;
     });
   }
 
-  // ===== History Drawer Controls =====
-  if (historyNavBtn) {
-    historyNavBtn.addEventListener('click', () => {
-      if (!currentUser) { showToast('Please login to view history', true); return; }
-      loadUserHistory();
-      historyDrawer.classList.add('open');
-      document.body.style.overflow = 'hidden';
+  // The download modal closes on backdrop click (history now lives in the shell's global drawer).
+  if (downloadModal) {
+    downloadModal.addEventListener('click', (e) => {
+      if (e.target === downloadModal) downloadModal.classList.remove('show');
     });
   }
-  if (closeDrawer) {
-    closeDrawer.addEventListener('click', () => {
-      historyDrawer.classList.remove('open');
-      document.body.style.overflow = '';
-    });
-  }
-
-  const onDocClickCloseDrawer = (e) => {
-    if (historyDrawer && historyNavBtn &&
-        !historyDrawer.contains(e.target) &&
-        !historyNavBtn.contains(e.target) &&
-        historyDrawer.classList.contains('open')) {
-      historyDrawer.classList.remove('open');
-      document.body.style.overflow = '';
-    }
-  };
-  document.addEventListener('click', onDocClickCloseDrawer);
-  cleanupFns.push(() => document.removeEventListener('click', onDocClickCloseDrawer));
-
-  if (historySearch) {
-    historySearch.addEventListener('input', (e) => updateHistoryUI(e.target.value));
-  }
-  if (clearHistoryBtn) {
-    clearHistoryBtn.addEventListener('click', () => {
-      if (historyItems.length === 0) { showToast('No history to clear', true); return; }
-      itemToDelete = 'all';
-      deleteConfirmModal.classList.add('show');
-    });
-  }
-
-  if (cancelDeleteBtn) {
-    cancelDeleteBtn.addEventListener('click', () => {
-      deleteConfirmModal.classList.remove('show');
-      itemToDelete = null;
-    });
-  }
-  if (confirmDeleteBtn) {
-    confirmDeleteBtn.addEventListener('click', async () => {
-      if (itemToDelete === 'all') await clearAllHistory();
-      else if (itemToDelete) await deleteHistoryItem(itemToDelete);
-      deleteConfirmModal.classList.remove('show');
-      itemToDelete = null;
-    });
-  }
-
-  [downloadModal, deleteConfirmModal].forEach(modal => {
-    if (modal) {
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-          modal.classList.remove('show');
-          if (modal === deleteConfirmModal) itemToDelete = null;
-        }
-      });
-    }
-  });
 
   // ===== Range Slider =====
   const pageCount = document.getElementById('pageCount');
@@ -981,15 +885,7 @@ Return ONLY the HTML.`;
   // ===== Keyboard Shortcuts =====
   const onDocKeydown = (e) => {
     if (e.key === 'Escape') {
-      if (historyDrawer && historyDrawer.classList.contains('open')) {
-        historyDrawer.classList.remove('open');
-        document.body.style.overflow = '';
-      }
       if (downloadModal && downloadModal.classList.contains('show')) downloadModal.classList.remove('show');
-      if (deleteConfirmModal && deleteConfirmModal.classList.contains('show')) {
-        deleteConfirmModal.classList.remove('show');
-        itemToDelete = null;
-      }
     }
   };
   document.addEventListener('keydown', onDocKeydown);

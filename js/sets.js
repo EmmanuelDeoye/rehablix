@@ -1,6 +1,6 @@
 // js/sets.js – Settings page functionality
 // Registered as the "settings" SPA view (js/router.js calls mount() after
-// injecting views/settings.fragment.html into #appRoot).
+// injecting the "settings" template (js/view-templates.js) into #appRoot).
 
 (function () {
   let cleanupFns = [];

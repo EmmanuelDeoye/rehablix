@@ -5,7 +5,7 @@
 // never needs to change when a new generator is added.
 
 // Registered as the "result" SPA view (js/router.js calls mount() after
-// injecting views/result.fragment.html into #appRoot). Deep links keep the
+// injecting the "result" template (js/view-templates.js) into #appRoot). Deep links keep the
 // same ?type=&id= query params as before — they just now sit in front of
 // the #/result hash instead of on their own result.html page, so
 // window.location.search parses exactly as it always did.
@@ -27,6 +27,14 @@
     const params = new URLSearchParams({ id: historyId });
     if (sharedOwnerUid) params.set('uid', sharedOwnerUid);
     window.location.replace('index.html?' + params.toString() + '#/formatview');
+    return;
+  }
+
+  // Same idea for Audio Transcripts (#/audioview, js/views/audioview-view.js).
+  if (type === 'audio' && historyId) {
+    const params = new URLSearchParams({ id: historyId });
+    if (sharedOwnerUid) params.set('uid', sharedOwnerUid);
+    window.location.replace('index.html?' + params.toString() + '#/audioview');
     return;
   }
 

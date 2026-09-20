@@ -487,6 +487,11 @@ function initializeAuth() {
 
   // Show or hide the history button based on login state
   function updateHistoryButtonVisibility(user) {
+    // In the SPA shell the one global history button is owned by
+    // js/history-drawer.js (it shows only on Lixa + tools that have history,
+    // per route) — never force it visible here. Standalone pages (Smart EMR,
+    // Project Maker) don't load that module and keep this generic behaviour.
+    if (window.RehablixHistoryDrawer) return;
     if (!historyButton) {
       console.warn('History button not found in DOM - this is fine if the page has no history button');
       return;

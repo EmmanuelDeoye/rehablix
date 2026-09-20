@@ -1,6 +1,6 @@
 // js/upgrade.js – Country-specific fixed pricing with "slashed price" illusion, multi-gateway payments
 // Registered as the "subscription" SPA view (js/router.js calls mount() after
-// injecting views/subscription.fragment.html into #appRoot).
+// injecting the "subscription" template (js/view-templates.js) into #appRoot).
 
 (function () {
   let cleanupFns = [];

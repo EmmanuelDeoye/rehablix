@@ -84,12 +84,8 @@ function mount() {
   const downloadAudioBtn = $('downloadAudioBtn');
   const saveTranscriptBtn = $('saveTranscriptBtn');
 
-  const toggleHistoryBtn = $('toggleHistoryBtn');
-  const navbarSlot = $('navbarViewSlot');
-  if (navbarSlot && toggleHistoryBtn) navbarSlot.appendChild(toggleHistoryBtn);
-  const historyDrawer = $('historyDrawer');
-  const closeDrawerBtn = $('closeDrawerBtn');
-  const historyList = $('historyList');
+  // History lives in the shell's single global drawer (js/history-drawer.js) —
+  // this view registers its data source as a provider (see the History section).
 
   // =========================================================================
   // STATE
@@ -927,62 +923,51 @@ Output ONLY the narrative text, as flowing paragraphs.`;
   window.addEventListener('beforeunload', onBeforeUnload);
   cleanupFns.push(() => window.removeEventListener('beforeunload', onBeforeUnload));
 
-  toggleHistoryBtn.addEventListener('click', () => {
-    if (!currentUser) { showToast('Please log in to view history', 'error'); document.getElementById('loginBtn')?.click(); return; }
-    loadHistory();
-    historyDrawer.classList.add('active');
-  });
-  closeDrawerBtn.addEventListener('click', () => historyDrawer.classList.remove('active'));
+  // =========================================================================
+  // HISTORY — rendered by the shell's one global drawer (js/history-drawer.js).
+  // Same data (history/{scopeUid}/audio), same open/delete rules as before.
+  // =========================================================================
+  let historyCache = {}; // key -> saved record, for opening from the drawer / deep link
 
-  const onDocClickCloseDrawer = (e) => {
-    if (historyDrawer.classList.contains('active') &&
-        !historyDrawer.contains(e.target) &&
-        e.target !== toggleHistoryBtn &&
-        !toggleHistoryBtn.contains(e.target)) {
-      historyDrawer.classList.remove('active');
-    }
-  };
-  const onDocKeydownCloseDrawer = (e) => {
-    if (e.key === 'Escape' && historyDrawer.classList.contains('active')) historyDrawer.classList.remove('active');
-  };
-  document.addEventListener('click', onDocClickCloseDrawer);
-  document.addEventListener('keydown', onDocKeydownCloseDrawer);
-  cleanupFns.push(() => document.removeEventListener('click', onDocClickCloseDrawer));
-  cleanupFns.push(() => document.removeEventListener('keydown', onDocKeydownCloseDrawer));
+  async function fetchHistoryItems() {
+    if (!scopeUid) return [];
+    const snap = await database.ref(`history/${scopeUid}/audio`).limitToLast(50).once('value');
+    historyCache = snap.val() || {};
+    return Object.keys(historyCache).map(key => ({ key, ...historyCache[key] })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
 
+  // Refresh after a save/delete/login, and honour a ?openId= deep link.
   async function loadHistory() {
     if (!scopeUid) return;
     try {
-      const snap = await database.ref(`history/${scopeUid}/audio`).limitToLast(50).once('value');
-      const val = snap.val() || {};
-      const items = Object.keys(val).map(key => ({ key, ...val[key] })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-      if (!items.length) {
-        historyList.innerHTML = `<div class="empty-state"><i class='bx bx-folder-open'></i><p>No history found</p></div>`;
-      } else {
-        historyList.innerHTML = items.map(item => `
-          <div class="audio-history-item" data-key="${item.key}">
-            <button class="ahi-delete-btn" data-key="${item.key}" title="Delete"><i class="fas fa-trash-alt"></i></button>
-            <div class="ahi-title">${escapeHtml(item.title || 'Untitled')}</div>
-            <div class="ahi-meta">${capitalize(item.sessionType || '')} · ${formatTime(item.durationSeconds || 0)} · ${new Date(item.createdAt).toLocaleDateString()}</div>
-          </div>
-        `).join('');
-
-        historyList.querySelectorAll('.audio-history-item').forEach(el => {
-          el.addEventListener('click', (e) => {
-            if (e.target.closest('.ahi-delete-btn')) return;
-            openHistoryItem(el.dataset.key, val[el.dataset.key]);
-          });
-        });
-        historyList.querySelectorAll('.ahi-delete-btn').forEach(btn => {
-          btn.addEventListener('click', (e) => deleteHistoryItem(btn.dataset.key, e));
-        });
-      }
-
-      maybeOpenFromDeepLink(val);
+      await fetchHistoryItems();
+      if (window.RehablixHistoryDrawer) window.RehablixHistoryDrawer.refresh('audio');
+      maybeOpenFromDeepLink(historyCache);
     } catch (err) {
       console.error('Could not load history:', err);
     }
+  }
+
+  if (window.RehablixHistoryDrawer) {
+    window.RehablixHistoryDrawer.register('audio', {
+      label: 'Audio Transcriptions',
+      icon: '🎧',
+      searchPlaceholder: 'Search transcripts...',
+      emptyText: 'No history found',
+      async load() {
+        const items = await fetchHistoryItems();
+        return items.map(item => ({
+          id: item.key,
+          title: item.title || 'Untitled',
+          meta: [capitalize(item.sessionType || ''), formatTime(item.durationSeconds || 0)].filter(Boolean).join(' · '),
+          time: item.createdAt,
+          raw: item
+        }));
+      },
+      open: (item) => openHistoryItem(item.id, historyCache[item.id] || item.raw),
+      remove: (item) => deleteHistoryItem(item.id)
+    });
+    cleanupFns.push(() => window.RehablixHistoryDrawer.unregister('audio'));
   }
 
   // Deep-link support: Lixa's Files tab opens a specific saved transcript
@@ -997,18 +982,20 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     window.history.replaceState({}, '', url);
   }
 
-  async function deleteHistoryItem(key, event) {
-    event.stopPropagation();
-    if (!scopeUid) return;
-    if (!confirm('Delete this transcription? This cannot be undone.')) return;
+  // Resolves true if the transcript was deleted (the drawer then drops its row).
+  async function deleteHistoryItem(key) {
+    if (!scopeUid) return false;
+    if (!confirm('Delete this transcription? This cannot be undone.')) return false;
     try {
       await database.ref(`history/${scopeUid}/audio/${key}`).remove();
       if (firebaseAudioId === key) firebaseAudioId = null;
+      delete historyCache[key];
       showToast('Transcription deleted', 'success');
-      loadHistory();
+      return true;
     } catch (err) {
       console.error('Could not delete history item:', err);
       showToast('Failed to delete', 'error');
+      return false;
     }
   }
 
@@ -1021,7 +1008,6 @@ Output ONLY the narrative text, as flowing paragraphs.`;
       rawTranscript: data.rawTranscript, cleanedTranscript: data.cleanedTranscript
     };
     downloadAudioBtn.style.display = 'none';
-    historyDrawer.classList.remove('active');
     showResult();
   }
 
@@ -1038,10 +1024,7 @@ Output ONLY the narrative text, as flowing paragraphs.`;
 
   const unsubAuth = firebase.auth().onAuthStateChanged(async (user) => {
     currentUser = user;
-    if (!user) {
-      toggleHistoryBtn.style.display = 'none';
-      return;
-    }
+    if (!user) return;
 
     if (window.RehablixCenter && typeof window.RehablixCenter.getEffectiveScopeUid === 'function') {
       try { scopeUid = await window.RehablixCenter.getEffectiveScopeUid('audio'); }
@@ -1056,7 +1039,6 @@ Output ONLY the narrative text, as flowing paragraphs.`;
       showToast('Working on your center\'s shared transcripts', 'info', 3000);
     }
 
-    toggleHistoryBtn.style.display = 'block';
     await loadAiConfig();
     loadHistory();
   });
