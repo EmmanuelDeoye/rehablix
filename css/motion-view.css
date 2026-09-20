@@ -302,11 +302,12 @@
   backdrop-filter: var(--backdrop-blur);
 }
 .motion-results-header h3 { margin: 0; font-size: 1rem; color: var(--text-primary); }
-/* views/formatview.fragment.html reuses .motion-results* wholesale, adding
-   only this one wrapper so a back button can sit beside the title without
-   upsetting the header's existing 2-group space-between layout. */
-.formatview-header-title { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
-.formatview-header-title h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Groups a back button with the title so it can sit beside it without
+   upsetting the header's existing 2-group space-between layout — shared by
+   Motion's own results view and the "formatview" template (js/view-templates.js), which
+   reuses .motion-results* wholesale. */
+.motion-results-title-group { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
+.motion-results-title-group h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .motion-results-actions { display: flex; gap: 0.5rem; }
 .motion-icon-btn {
   width: 38px; height: 38px;
@@ -338,6 +339,25 @@
   outline-offset: 4px;
   border-radius: 0.5rem;
   cursor: text;
+}
+
+/* the "formatview" template (js/view-templates.js)'s result body is an iframe, not a div —
+   .motion-results-body already gives it the right flex/scroll/max-width
+   box; this just makes it look like a plain content area instead of a
+   bordered widget, and gives the editing state a border since outline
+   doesn't render on iframes as cleanly. */
+.formatview-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.formatview-frame.motion-results-editing {
+  outline: none;
+  border: 2px dashed var(--accent);
 }
 .motion-results-footer {
   flex-shrink: 0;
