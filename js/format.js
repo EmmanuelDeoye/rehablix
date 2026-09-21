@@ -128,9 +128,15 @@ window.applyDiagnosisPicker = function () {
 };
 
 let cleanupFns = [];
+// Bumped on every mount AND unmount. mount() awaits a token fetch before it
+// wires the auth listener; if the user has already navigated away by then
+// (instant now that links don't reload the page) the stale mount must stop
+// instead of attaching listeners to a page that no longer exists.
+let mountGeneration = 0;
 
 async function mount() {
   console.log('Format view mounted');
+  const myGeneration = ++mountGeneration;
 
   // DOM elements - Form
   const form = document.getElementById('assessmentForm');
@@ -140,12 +146,6 @@ async function mount() {
 
   // History lives in the shell's single global drawer (js/history-drawer.js);
   // this view just registers its data source (see registerHistoryProvider).
-
-  // DOM elements - Download Modal
-  const downloadModal = document.getElementById('downloadModal');
-  const downloadWordOption = document.getElementById('downloadWordOption');
-  const downloadPdfOption = document.getElementById('downloadPdfOption');
-  const cancelDownload = document.getElementById('cancelDownload');
 
   // ===== LOCALSTORAGE PERSISTENCE FUNCTIONS =====
   const formFields = [
@@ -220,6 +220,7 @@ async function mount() {
   if (window.rehabPlans) currentPlan = window.rehabPlans.getCurrentPlan() || 'free';
 
   const tokens = await fetchTokens();
+  if (myGeneration !== mountGeneration) return; // navigated away while fetching
   if (tokens) {
     githubToken = tokens.token;
     apiEndpoint = tokens.endpoint;
@@ -281,15 +282,6 @@ async function mount() {
     const previewModal = document.createElement('div');
     previewModal.className = 'preview-modal';
 
-    const viewAction = assessmentId
-      ? `window.location.href = 'index.html?id=${assessmentId}#/formatview';`
-      : `(function() {
-           const w = window.open('', '_blank');
-           w.document.write(decodeURIComponent('${encodeURIComponent(html)}'));
-           w.document.close();
-           document.querySelector('.preview-modal').remove();
-         })();`;
-
     let historyMessage = '';
     if (hasHistoryAccess && assessmentId) {
       historyMessage = `
@@ -330,11 +322,11 @@ async function mount() {
             <strong>${escapeHtml(formData.name)}</strong> has been generated successfully.
           </p>
           <div class="preview-actions">
-            <button class="preview-btn primary" id="viewFullAssessmentBtn" onclick="${viewAction}">📖 View Full Assessment</button>
+            <button class="preview-btn primary" id="viewFullAssessmentBtn">📖 View Full Assessment</button>
             <button class="preview-btn secondary" id="closePreviewBtn">Close</button>
           </div>
           ${historyMessage}
-          <div class="preview-note"><small>💡 The assessment opens in a new tab for printing or saving as PDF.</small></div>
+          <div class="preview-note"><small>💡 The assessment opens right here in the app, ready to edit, print or save as PDF.</small></div>
         </div>
       </div>
     `;
@@ -345,6 +337,27 @@ async function mount() {
     const closeActionBtn = previewModal.querySelector('#closePreviewBtn');
     const overlay = previewModal.querySelector('.preview-overlay');
     const closeModal = () => previewModal.remove();
+
+    // Same in-app result view Motion uses — saved assessments open by id;
+    // one generated while logged out has no record, so it travels as a
+    // one-off draft in sessionStorage (read once by #/formatview).
+    previewModal.querySelector('#viewFullAssessmentBtn').addEventListener('click', () => {
+      closeModal();
+      if (assessmentId) {
+        window.RehablixRouter.go(`index.html?id=${assessmentId}#/formatview`);
+        return;
+      }
+      try {
+        sessionStorage.setItem('rehablix:formatDraft', JSON.stringify({
+          html,
+          assessmentType: formData.assessmentType,
+          patientName: formData.name,
+          diagnosis: formData.diagnosis || '',
+          createdAt: Date.now()
+        }));
+      } catch (e) { /* storage full/blocked — the view will say the draft is gone */ }
+      window.RehablixRouter.go('index.html?draft=1#/formatview');
+    });
 
     closeBtn.addEventListener('click', closeModal);
     if (closeActionBtn) closeActionBtn.addEventListener('click', closeModal);
@@ -597,7 +610,7 @@ Return ONLY the HTML.`;
   }
 
   function retrieveHistoryItem(item) {
-    window.location.href = `index.html?id=${item.id}#/formatview`;
+    window.RehablixRouter.go(`index.html?id=${item.id}#/formatview`);
   }
 
   // ===== Global history drawer provider =====
@@ -776,79 +789,6 @@ Return ONLY the HTML.`;
     return html;
   }
 
-  // ===== Download Functions =====
-  if (downloadWordOption) {
-    downloadWordOption.addEventListener('click', () => {
-      downloadModal.classList.remove('show');
-      if (!window.currentGeneratedText || !window.currentFormData) { showToast('No assessment to download', true); return; }
-      downloadAsWord(window.currentGeneratedText, window.currentFormData);
-    });
-  }
-  if (downloadPdfOption) {
-    downloadPdfOption.addEventListener('click', () => {
-      downloadModal.classList.remove('show');
-      if (!window.currentGeneratedText || !window.currentFormData) { showToast('No assessment to download', true); return; }
-      downloadAsPdf(window.currentGeneratedText, window.currentFormData);
-    });
-  }
-
-  function buildDownloadHtml(html, formData) {
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Assessment - ${formData.name}</title>
-  <style>
-    body { font-family: 'Arial', 'Helvetica', sans-serif; line-height: 1.6; padding: 2rem; max-width: 1200px; margin: 0 auto; }
-    h1, h2, h3 { color: #00695c; }
-    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-    th { background-color: #f5f5f5; }
-    textarea { width: 100%; min-height: 100px; margin: 0.5rem 0; padding: 8px; }
-    @media print { body { padding: 0.5in; } textarea { border: 1px solid #ccc; } }
-  </style>
-</head>
-<body>
-  <div style="text-align: center; margin-bottom: 2rem;">
-    <h1>rehablix Assessment</h1>
-    <p>Generated: ${new Date().toLocaleString()}</p>
-    <hr>
-  </div>
-  ${html}
-  <hr>
-  <p style="font-size: 0.8rem; color: #666;">Generated by rehablix - Intelligent Rehabilitation Tools</p>
-</body>
-</html>`;
-  }
-
-  function downloadAsWord(html, formData) {
-    const fullHtml = buildDownloadHtml(html, formData);
-    const blob = new Blob([fullHtml], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `assessment_${formData.name}_${new Date().toISOString().slice(0, 10)}.doc`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast('Word document downloaded successfully!');
-  }
-
-  function downloadAsPdf(html, formData) {
-    const fullHtml = buildDownloadHtml(html, formData);
-    const win = window.open('', '_blank');
-    win.document.write(fullHtml);
-    win.document.close();
-    win.focus();
-    setTimeout(() => win.print(), 300);
-  }
-
-  if (cancelDownload) {
-    cancelDownload.addEventListener('click', () => downloadModal.classList.remove('show'));
-  }
-
   // ===== Clear Form =====
   if (clearBtn) {
     clearBtn.addEventListener('click', () => {
@@ -865,13 +805,6 @@ Return ONLY the HTML.`;
     });
   }
 
-  // The download modal closes on backdrop click (history now lives in the shell's global drawer).
-  if (downloadModal) {
-    downloadModal.addEventListener('click', (e) => {
-      if (e.target === downloadModal) downloadModal.classList.remove('show');
-    });
-  }
-
   // ===== Range Slider =====
   const pageCount = document.getElementById('pageCount');
   const pageVal = document.getElementById('pageVal');
@@ -881,15 +814,6 @@ Return ONLY the HTML.`;
       saveFormToStorage();
     });
   }
-
-  // ===== Keyboard Shortcuts =====
-  const onDocKeydown = (e) => {
-    if (e.key === 'Escape') {
-      if (downloadModal && downloadModal.classList.contains('show')) downloadModal.classList.remove('show');
-    }
-  };
-  document.addEventListener('keydown', onDocKeydown);
-  cleanupFns.push(() => document.removeEventListener('keydown', onDocKeydown));
 
   if (form) {
     form.addEventListener('keydown', (e) => {
@@ -902,6 +826,7 @@ Return ONLY the HTML.`;
 }
 
 function unmount() {
+  mountGeneration++;
   cleanupFns.forEach(fn => { try { fn(); } catch (e) { /* best-effort */ } });
   cleanupFns = [];
 }

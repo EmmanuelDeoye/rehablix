@@ -82,6 +82,10 @@
     let stream = null;
     let paused = false;
     let lastResult = null; // { html, historyKey, type, title }
+    // True when the result on screen was opened by a link from ANOTHER page
+    // (Lixa's Files list, a Lixa file card…) rather than from within Motion
+    // itself — Back then returns to that page, not to the scanner.
+    let resultFromLink = false;
     let isEditingResults = false;
 
     // History drawer state
@@ -642,6 +646,7 @@
     function hideResults() {
       if (isEditingResults) setEditingResults(false);
       resultsEl.classList.remove('active');
+      resultFromLink = false;
     }
 
     // Edit-in-place: the pencil icon toggles resultsBody into an editable
@@ -736,6 +741,13 @@
     // clearly-labeled back arrow instead of relying on that button's text.
     if (resultsBackBtn) {
       resultsBackBtn.addEventListener('click', () => {
+        // Opened from another page? Go back to that page (the actual
+        // previous one). Opened within Motion (a fresh scan, or Motion's own
+        // history drawer)? The scanner IS the previous screen — dismiss.
+        if (resultFromLink && window.RehablixRouter.canGoBack()) {
+          window.RehablixRouter.back('#/motion');
+          return;
+        }
         hideResults();
         capturedFrames = []; allCapturedFrames = {}; recordedChunks = [];
         sessionState = 'idle';
@@ -821,6 +833,34 @@
     // =====================================================================
     // Auth
     // =====================================================================
+    // Deep link: index.html?openId=<id>&kind=rom|gait#/motion (from Lixa's
+    // Files list). Opens that saved result straight into the result view.
+    async function openResultFromLink(user) {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get('openId');
+      if (!id) return;
+      const kind = params.get('kind') === 'gait' ? 'gait' : 'rom';
+      const path = kind === 'gait' ? 'gaitHistory' : 'analysisHistory';
+      // Consume the link first so this callback re-running (login change)
+      // or a refresh can't re-open it.
+      window.RehablixRouter.clearQuery();
+      try {
+        // The record is under the center's scope uid for center members, or
+        // the user's own uid (Lixa's Files list reads the latter) — check both.
+        let val = null;
+        for (const uid of [...new Set([scopeUid, user.uid])]) {
+          const snap = await firebase.database().ref(`history/${uid}/${path}/${id}`).once('value');
+          if (snap.val()) { val = snap.val(); break; }
+        }
+        if (!val) { showToast('That result could not be found', 'error'); return; }
+        openHistoricalResult(Object.assign({ id, type: kind }, val));
+        resultFromLink = true;
+      } catch (err) {
+        console.error('[motion] could not open linked result', err);
+        showToast('Could not open that result', 'error');
+      }
+    }
+
     const unsubAuth = firebase.auth().onAuthStateChanged(async (user) => {
       currentUser = user;
       if (!user) { scopeUid = null; return; }
@@ -832,6 +872,7 @@
       }
       if (scopeUid === null) showToast('Your access to the Motion Analyzer has been turned off by your center admin.', 'error', 6000);
       else if (scopeUid !== user.uid) showToast("Working on your center's shared records", 'info', 3000);
+      if (scopeUid) openResultFromLink(user);
     });
     cleanupFns.push(unsubAuth);
 

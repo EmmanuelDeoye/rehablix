@@ -26,7 +26,7 @@
   if (type === 'format' && historyId) {
     const params = new URLSearchParams({ id: historyId });
     if (sharedOwnerUid) params.set('uid', sharedOwnerUid);
-    window.location.replace('index.html?' + params.toString() + '#/formatview');
+    window.RehablixRouter.go('index.html?' + params.toString() + '#/formatview', { replace: true });
     return;
   }
 
@@ -34,7 +34,7 @@
   if (type === 'audio' && historyId) {
     const params = new URLSearchParams({ id: historyId });
     if (sharedOwnerUid) params.set('uid', sharedOwnerUid);
-    window.location.replace('index.html?' + params.toString() + '#/audioview');
+    window.RehablixRouter.go('index.html?' + params.toString() + '#/audioview', { replace: true });
     return;
   }
 
@@ -104,6 +104,7 @@
   let currentUser = null;
   let resultData = null;
   let currentIsOwner = false;
+  let recordUid = null; // whose history node the record was actually found under
   let autoSaveTimer = null;
   let isSaving = false;
 
@@ -198,7 +199,7 @@
         lastEditedDate: new Date().toLocaleString(),
         lastModified: new Date().toISOString()
       };
-      await database.ref(config.historyPath(currentUser.uid, historyId)).update(updates);
+      await database.ref(config.historyPath(recordUid || currentUser.uid, historyId)).update(updates);
       resultData.isPublic = isChecked;
 
       showToast(isChecked
@@ -226,6 +227,20 @@
           ownerId = currentUser.uid;
           currentIsOwner = true;
         }
+
+        // Center members' records for shared tools live under the center
+        // owner's uid (the same scope the tool itself saved them under), not
+        // their own — look there too before giving up.
+        if (!data && config.scopeTool && window.RehablixCenter && typeof window.RehablixCenter.getEffectiveScopeUid === 'function') {
+          try {
+            const scopeUid = await window.RehablixCenter.getEffectiveScopeUid(config.scopeTool);
+            if (scopeUid && scopeUid !== currentUser.uid) {
+              const scopedSnap = await database.ref(config.historyPath(scopeUid, historyId)).once('value');
+              data = scopedSnap.val();
+              if (data) { ownerId = scopeUid; currentIsOwner = true; }
+            }
+          } catch (e) { /* fall through to the other lookups */ }
+        }
       }
 
       if (!data && sharedOwnerUid) {
@@ -245,7 +260,9 @@
         const stored = localStorage.getItem(config.localFallback.key);
         if (stored) {
           const parsed = JSON.parse(stored);
-          if (parsed[config.localFallback.matchField] === historyId) {
+          // id=local means "the copy generated on this device without a saved record"
+          const storedId = parsed[config.localFallback.matchField];
+          if (storedId === historyId || (historyId === 'local' && !storedId)) {
             data = parsed;
             currentIsOwner = true;
           }
@@ -257,6 +274,7 @@
       }
 
       resultData = data;
+      recordUid = ownerId;
       const label = config.titleFor(data);
       if (pageTitleEl) pageTitleEl.textContent = `rehablix · ${label}`;
       if (headerTitle) headerTitle.textContent = label;
@@ -298,7 +316,7 @@
         config.buildSaveUpdates({ html, markdown, text: editor.innerText })
       );
 
-      await database.ref(config.historyPath(currentUser.uid, historyId)).update(updates);
+      await database.ref(config.historyPath(recordUid || currentUser.uid, historyId)).update(updates);
 
       Object.assign(resultData, updates);
 
@@ -662,7 +680,9 @@
 
   if (closeBtn) {
     closeBtn.addEventListener('click', () => {
-      window.location.href = config.closeUrl || 'index.html';
+      // Close returns to the page the user came from (the tool, Lixa, the
+      // history drawer…); closeUrl is only the fallback for a cold deep link.
+      window.RehablixRouter.back((config.closeUrl || 'index.html#/lixa').replace(/^index\.html/, ''));
     });
   }
 

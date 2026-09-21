@@ -1425,7 +1425,7 @@ ${combinedText || 'No notes provided.'}`;
         
         modal.querySelector('#viewFullPresentationBtn').addEventListener('click', () => {
             if (historyId) {
-                window.location.href = `index.html?type=case&id=${historyId}#/result`;
+                window.RehablixRouter.go(`index.html?type=case&id=${historyId}#/result`);
             }
         });
         
@@ -1555,7 +1555,7 @@ ${combinedText || 'No notes provided.'}`;
                     raw: item
                 }));
             },
-            open: (item) => { window.location.href = `index.html?type=case&id=${item.id}#/result`; },
+            open: (item) => { window.RehablixRouter.go(`index.html?type=case&id=${item.id}#/result`); },
             remove: (item) => deleteHistoryItem(item.id)
         });
         cleanupFns.push(() => window.RehablixHistoryDrawer.unregister('presentation'));

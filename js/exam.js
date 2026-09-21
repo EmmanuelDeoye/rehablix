@@ -415,7 +415,7 @@ Generate exactly ${questionCount} multiple-choice questions at "${difficulty}" d
 
     const weak = Object.entries(attempt.topicBreakdown).filter(([, r]) => (r.correct / r.total) < 0.6).map(([t]) => t);
     $('reviewWeakBtn').onclick = () => {
-      window.location.href = `index.html?subject=${attempt.subjectId}&focus=${encodeURIComponent(weak.join(','))}#/study`;
+      window.RehablixRouter.go(`index.html?subject=${attempt.subjectId}&focus=${encodeURIComponent(weak.join(','))}#/study`);
     };
   }
 

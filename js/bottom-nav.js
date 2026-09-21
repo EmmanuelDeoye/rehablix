@@ -28,7 +28,11 @@
   }
 
   function goBack() {
-    if (window.history.length > 1) {
+    // Inside the SPA shell the router knows whether there is an in-app page
+    // to return to; standalone pages fall back to plain browser history.
+    if (window.RehablixRouter) {
+      window.RehablixRouter.back('#/workspace');
+    } else if (window.history.length > 1) {
       window.history.back();
     } else {
       window.location.href = 'index.html#/workspace';

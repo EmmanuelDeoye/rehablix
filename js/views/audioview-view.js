@@ -48,8 +48,10 @@
       setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateY(20px)'; toast.style.transition = 'all .3s'; setTimeout(() => toast.remove(), 300); }, duration);
     }
 
+    // Same rule as FormatView: return to the page the user came from; only a
+    // cold deep link falls back to the Audio tool.
     function goBack() {
-      window.location.hash = '#/audio';
+      window.RehablixRouter.back('#/audio');
     }
 
     function renderMarkdown(text) {
@@ -164,7 +166,7 @@
 
     backBtn.addEventListener('click', goBack);
     closeBtn.addEventListener('click', goBack);
-    newBtn.addEventListener('click', goBack);
+    newBtn.addEventListener('click', () => window.RehablixRouter.go('#/audio'));
 
     load();
 

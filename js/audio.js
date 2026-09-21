@@ -977,9 +977,7 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     const openId = params.get('openId');
     if (!openId || !val[openId]) return;
     openHistoryItem(openId, val[openId]);
-    const url = new URL(window.location.href);
-    url.searchParams.delete('openId');
-    window.history.replaceState({}, '', url);
+    if (window.RehablixRouter) window.RehablixRouter.clearQuery();
   }
 
   // Resolves true if the transcript was deleted (the drawer then drops its row).

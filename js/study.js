@@ -270,8 +270,8 @@
 
   $('cancelCreateBtn').addEventListener('click', () => showView(Object.keys(subjects).length ? viewDashboard : viewDashboard));
 
-  $('attachBtn').addEventListener('click', () => $('fileInput').click());
-  $('fileInput').addEventListener('change', async (e) => {
+  $('studyAttachBtn').addEventListener('click', () => $('studyFileInput').click());
+  $('studyFileInput').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     $('fileInfo').style.display = 'inline-flex';
@@ -401,7 +401,7 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
 
   $('practiceExamBtn').addEventListener('click', () => {
     if (!activeSubjectId) return;
-    window.location.href = `index.html?subject=${activeSubjectId}&subjectName=${encodeURIComponent(subjects[activeSubjectId].name)}#/exam`;
+    window.RehablixRouter.go(`index.html?subject=${activeSubjectId}&subjectName=${encodeURIComponent(subjects[activeSubjectId].name)}#/exam`);
   });
 
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -704,13 +704,22 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
 
     await refreshAllData();
 
-    // Coming from Exam Simulator with a subject to focus on
+    // Deep links: from Exam Simulator (?subject=…&focus=…) or from Lixa's
+    // Files list / a Lixa file card (?openSet=<study set id>, resolved to its
+    // subject here — a Files entry is a set, not a subject).
     const params = new URLSearchParams(window.location.search);
-    const subjectParam = params.get('subject');
+    let subjectParam = params.get('subject');
+    const setParam = params.get('openSet');
+    if (setParam && studySets[setParam]) subjectParam = studySets[setParam].subjectId;
     if (subjectParam && subjects[subjectParam]) {
       openSubject(subjectParam);
       const focusParam = params.get('focus');
       if (focusParam) showToast('Focus on the highlighted weak topics below', 'info', 5000);
+    }
+    // Consume the link so a later login/logout (which re-runs this
+    // callback) or a refresh doesn't jump back to it.
+    if (subjectParam || setParam) {
+      if (window.RehablixRouter) window.RehablixRouter.clearQuery();
     }
   });
   cleanupFns.push(unsubAuth);

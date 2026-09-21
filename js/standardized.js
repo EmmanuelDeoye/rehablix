@@ -104,14 +104,18 @@ function openInPDFViewer(htmlContent, toolName) {
   const blob = new Blob([fullHtml], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const newWindow = window.open(url, '_blank');
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // Not 1s: revoking before the new tab has loaded the blob leaves it empty.
+  setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
   return newWindow;
 }
 
 let cleanupFns = [];
+// See js/format.js: guards the async gap in mount() against a fast navigation.
+let mountGeneration = 0;
 
 async function mount() {
   console.log('Standardized view mounted');
+  const myGeneration = ++mountGeneration;
 
   const form = document.getElementById('toolForm');
   const generateBtn = document.getElementById('generateBtn');
@@ -139,6 +143,7 @@ async function mount() {
   if (window.rehabPlans) currentPlan = window.rehabPlans.getCurrentPlan() || 'free';
 
   const tokens = await fetchTokens();
+  if (myGeneration !== mountGeneration) return; // navigated away while fetching
   if (tokens) {
     githubToken = tokens.token;
     apiEndpoint = tokens.endpoint;
@@ -184,9 +189,7 @@ async function mount() {
     if (!openId) return;
     const item = historyItems.find(i => i.id === openId);
     if (item) retrieveFromHistory(item.id);
-    const url = new URL(window.location.href);
-    url.searchParams.delete('openId');
-    window.history.replaceState({}, '', url);
+    if (window.RehablixRouter) window.RehablixRouter.clearQuery();
   }
 
   function showPreviewCard(toolName, includeGuides, content, options = {}) {
@@ -556,6 +559,7 @@ Requirements:
 }
 
 function unmount() {
+  mountGeneration++;
   cleanupFns.forEach(fn => { try { fn(); } catch (e) { /* best-effort */ } });
   cleanupFns = [];
 }

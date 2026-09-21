@@ -53,8 +53,12 @@
       setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateY(20px)'; toast.style.transition = 'all .3s'; setTimeout(() => toast.remove(), 300); }, duration);
     }
 
+    // Back / Done return to the page the user actually came from — the
+    // Format tool, Lixa, the history drawer, a shared link's referrer… — not
+    // always the Format tool. Only a cold deep link (nothing to go back to
+    // inside the app) falls back to the Format tool.
     function goBack() {
-      window.location.hash = '#/format';
+      window.RehablixRouter.back('#/format');
     }
 
     // The AI is asked for a full printable document and usually returns
@@ -134,6 +138,27 @@
       editBtn.style.display = 'none'; // only shown once a record we own has actually loaded
 
       const params = new URLSearchParams(window.location.search);
+
+      // A result generated while logged out has no saved record — the Format
+      // tool hands it over as a one-off draft in sessionStorage. Viewable,
+      // printable and downloadable like any other result; not editable (there
+      // is nothing to save it back to).
+      if (params.get('draft') === '1') {
+        let draft = null;
+        try { draft = JSON.parse(sessionStorage.getItem('rehablix:formatDraft') || 'null'); } catch (e) { draft = null; }
+        if (!draft || !draft.html) {
+          titleEl.textContent = 'Not found';
+          await renderInFrame('<p>This assessment is no longer available. Generate it again from the Format tool, or log in so results are saved.</p>');
+          return;
+        }
+        record = { assessmentType: draft.assessmentType, patientName: draft.patientName, diagnosis: draft.diagnosis, generatedText: draft.html };
+        recordId = null;
+        isOwner = false;
+        titleEl.textContent = titleFor(record);
+        await renderInFrame(draft.html);
+        return;
+      }
+
       recordId = params.get('id');
       const sharedUid = params.get('uid');
       // Wait for the shared SPA auth-ready signal instead of reading
@@ -224,7 +249,8 @@
 
     backBtn.addEventListener('click', goBack);
     closeBtn.addEventListener('click', goBack);
-    newBtn.addEventListener('click', goBack);
+    // "New Assessment" is a destination, not a return — straight to the Format tool.
+    newBtn.addEventListener('click', () => window.RehablixRouter.go('#/format'));
 
     load();
 

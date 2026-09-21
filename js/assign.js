@@ -12,8 +12,8 @@ if (typeof marked !== 'undefined') {
 
   // ===== DOM Elements =====
   const topicInput = document.getElementById('topicInput');
-  const attachBtn = document.getElementById('attachBtn');
-  const fileInput = document.getElementById('fileInput');
+  const attachBtn = document.getElementById('assignAttachBtn');
+  const fileInput = document.getElementById('assignFileInput');
   const cameraInput = document.getElementById('cameraInput');
   const fileInfo = document.getElementById('fileInfo');
   const courseInput = document.getElementById('courseInput');
@@ -846,11 +846,9 @@ Return ONLY the polished HTML. No markdown fences.`;
   if (viewFullAssignmentBtn) {
     viewFullAssignmentBtn.addEventListener('click', () => {
       closePreviewModal();
-      if (currentHistoryId) {
-        window.location.href = `index.html?type=answer&id=${currentHistoryId}#/result`;
-      } else {
-        window.location.href = 'index.html?type=answer#/result';
-      }
+      // Logged-out generations have no saved record (no history id) — they
+      // live only in localStorage, which #/result reads via id=local.
+      window.RehablixRouter.go(`index.html?type=answer&id=${currentHistoryId || 'local'}#/result`);
     });
   }
 
@@ -898,7 +896,7 @@ Return ONLY the polished HTML. No markdown fences.`;
 
   function openAssignment(id) {
     localStorage.setItem('rehab_assignment_current_id', id);
-    window.location.href = `index.html?type=answer&id=${id}#/result`;
+    window.RehablixRouter.go(`index.html?type=answer&id=${id}#/result`);
   }
 
   // Resolves true if the assignment was deleted (the drawer then drops its row).
@@ -989,7 +987,7 @@ Return ONLY the polished HTML. No markdown fences.`;
   if (window.RehablixHandoff) {
     const handoffData = window.RehablixHandoff.consume('assignment.html');
     if (handoffData) {
-      window.RehablixHandoff.applyTo(handoffData, { textFieldId: 'topicInput', fileFieldId: 'fileInput' });
+      window.RehablixHandoff.applyTo(handoffData, { textFieldId: 'topicInput', fileFieldId: 'assignFileInput' });
     }
   }
   } // end mount()

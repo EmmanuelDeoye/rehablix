@@ -239,14 +239,20 @@
       const target = a.external ? ' target="_blank" rel="noopener noreferrer"' : '';
       return `<a class="${cls}" href="${a.href}"${target}><i class="fas ${a.icon || 'fa-arrow-up-right-from-square'}"></i> ${escapeHtml(a.label)}</a>`;
     }).join('');
+    // Compact one-row card: icon · title + a single info line (type, then a
+    // trimmed preview) · actions. Everything that used to stack vertically
+    // (title / meta / snippet / buttons) now shares the row, and the full
+    // title/preview stay available on hover via the title attribute.
+    const title = card.title || 'Generated file';
+    const snippet = (card.snippet || '').replace(/\s+/g, ' ').trim();
+    const sub = [card.meta, snippet].filter(Boolean).join(' · ');
     wrap.innerHTML = `
       <div class="lixa-file-icon">${card.icon || '📄'}</div>
       <div class="lixa-file-body">
-        <div class="lixa-file-title">${escapeHtml(card.title || 'Generated file')}</div>
-        ${card.meta ? `<div class="lixa-file-meta">${escapeHtml(card.meta)}</div>` : ''}
-        ${card.snippet ? `<div class="lixa-file-snippet">${escapeHtml(card.snippet)}</div>` : ''}
-        <div class="lixa-file-actions">${actionsHtml}</div>
+        <div class="lixa-file-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+        ${sub ? `<div class="lixa-file-sub" title="${escapeHtml(sub)}">${escapeHtml(sub)}</div>` : ''}
       </div>
+      <div class="lixa-file-actions">${actionsHtml}</div>
     `;
     return wrap;
   }
@@ -647,7 +653,7 @@ If the user's message includes content extracted from an uploaded file, an image
           <span class="model-option-rank">${m.rank}</span>
           <span class="model-option-text">
             <span class="model-option-name">${escapeHtml(m.label)}${locked ? ' <i class="fas fa-lock"></i>' : ''}</span>
-            <span class="model-option-desc">${escapeHtml(m.strength)}</span>
+            <span class="model-option-desc">${escapeHtml(m.tagline || m.strength)}</span>
           </span>
           <span class="model-option-plan">${escapeHtml(tiers.PLAN_LABELS[m.minPlan])}+</span>
         </button>
@@ -772,14 +778,77 @@ If the user's message includes content extracted from an uploaded file, an image
   // =========================================================================
   // Render messages (with action buttons, attachments, and suggestions)
   // =========================================================================
+  // =========================================================================
+  // Empty-chat greeting: a short line with the user's first name. One of 10
+  // variations, picked at random, then kept for 5 hours before rotating (and
+  // never the same one twice in a row). The chosen index + timestamp live in
+  // localStorage so a refresh or a return visit within the window shows the
+  // same greeting.
+  // =========================================================================
+  const GREETINGS = [
+    'Hi, {name}',
+    'Welcome, {name}',
+    'Hello, {name}',
+    'Hey {name}',
+    'Good to see you, {name}',
+    'Welcome back, {name}',
+    'Ready when you are, {name}',
+    'How can I help, {name}?',
+    'What shall we build, {name}?',
+    "Let's get started, {name}"
+  ];
+  const GREETING_KEY = 'rehab-lixa-greeting';
+  const GREETING_TTL_MS = 5 * 60 * 60 * 1000;
+  let greetingName = '';
+
+  function firstNameOf(raw) {
+    const first = String(raw || '').trim().split(/\s+/)[0] || '';
+    return first ? first.charAt(0).toUpperCase() + first.slice(1) : '';
+  }
+
+  function greetingText() {
+    let state = null;
+    try { state = JSON.parse(localStorage.getItem(GREETING_KEY) || 'null'); } catch (e) { state = null; }
+    const now = Date.now();
+    const valid = state && Number.isInteger(state.i) && state.i >= 0 && state.i < GREETINGS.length && (now - state.t) < GREETING_TTL_MS;
+    if (!valid) {
+      let i = Math.floor(Math.random() * GREETINGS.length);
+      if (state && Number.isInteger(state.i) && i === state.i) i = (i + 1) % GREETINGS.length;
+      state = { i, t: now };
+      try { localStorage.setItem(GREETING_KEY, JSON.stringify(state)); } catch (e) { /* private mode — just won't persist */ }
+    }
+    const tpl = GREETINGS[state.i];
+    if (greetingName) return tpl.replace('{name}', greetingName);
+    // Not logged in / no name yet: drop the name ("Hi" → "Hi there").
+    const bare = tpl.replace(/,?\s*\{name\}/, '').trim();
+    return /^(Hi|Hey|Hello)$/.test(bare) ? bare + ' there' : bare;
+  }
+
+  function refreshGreeting() {
+    const el = document.getElementById('lixaGreeting');
+    if (el) el.textContent = greetingText();
+  }
+
+  // Best name first: the profile name saved in the account, then the auth
+  // display name, then the part of the email before the @.
+  async function resolveGreetingName(user) {
+    if (!user) { greetingName = ''; refreshGreeting(); return; }
+    greetingName = firstNameOf(user.displayName) || firstNameOf((user.email || '').split('@')[0]);
+    refreshGreeting();
+    try {
+      const snap = await database.ref(`users/${user.uid}/name`).once('value');
+      const profileName = firstNameOf(snap.val());
+      if (profileName && currentUser && currentUser.uid === user.uid) { greetingName = profileName; refreshGreeting(); }
+    } catch (e) { /* keep the fallback name */ }
+  }
+
   function renderMessages() {
     chatMessages.innerHTML = '';
     if (messages.length === 0) {
       chatMessages.innerHTML = `
         <div class="empty-chat">
           <div class="empty-chat-icon">✨</div>
-          <p>Hi, I'm Lixa. Ask me anything, or tell me what to build — an assessment format, a standardized tool, a transcript, a presentation, a study set, or an assignment.</p>
-          <p class="empty-chat-hint">Type <strong>@</strong> to jump straight to a tool, or just describe what you need.</p>
+          <p class="empty-chat-greeting" id="lixaGreeting">${escapeHtml(greetingText())}</p>
         </div>
       `;
       return;
@@ -1036,7 +1105,7 @@ If the user's message includes content extracted from an uploaded file, an image
       } catch (e) { /* file transfer is best-effort */ }
     }
     if (window.RehablixHandoff) window.RehablixHandoff.send(targetPage, payload);
-    window.location.href = link.getAttribute('href');
+    window.RehablixRouter.go(link.getAttribute('href'));
   }
 
   // =========================================================================
@@ -1145,7 +1214,7 @@ If the user's message includes content extracted from an uploaded file, an image
         date: new Date().toLocaleDateString(),
         createdAt: firebase.database.ServerValue.TIMESTAMP
       });
-      window.location.href = `index.html?type=ask&id=${ref.key}#/result`;
+      window.RehablixRouter.go(`index.html?type=ask&id=${ref.key}#/result`);
     } catch (err) {
       console.error('Failed to open in editor:', err);
       showToast('Could not open the editor. Please try again.', 'error');
@@ -2114,6 +2183,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   const unsubAuth = firebase.auth().onAuthStateChanged(user => {
     currentUser = user;
     if (newChatNavBtn) newChatNavBtn.style.display = user ? 'block' : 'none';
+    resolveGreetingName(user);
     if (user) loadHistoryList();
   });
   cleanupFns.push(unsubAuth);

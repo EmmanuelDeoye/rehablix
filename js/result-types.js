@@ -33,6 +33,7 @@
       pageTitle: 'Case Presentation',
       shortLabel: 'case presentation',
       historyPath: (uid, id) => `history/${uid}/caseHistory/${id}`,
+      scopeTool: 'presentation',
       validate: (data) => !!CASE_MODE_LABELS[data.contentType] || true,
       titleFor: (data) => CASE_MODE_LABELS[data.contentType] || 'Clinical Document',
       shortTitleFor: (data) => CASE_MODE_SHORT[data.contentType] || 'document',

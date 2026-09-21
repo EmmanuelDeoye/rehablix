@@ -67,7 +67,9 @@
     { type: 'presentation', label: 'Presentations/Reports', path: 'caseHistory', icon: '📑', titleOf: (item) => item.fileName || item.documentType },
     { type: 'audio', label: 'Audio', path: 'audio', icon: '🎧', titleOf: (item) => item.title },
     { type: 'assignment', label: 'Assignments', path: 'assignments', icon: '📝', titleOf: (item) => item.topic },
-    { type: 'study', label: 'Study Sets', path: 'study/sets', icon: '🧠', titleOf: (item) => item.title }
+    { type: 'study', label: 'Study Sets', path: 'study/sets', icon: '🧠', titleOf: (item) => item.title },
+    { type: 'rom', label: 'Motion (ROM)', path: 'analysisHistory', icon: '🦵', titleOf: (item) => item.fileName || item.documentType || 'ROM Analysis' },
+    { type: 'gait', label: 'Motion (Gait)', path: 'gaitHistory', icon: '🚶', titleOf: (item) => item.fileName || item.documentType || 'Gait Analysis' }
   ];
 
   // Registered as (the rest of) the "lixa" SPA view — js/router.js calls
@@ -737,18 +739,17 @@
         presentation: `index.html?type=case&id=${id}#/result`,
         audio: `index.html?id=${id}#/audioview`,
         assignment: `index.html?type=answer&id=${id}#/result`,
-        study: `index.html?subject=${id}#/study`
+        // A study record in Files is a SET id, not a subject id — the tool
+        // resolves the set to its subject itself.
+        study: `index.html?openSet=${id}#/study`,
+        rom: `index.html?openId=${id}&kind=rom#/motion`,
+        gait: `index.html?openId=${id}&kind=gait#/motion`
       };
       const href = links[type];
-      // #/result and #/formatview open in the same tab now, not a new
-      // window — everything else (a genuinely separate tool page) still
-      // opens in a new tab.
-      const opensInSameTab = type === 'format' || type === 'presentation' || type === 'assignment';
-      if (href) {
-        if (opensInSameTab) window.location.href = href;
-        else window.open(href, '_blank');
-      }
+      // Every saved file opens inside the SPA in the same tab (no new window,
+      // no page reload) so Back returns straight to Lixa.
       historyDrawer.classList.remove('active');
+      if (href) window.RehablixRouter.go(href);
     }
 
     if (filesSearchInput) filesSearchInput.addEventListener('input', renderFilesList);

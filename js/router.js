@@ -1,4 +1,4 @@
-// js/router.js — small hash router for the rehablix SPA shell (index.html).
+// js/router.js — small router for the rehablix SPA shell (index.html).
 // Each route's HTML lives as a plain string in js/view-templates.js
 // (window.RehablixTemplates), injected into #appRoot synchronously — no
 // runtime fetch() of separate fragment files — then the matching
@@ -8,12 +8,23 @@
 // Lixa and Workspace are the two primary bottom-nav tabs users flip between
 // constantly, so they're kept alive: mounted once, then just shown/hidden on
 // every later visit (scroll position, search text, in-progress chat, etc.
-// all survive) instead of being torn down and rebuilt from scratch — that
-// rebuild was also the source of the "Workspace lags for a moment on first
-// open" complaint, since its Firebase reads + DOM build only ever happen
-// once now instead of on every single visit. Every other route keeps the
-// original destroy-and-rebuild behavior (some, like Motion, genuinely need
-// to release camera/mic on navigating away).
+// all survive) instead of being torn down and rebuilt from scratch. Every
+// other route keeps the destroy-and-rebuild behavior (some, like Motion,
+// genuinely need to release camera/mic on navigating away).
+//
+// NAVIGATION MODEL
+// Result-like routes carry their parameters in the query string that sits
+// BEFORE the hash (index.html?id=abc#/formatview). Following such a link used
+// to be a full page load, which threw away Lixa's live state, re-ran Firebase
+// auth restoration on every open (a race for the view that needs the user),
+// and left "Back" with nowhere sensible to go. Now every in-app link is
+// intercepted and handled here with history.pushState + a direct route
+// render — same URLs, same deep-link shape, but no reload:
+//   RehablixRouter.go(url)          SPA navigation to a same-app URL
+//   RehablixRouter.back(fallback)   return to the page the user came FROM
+//                                   (falls back to `fallback` when this
+//                                   entry is the first one of the session)
+//   RehablixRouter.canGoBack()
 
 (function () {
   const routes = {
@@ -43,6 +54,9 @@
 
   const keepAliveWrappers = {}; // routeName -> wrapper element, once mounted
   let currentView = null;
+  let lastKey = null;        // location.search + location.hash of the view on screen
+  let historyIndex = 0;      // position of the current entry among router-stamped entries
+  let leavingPage = false;   // set when the browser is unloading (back landed on a real page load)
 
   function parseHash() {
     const m = (window.location.hash || '').match(/^#\/([a-z]+)/i);
@@ -66,6 +80,15 @@
     if (slot) slot.innerHTML = '';
   }
 
+  // Some tools append their own overlays straight to <body> (preview cards,
+  // "your file is ready" dialogs) instead of inside their view, so replacing
+  // #appRoot's content never removes them — they used to sit on top of
+  // whichever page came next. Clear them on every navigation.
+  function clearBodyOverlays() {
+    document.querySelectorAll('body > .preview-modal, body > .modal-overlay-floating').forEach(el => el.remove());
+    document.body.style.overflow = '';
+  }
+
   function getHosts() {
     const appRoot = document.getElementById('appRoot');
     let keepAliveHost = document.getElementById('keepAliveHost');
@@ -83,17 +106,22 @@
     return { appRoot, keepAliveHost, transientHost };
   }
 
-  function navigate(routeName) {
+  // `force` re-renders a transient route even though it is already the
+  // current one (same route, different ?id= — e.g. opening another saved
+  // result from the history drawer while a result is showing).
+  function navigate(routeName, force) {
     const name = routes[routeName] ? routeName : 'lixa';
     const route = routes[name];
     const { keepAliveHost, transientHost } = getHosts();
     const isKeepAlive = KEEP_ALIVE.has(name);
     const alreadyMounted = isKeepAlive && !!keepAliveWrappers[name];
 
+    clearBodyOverlays();
+
     // Tear down whatever was previously active, unless it's a kept-alive
     // view being merely hidden (its unmount() never runs while switching
     // between Lixa/Workspace/elsewhere — only a real page unload ends it).
-    if (currentView && currentView !== name) {
+    if (currentView && (currentView !== name || (force && !isKeepAlive))) {
       const wasKeepAlive = KEEP_ALIVE.has(currentView);
       if (wasKeepAlive) {
         const prevWrapper = keepAliveWrappers[currentView];
@@ -159,15 +187,136 @@
     document.dispatchEvent(new CustomEvent('rehablix:routechange', { detail: { route: name } }));
   }
 
+  // --------------------------------------------------------------------
+  // Location sync
+  // --------------------------------------------------------------------
+  // Tag each history entry with its position so "can I go back inside the
+  // app?" has a real answer (see back()).
+  function stampEntry() {
+    const st = window.history.state;
+    if (st && typeof st.rx === 'number') {
+      historyIndex = st.rx;
+    } else {
+      historyIndex = historyIndex + 1;
+      try { window.history.replaceState(Object.assign({}, st || {}, { rx: historyIndex }), ''); } catch (e) { /* ignore */ }
+    }
+  }
+
+  // Routes that actually read ?query parameters. Landing on any other route
+  // with a leftover query string (e.g. the ?id=… of the result the user just
+  // left, still in the URL after a plain `location.hash = …` change) would
+  // only leak stale parameters into later navigations, so drop it.
+  const QUERY_ROUTES = new Set(['lixa', 'result', 'docresult', 'formatview', 'audioview', 'audio', 'standardized', 'study', 'exam', 'motion']);
+
+  // Render whatever the address bar currently says.
+  function sync() {
+    const name = parseHash() || 'lixa';
+    if (!QUERY_ROUTES.has(name) && window.location.search) {
+      try { window.history.replaceState(window.history.state, '', window.location.pathname + window.location.hash); } catch (e) { /* ignore */ }
+    }
+    const key = window.location.search + window.location.hash;
+    const prevName = currentView;
+    const sameKey = key === lastKey;
+    lastKey = key;
+    stampEntry();
+    if (sameKey && prevName === name) return;
+    // Same transient route but a different ?query (another record opened
+    // in place) must re-mount, or the view would keep showing the old one.
+    navigate(name, prevName === name);
+  }
+
+  const APP_PATHS = ['', '/', '/index.html'];
+  function isAppPath(pathname) {
+    return APP_PATHS.includes(pathname) || /\/index\.html$/.test(pathname) || pathname === window.location.pathname;
+  }
+
+  // Resolve a same-app target (relative or absolute) to path+search+hash, or
+  // null if it points anywhere else. A bare "#/route" link means "just that
+  // route" — the previous page's ?id=… must not leak into it.
+  function resolveAppTarget(target) {
+    let url;
+    try { url = new URL(target, window.location.href); } catch (e) { return null; }
+    if (url.origin !== window.location.origin) return null;
+    if (!isAppPath(url.pathname)) return null;
+    if (!/^#\/[a-z]/i.test(url.hash)) return null;
+    const search = String(target).trim().startsWith('#') ? '' : url.search;
+    return window.location.pathname + search + url.hash;
+  }
+
+  function go(target, opts) {
+    const resolved = resolveAppTarget(target);
+    if (!resolved) { window.location.href = target; return; }
+    const current = window.location.pathname + window.location.search + window.location.hash;
+    if (resolved === current) return;
+    try {
+      if (opts && opts.replace) window.history.replaceState(null, '', resolved);
+      else window.history.pushState(null, '', resolved);
+    } catch (e) {
+      window.location.href = target;
+      return;
+    }
+    sync();
+  }
+
+  // A view that has consumed its deep-link parameters (?openId=…) calls this
+  // so a refresh / later auth change doesn't re-trigger them. Same entry,
+  // same route — only the query is dropped, nothing re-mounts.
+  function clearQuery() {
+    if (!window.location.search) return;
+    try { window.history.replaceState(window.history.state, '', window.location.pathname + window.location.hash); } catch (e) { return; }
+    lastKey = window.location.search + window.location.hash;
+  }
+
+  function canGoBack() { return historyIndex > 1; }
+
+  // Return to the page the user actually came from. If this is the first
+  // page of the session (deep link, new tab, reload of a fresh entry) there
+  // is nothing to return to, so use the caller's fallback instead.
+  function back(fallback) {
+    const fb = fallback || '#/workspace';
+    if (!canGoBack()) { go(fb); return; }
+    const before = window.location.search + window.location.hash;
+    leavingPage = false;
+    window.history.back();
+    setTimeout(() => {
+      if (!leavingPage && window.location.search + window.location.hash === before) go(fb, { replace: true });
+    }, 450);
+  }
+
   window.RehablixRouter = {
-    navigate: (name) => { window.location.hash = '#/' + name; },
+    // Kept for existing callers: navigate to a bare route name.
+    navigate: (name) => go('#/' + name),
+    go,
+    back,
+    canGoBack,
+    clearQuery,
     getCurrentRoute: () => currentView
   };
 
-  window.addEventListener('hashchange', () => navigate(parseHash()));
+  // In-app links → SPA navigation (no reload). Anything external, new-tab,
+  // download, or modified-click is left to the browser.
+  document.addEventListener('click', (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const a = e.target.closest && e.target.closest('a[href]');
+    if (!a) return;
+    const targetAttr = a.getAttribute('target');
+    if ((targetAttr && targetAttr !== '_self') || a.hasAttribute('download')) return;
+    const resolved = resolveAppTarget(a.getAttribute('href'));
+    if (!resolved) return;
+    e.preventDefault();
+    go(a.getAttribute('href'));
+  });
+
+  window.addEventListener('popstate', sync);
+  window.addEventListener('hashchange', sync);
+  window.addEventListener('pagehide', () => { leavingPage = true; });
 
   function boot() {
-    navigate(parseHash() || 'lixa');
+    if (!parseHash()) {
+      // No route in the URL: land on Lixa without adding a history entry.
+      try { window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + '#/lixa'); } catch (e) { /* ignore */ }
+    }
+    sync();
   }
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
