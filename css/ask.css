@@ -93,8 +93,9 @@ body {
 }
 
 /* Shown in the chat pane while a picked history conversation is being
-   fetched (js/ask.js loadConversation) — reuses the .route-skeleton-bar
-   shimmer (css/main.css) so loading states look consistent app-wide. */
+   fetched (js/ask.js loadConversation). The .route-skeleton-bar shimmer
+   lives HERE (its only user) — it used to be defined in css/main.css and was
+   dropped from there, which is why the loading shimmer disappeared. */
 .message-loading-skeleton {
   display: flex;
   flex-direction: column;
@@ -102,10 +103,25 @@ body {
   width: 100%;
   max-width: 640px;
   margin: 0 auto;
+  padding: 1rem 0;
+}
+.route-skeleton-bar {
+  height: 1.1rem;
+  width: 100%;
+  border-radius: 0.6rem;
+  background: linear-gradient(90deg, var(--surface) 25%, var(--border-light) 50%, var(--surface) 75%);
+  background-size: 200% 100%;
+  animation: routeSkeletonShimmer 1.3s ease-in-out infinite;
+}
+.route-skeleton-bar--short { width: 55%; }
+@keyframes routeSkeletonShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 .empty-chat-icon { font-size: 3rem; margin-bottom: 0.8rem; opacity: 0.7; }
 .empty-chat p { margin: 0.3rem 0; font-size: 0.95rem; }
+.empty-chat .empty-chat-greeting { font-size: 1.3rem; font-weight: 600; color: var(--text-primary); }
 .empty-chat-hint { font-size: 0.8rem; opacity: 0.7; }
 
 /* ===== Messages ===== */

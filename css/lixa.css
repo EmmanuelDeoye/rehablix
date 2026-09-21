@@ -231,51 +231,70 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* ===== File result card (rendered inside an assistant message) ===== */
+/* ===== File result card (rendered inside an assistant message) =====
+   Compact single-row card: icon · title + one info line · actions. Small
+   enough to sit inline in a conversation and portable on narrow screens
+   (the actions drop under the text below 480px rather than squeezing it). */
 .lixa-file-card {
   display: flex;
-  align-items: flex-start;
-  gap: 0.85rem;
-  margin-top: 0.75rem;
-  padding: 1rem 1.1rem;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.65rem;
   background: var(--card-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-light);
-  border-radius: 1.2rem;
+  border-radius: 0.85rem;
   box-shadow: var(--shadow-sm);
-  max-width: 460px;
+  max-width: 440px;
 }
 
 .lixa-file-card .lixa-file-icon {
-  width: 42px;
-  height: 42px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
-  border-radius: 0.9rem;
+  border-radius: 0.65rem;
   background: linear-gradient(135deg, var(--accent-soft), transparent);
   border: 1px solid rgba(0, 150, 136, 0.2);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.3rem;
+  font-size: 1rem;
 }
 
 .lixa-file-card .lixa-file-body { flex: 1; min-width: 0; }
-.lixa-file-card .lixa-file-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 0.15rem; color: var(--text-primary); }
-.lixa-file-card .lixa-file-meta { font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
-.lixa-file-card .lixa-file-snippet { font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.65rem; line-height: 1.4; }
+.lixa-file-card .lixa-file-title {
+  font-weight: 700;
+  font-size: 0.84rem;
+  line-height: 1.25;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lixa-file-card .lixa-file-sub {
+  font-size: 0.7rem;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-.lixa-file-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.lixa-file-actions { display: flex; flex-wrap: nowrap; gap: 0.35rem; flex-shrink: 0; }
 .lixa-file-actions a,
 .lixa-file-actions button {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  border-radius: 0.6rem;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.78rem;
+  gap: 0.3rem;
+  border-radius: 0.5rem;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.72rem;
   font-weight: 600;
   font-family: inherit;
+  line-height: 1.2;
+  white-space: nowrap;
   cursor: pointer;
   text-decoration: none;
   border: 1px solid var(--border-light);
@@ -283,6 +302,8 @@
   color: var(--text-primary);
   transition: all 0.15s ease;
 }
+.lixa-file-actions a i,
+.lixa-file-actions button i { font-size: 0.68rem; }
 .lixa-file-actions a:hover,
 .lixa-file-actions button:hover {
   border-color: var(--accent);
@@ -517,7 +538,9 @@
 
 /* ===== Responsive ===== */
 @media (max-width: 480px) {
-  .lixa-file-card { max-width: 100%; flex-direction: column; }
+  .lixa-file-card { max-width: 100%; flex-wrap: wrap; }
+  .lixa-file-card .lixa-file-body { flex-basis: calc(100% - 44px); }
+  .lixa-file-card .lixa-file-actions { flex-basis: 100%; flex-wrap: wrap; padding-left: 40px; }
   .mention-popup { max-width: calc(100vw - 2rem); }
 }
 
