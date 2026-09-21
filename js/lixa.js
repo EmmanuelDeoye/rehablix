@@ -69,7 +69,8 @@
     { type: 'assignment', label: 'Assignments', path: 'assignments', icon: '📝', titleOf: (item) => item.topic },
     { type: 'study', label: 'Study Sets', path: 'study/sets', icon: '🧠', titleOf: (item) => item.title },
     { type: 'rom', label: 'Motion (ROM)', path: 'analysisHistory', icon: '🦵', titleOf: (item) => item.fileName || item.documentType || 'ROM Analysis' },
-    { type: 'gait', label: 'Motion (Gait)', path: 'gaitHistory', icon: '🚶', titleOf: (item) => item.fileName || item.documentType || 'Gait Analysis' }
+    { type: 'gait', label: 'Motion (Gait)', path: 'gaitHistory', icon: '🚶', titleOf: (item) => item.fileName || item.documentType || 'Gait Analysis' },
+    { type: 'assistive', label: 'Assistive Device', path: 'assistiveHistory', icon: '🦯', titleOf: (item) => item.fileName || item.documentType || 'Assistive Device Assessment' }
   ];
 
   // Registered as (the rest of) the "lixa" SPA view — js/router.js calls
@@ -743,7 +744,8 @@
         // resolves the set to its subject itself.
         study: `index.html?openSet=${id}#/study`,
         rom: `index.html?openId=${id}&kind=rom#/motion`,
-        gait: `index.html?openId=${id}&kind=gait#/motion`
+        gait: `index.html?openId=${id}&kind=gait#/motion`,
+        assistive: `index.html?openId=${id}&kind=assistive#/motion`
       };
       const href = links[type];
       // Every saved file opens inside the SPA in the same tab (no new window,

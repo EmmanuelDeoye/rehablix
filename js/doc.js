@@ -622,6 +622,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function computeRecordMatch(entry, patient) {
         const reasons = [];
         let score = 0;
+        // A Motion assessment saved against this exact EMR patient is a certain match, not a guess.
+        if (entry.emrPatientId && entry.emrPatientId === currentPatientId) {
+            reasons.push('Recorded for this patient in Motion');
+            score += 200;
+        }
         if (namesLikelyMatch(entry.patientName, patient.name)) {
             reasons.push('Name matches');
             score += 100;
@@ -639,19 +644,22 @@ document.addEventListener('DOMContentLoaded', function() {
     async function loadLinkedRecords() {
         const container = document.getElementById('linkedRecordsList');
         if (!container || !currentUser || !currentPatientId) return;
-        container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-loader-alt bx-spin"></i><p>Searching Case Presentation/Report, Gait Analysis, and ROM Analysis history…</p></div>`;
+        container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-loader-alt bx-spin"></i><p>Searching Case Presentation/Report, Gait, ROM, and Assistive Device history…</p></div>`;
 
         try {
-            const [caseSnap, gaitSnap, romSnap] = await Promise.all([
+            const [caseSnap, gaitSnap, romSnap, assistSnap] = await Promise.all([
                 database.ref(`history/${currentUser.uid}/caseHistory`).once('value'),
                 database.ref(`history/${currentUser.uid}/gaitHistory`).once('value'),
-                database.ref(`history/${currentUser.uid}/analysisHistory`).once('value')
+                database.ref(`history/${currentUser.uid}/analysisHistory`).once('value'),
+                database.ref(`history/${currentUser.uid}/assistiveHistory`).once('value')
             ]);
 
             const sourceDefs = [
                 { node: caseSnap.val() || {}, source: 'caseHistory', icon: 'bx-file', typeFn: e => e.documentType || 'Case Presentation', contentFn: e => e.resultsMarkdown || e.results || '' },
-                { node: gaitSnap.val() || {}, source: 'gaitHistory', icon: 'bx-walk', typeFn: () => 'Gait Analysis', contentFn: e => e.results || '' },
-                { node: romSnap.val() || {}, source: 'analysisHistory', icon: 'bx-run', typeFn: () => 'ROM Analysis', contentFn: e => e.results || '' }
+                // Motion results carry a structured, method/confidence-stamped clinical note (Motion page → Confirm findings); prefer it over the raw text.
+                { node: gaitSnap.val() || {}, source: 'gaitHistory', icon: 'bx-walk', typeFn: () => 'Gait Analysis', contentFn: e => e.clinicalNote || e.results || '' },
+                { node: romSnap.val() || {}, source: 'analysisHistory', icon: 'bx-run', typeFn: () => 'ROM Analysis', contentFn: e => e.clinicalNote || e.results || '' },
+                { node: assistSnap.val() || {}, source: 'assistiveHistory', icon: 'bx-plus-medical', typeFn: () => 'Assistive Device Assessment', contentFn: e => e.clinicalNote || e.results || '' }
             ];
 
             const patient = currentPatientData;
@@ -662,6 +670,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     candidates.push({
                         source, key, icon, type: typeFn(entry), date: entry.date || '',
                         content: contentFn(entry), patientName: entry.patientName || null,
+                        motionStatus: entry.structured ? (entry.status === 'confirmed' ? 'confirmed' : 'draft') : null,
                         score: match.score, reasons: match.reasons
                     });
                 });
@@ -685,7 +694,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div class="linked-record-item">
                     <div class="linked-record-info">
                         <div><i class="bx ${c.icon}"></i> <strong>${escapeHtml(c.type)}</strong>${c.patientName ? ' — ' + escapeHtml(c.patientName) : ''}</div>
-                        <div class="linked-record-meta">${escapeHtml(c.date)} · ${escapeHtml(reasonText)}${isLinked ? ' · <span style="color:#16a34a;">Linked</span>' : ''}</div>
+                        <div class="linked-record-meta">${escapeHtml(c.date)} · ${escapeHtml(reasonText)}${c.motionStatus === 'confirmed' ? ' · <span style="color:#16a34a;">Clinician-confirmed</span>' : c.motionStatus === 'draft' ? ' · <span style="color:#b45309;">Unreviewed draft</span>' : ''}${isLinked ? ' · <span style="color:#16a34a;">Linked</span>' : ''}</div>
                     </div>
                     <div style="display:flex;gap:0.4rem;flex-shrink:0;">
                         <button class="btn btn-secondary linked-record-view-btn" data-source="${c.source}" data-key="${escapeHtml(c.key)}" style="font-size:0.7rem;padding:0.2rem 0.7rem;"><i class="bx bx-show"></i> View</button>

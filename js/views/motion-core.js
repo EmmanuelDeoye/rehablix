@@ -150,110 +150,114 @@
   }
 
   // ===========================================================================
-  // Pose landmarking (MediaPipe) — angle measurement
+  // Pose tracking — MediaPipe BlazePose with 3D WORLD landmarks (metres,
+  // hip-centred) plus image landmarks and per-landmark visibility. All angle
+  // and gait maths lives in js/views/motion-engine.js / motion-gait.js; this
+  // file only supplies tracked frames ("samples") to it.
   // ===========================================================================
-  const JOINT_LANDMARK_MAP = {
-    shoulder_flexion: ['HIP', 'SHOULDER', 'ELBOW'], shoulder_extension: ['HIP', 'SHOULDER', 'ELBOW'],
-    shoulder_abduction: ['HIP', 'SHOULDER', 'ELBOW'], shoulder_adduction: ['HIP', 'SHOULDER', 'ELBOW'],
-    elbow_flexion: ['SHOULDER', 'ELBOW', 'WRIST'], elbow_extension: ['SHOULDER', 'ELBOW', 'WRIST'],
-    hip_flexion: ['SHOULDER', 'HIP', 'KNEE'], hip_extension: ['SHOULDER', 'HIP', 'KNEE'],
-    hip_abduction: ['SHOULDER', 'HIP', 'KNEE'], hip_adduction: ['SHOULDER', 'HIP', 'KNEE'],
-    knee_flexion: ['HIP', 'KNEE', 'ANKLE'], knee_extension: ['HIP', 'KNEE', 'ANKLE'],
-    ankle_dorsiflexion: ['KNEE', 'ANKLE', 'FOOT_INDEX'], ankle_plantarflexion: ['KNEE', 'ANKLE', 'FOOT_INDEX']
-  };
-  const LANDMARK_INDEX = {
-    SHOULDER: [11, 12], ELBOW: [13, 14], WRIST: [15, 16],
-    HIP: [23, 24], KNEE: [25, 26], ANKLE: [27, 28], FOOT_INDEX: [31, 32]
-  };
-
-  function angleAtVertex(a, b, c) {
-    const v1 = { x: a.x - b.x, y: a.y - b.y };
-    const v2 = { x: c.x - b.x, y: c.y - b.y };
-    const mag1 = Math.hypot(v1.x, v1.y), mag2 = Math.hypot(v2.x, v2.y);
-    if (mag1 === 0 || mag2 === 0) return null;
-    const cos = Math.min(1, Math.max(-1, (v1.x * v2.x + v1.y * v2.y) / (mag1 * mag2)));
-    return Math.acos(cos) * (180 / Math.PI);
+  const VISION_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+  const poseModelUrl = (v) => `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${v}/float16/1/pose_landmarker_${v}.task`;
+  let visionPromise = null;
+  function loadVision() {
+    if (!visionPromise) visionPromise = import(`${VISION_CDN}/vision_bundle.mjs`).catch(err => { console.warn('[Motion] Vision runtime failed to load:', err); visionPromise = null; return null; });
+    return visionPromise;
   }
 
-  let poseLandmarkerPromise = null;
-  function loadPoseLandmarker() {
-    if (poseLandmarkerPromise) return poseLandmarkerPromise;
-    poseLandmarkerPromise = (async () => {
-      try {
-        const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
-        const filesetResolver = await vision.FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
-        return await vision.PoseLandmarker.createFromOptions(filesetResolver, {
-          baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task', delegate: 'GPU' },
-          runningMode: 'IMAGE', numPoses: 1
-        });
-      } catch (err) { console.warn('[Motion] Pose model failed to load:', err); return null; }
+  // Strongest model that actually loads: prefer the requested variant, fall
+  // back full → lite; GPU first, CPU if the GPU delegate is unavailable.
+  const landmarkerCache = {};
+  function loadLandmarker(runningMode, preferred) {
+    const key = runningMode + ':' + preferred;
+    if (landmarkerCache[key]) return landmarkerCache[key];
+    landmarkerCache[key] = (async () => {
+      const vision = await loadVision();
+      if (!vision) return null;
+      const fileset = await vision.FilesetResolver.forVisionTasks(`${VISION_CDN}/wasm`);
+      const order = { heavy: ['heavy', 'full', 'lite'], full: ['full', 'lite'], lite: ['lite'] }[preferred] || ['full', 'lite'];
+      for (const variant of order) {
+        for (const delegate of ['GPU', 'CPU']) {
+          try {
+            const lm = await vision.PoseLandmarker.createFromOptions(fileset, {
+              baseOptions: { modelAssetPath: poseModelUrl(variant), delegate },
+              runningMode, numPoses: 1, minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5
+            });
+            lm.__variant = variant; lm.__delegate = delegate;
+            return lm;
+          } catch (err) { console.warn(`[Motion] pose_landmarker_${variant} (${delegate}) unavailable:`, err && err.message); }
+        }
+      }
+      landmarkerCache[key] = null;
+      return null;
     })();
-    return poseLandmarkerPromise;
+    return landmarkerCache[key];
+  }
+  // Real-time tracking uses the FULL model (the heavy model cannot keep up on
+  // phones/tablets); heavy is requested first on capable devices via preferHeavy.
+  function loadLiveLandmarker(preferHeavy) { return loadLandmarker('VIDEO', preferHeavy ? 'heavy' : 'full'); }
+  function warmUpPoseModel() { return loadLiveLandmarker(false); }
+
+  function resultToSample(res, tSec, aspect) {
+    const lm = res && res.landmarks && res.landmarks[0];
+    const wl = res && res.worldLandmarks && res.worldLandmarks[0];
+    if (!lm || !wl || lm.length < 33 || wl.length < 33) return { t: tSec, world: null, img: null, vis: null, aspect };
+    return {
+      t: tSec, aspect,
+      world: wl.map(p => ({ x: p.x, y: p.y, z: p.z })),
+      img: lm.map(p => ({ x: p.x, y: p.y })),
+      vis: lm.map(p => (p.visibility == null ? 1 : p.visibility))
+    };
   }
 
-  let liveLandmarkerPromise = null;
-  function loadLiveLandmarker() {
-    if (liveLandmarkerPromise) return liveLandmarkerPromise;
-    liveLandmarkerPromise = (async () => {
-      try {
-        const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
-        const filesetResolver = await vision.FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
-        return await vision.PoseLandmarker.createFromOptions(filesetResolver, {
-          baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task', delegate: 'GPU' },
-          runningMode: 'VIDEO', numPoses: 1
-        });
-      } catch (err) { console.warn('[Motion] Live pose model failed to load:', err); return null; }
-    })();
-    return liveLandmarkerPromise;
-  }
-
-  function currentAngleFromLandmarks(lm, movementKey) {
-    const pointNames = JOINT_LANDMARK_MAP[movementKey];
-    if (!pointNames || !lm) return null;
-    const pick = (name, side) => lm[LANDMARK_INDEX[name][side]];
-    const sideScore = (side) => pointNames.reduce((sum, name) => sum + (pick(name, side)?.visibility ?? 0), 0);
-    const side = sideScore(1) >= sideScore(0) ? 1 : 0;
-    const pts = pointNames.map(name => pick(name, side));
-    if (pts.some(p => !p || (p.visibility !== undefined && p.visibility < 0.5))) return null;
-    const angle = angleAtVertex(pts[0], pts[1], pts[2]);
-    return angle === null ? null : Math.round(angle);
+  // Continuous tracker over a live <video>: every new video frame is run
+  // through the landmarker and appended to `samples` (with time in seconds
+  // from the first frame). Frames where no body was found are recorded too
+  // (world: null) so tracking gaps are visible to the quality checks.
+  function createSampler(video, opts) {
+    opts = opts || {};
+    const samples = []; const maxSamples = opts.maxSamples || 6000;
+    let raf = null, running = false, lastVideoTime = -1, landmarker = null, t0 = null, latest = null, pausedTotal = 0, pausedAt = null;
+    let loop = null;
+    async function start() {
+      landmarker = await loadLiveLandmarker(!!opts.preferHeavy);
+      if (!landmarker) return false;
+      running = true; t0 = null; lastVideoTime = -1; pausedTotal = 0; pausedAt = null;
+      loop = () => {
+        if (!running) return;
+        if (video.readyState >= 2 && video.videoWidth && video.currentTime !== lastVideoTime) {
+          lastVideoTime = video.currentTime;
+          const now = performance.now();
+          try {
+            if (t0 === null) t0 = now;
+            const res = landmarker.detectForVideo(video, now);
+            const s = resultToSample(res, (now - t0 - pausedTotal) / 1000, video.videoWidth / video.videoHeight);
+            latest = s;
+            if (samples.length < maxSamples) samples.push(s);
+            if (opts.onSample) opts.onSample(s);
+          } catch (e) { /* skip this frame */ }
+        }
+        raf = requestAnimationFrame(loop);
+      };
+      raf = requestAnimationFrame(loop);
+      return true;
+    }
+    function stop() { running = false; pausedAt = null; if (raf) cancelAnimationFrame(raf); raf = null; }
+    // Pause keeps the timeline continuous: paused time is subtracted so the
+    // recorded trajectory has no gap for the analysis to trip over.
+    function pause() { if (!running) return; running = false; pausedAt = performance.now(); if (raf) cancelAnimationFrame(raf); raf = null; }
+    function resume() { if (running || !landmarker || !loop) return; if (pausedAt != null) pausedTotal += performance.now() - pausedAt; pausedAt = null; running = true; raf = requestAnimationFrame(loop); }
+    return {
+      start, stop, pause, resume, samples,
+      clear() { samples.length = 0; t0 = null; latest = null; pausedTotal = 0; },
+      get latest() { return latest; },
+      get running() { return running; },
+      get model() { return landmarker ? `${landmarker.__variant || 'full'} (${landmarker.__delegate || '?'})` : null; },
+      // Samples recorded since `sinceSec` (for per-movement segmentation).
+      since(sinceSec) { return samples.filter(s => s.t >= sinceSec); }
+    };
   }
 
   function loadImageEl(dataUrl) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = dataUrl;
-    });
-  }
-
-  async function detectAngleInFrame(dataUrl, movementKey) {
-    const pointNames = JOINT_LANDMARK_MAP[movementKey];
-    if (!pointNames) return null;
-    const landmarker = await loadPoseLandmarker();
-    if (!landmarker) return null;
-    try {
-      const img = await loadImageEl(dataUrl);
-      const result = landmarker.detect(img);
-      if (!result?.landmarks?.length) return null;
-      const lm = result.landmarks[0];
-      const pick = (name, side) => lm[LANDMARK_INDEX[name][side]];
-      const sideScore = (side) => pointNames.reduce((sum, name) => sum + (pick(name, side)?.visibility ?? 0), 0);
-      const side = sideScore(1) >= sideScore(0) ? 1 : 0;
-      const pts = pointNames.map(name => pick(name, side));
-      if (pts.some(p => !p || (p.visibility !== undefined && p.visibility < 0.5))) return null;
-      const angle = angleAtVertex(pts[0], pts[1], pts[2]);
-      return angle === null ? null : Math.round(angle);
-    } catch (err) { console.warn('[Motion] Pose detection failed on a frame:', err); return null; }
-  }
-
-  async function measureMovementROM(frames, movementKey) {
-    if (!JOINT_LANDMARK_MAP[movementKey] || !frames || frames.length < 2) return { measured: false, degrees: null };
-    const startAngle = await detectAngleInFrame(frames[0], movementKey);
-    const endAngle = await detectAngleInFrame(frames[frames.length - 1], movementKey);
-    if (startAngle === null || endAngle === null) return { measured: false, degrees: null };
-    return { measured: true, degrees: Math.round(Math.abs(endAngle - startAngle)), startAngle, endAngle };
+    return new Promise((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = dataUrl; });
   }
 
   // ===========================================================================
@@ -280,171 +284,160 @@
   }
 
   // ===========================================================================
-  // AI analysis — ROM
+  // AI INTERPRETATION — interprets the MEASURED data; it never produces the
+  // measurements. The engine (motion-engine.js / motion-gait.js) computes
+  // every number; the model gets those numbers as authoritative input and is
+  // told, in the strongest terms, not to change them or add any of its own.
+  // If the AI is unavailable the measured report is still delivered.
   // ===========================================================================
-  async function analyzeROM({ aiConfig, jointDescription, movementSequenceText, framesToSend, measurements }) {
-    const measurementLines = measurements.map(m => m.measured
-      ? `${m.name}: ${m.degrees}° — computed from pose landmark analysis (start ${m.startAngle}° → end ${m.endAngle}°). Report this exact figure as the measured ROM; do not substitute your own visual estimate for it.`
-      : `${m.name}: no reliable landmark measurement available for this joint/movement — provide your best visual estimate and clearly label it in your response as "AI visual estimate (not measured)".`
-    ).join('\n');
-
-    const systemPrompt = `You are rehablix ROM Analyzer, a clinical AI specialized in range of motion assessment for rehabilitation professionals.
-
-IMPORTANT: First, verify that the provided images clearly show a human subject performing the specified movement (${jointDescription}). The joint/body part must be visible and adequately lit. If the images do NOT show a visible human joint (e.g., empty room, darkness, blurred, or no person), respond with exactly:
-"ERROR: No joint detected in the provided images. Please ensure proper lighting and that the joint is clearly visible."
-Do not provide any analysis or additional text in that case.
-
-If a joint IS clearly visible, provide a comprehensive clinical analysis including:
-1. **Range of Motion** in degrees — use the computed measurements provided below wherever available; only fall back to your own visual estimate where noted, and label those estimates explicitly
-2. **Movement Quality Observations** - note any compensations, asymmetries, or deviations
-3. **Comparison to Normative Values** - typical ROM for this joint
-4. **Clinical Recommendations** - suggested interventions or further assessments
-
-Format your response with clear headings (## for sections), bullet points for observations, and professional clinical language. Do NOT use tables.`;
-
-    const userContent = `Joint/Movement: ${jointDescription}
-Movement Sequence: ${movementSequenceText}
-
-Computed measurements (from pose landmark analysis of the captured frames):
-${measurementLines}
-
-The images show the progression from start position through full range of motion. Please analyze the patient's ROM and movement quality.`;
-
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: [{ type: 'text', text: userContent }, ...framesToSend.map(url => ({ type: 'image_url', image_url: { url } }))] }
-    ];
-
-    const response = await fetch(`${aiConfig.endpoint.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiConfig.token}` },
-      body: JSON.stringify({ model: 'gpt-4.1', messages, max_tokens: 2000, temperature: 0.3 })
-    });
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      if (window.reportApiError) window.reportApiError({ status: response.status, bodyText: JSON.stringify(err), tool: 'rom', context: 'analyze ROM images' });
-      throw new Error(err.error?.message || 'API error');
+  function compactForAI(s) {
+    const meas = (s.measurements || []).map(m => ({ name: m.name, value: m.value, unit: m.unit, side: m.side, confidence: m.confidenceLabel, plane: m.plane, reference: m.reference && m.reference.normal, note: m.value == null ? 'WITHHELD — not reliably measurable' : undefined }));
+    const out = { kind: s.kindLabel, patient: (s.patient && s.patient.name) || undefined, captureQuality: s.capture && s.capture.quality && { label: s.capture.quality.label, flags: s.capture.quality.flags, durationSec: s.capture.quality.durationSec },
+      measurements: meas, deviationsFlagged: (s.deviations || []).map(d => `${d.label} (${d.evidence})`), notDeterminable: s.notDeterminable, prefs: s.prefs };
+    if (s.kind === 'rom') out.movements = (s.movements || []).map(m => ({ name: m.name, side: m.side, start: m.start, peak: m.peak, smoothness: m.quality && m.quality.smoothness, compensations: (m.compensations || []).filter(c => c.flagged).map(c => c.label), flags: m.flags }));
+    if (s.kind === 'assistive' && s.extra) {
+      const r = s.extra.recommendation;
+      out.ruleBasedDeviceSuggestion = r && { primary: r.primary.device, reasons: r.primary.reasons, alternatives: (r.alternatives || []).map(a => a.device), undetermined: r.undetermined, confidence: r.confidenceLabel, instabilityFindings: r.instability && r.instability.findings };
+      out.clinicianEntered = s.extra.clinicalInputs; out.fittingAvailable = !!(s.extra.fitting && s.extra.fitting.available);
     }
-    const data = await response.json();
-    return { text: data.choices[0].message.content };
+    return out;
+  }
+
+  async function interpretMotion({ aiConfig, structured, frames }) {
+    const kind = structured.kind;
+    const roleByKind = {
+      rom: 'range-of-motion assessment', gait: 'gait analysis', assistive: 'assistive-device (mobility aid) assessment'
+    };
+    const system = `You are the interpretation layer of rehablix Motion, assisting a rehabilitation professional with a ${roleByKind[kind]}.
+
+The user message contains MEASURED DATA computed by a pose-tracking engine (3D body landmarks). It is authoritative.
+ABSOLUTE RULES
+1. Never change, recompute, round differently, or contradict any measured value. Never invent a measurement: no angles, distances, times, speeds, percentages, or counts that are not in the data.
+2. Measurements marked WITHHELD, or with Low/Unreliable confidence, must be described as unreliable — do not interpret them as findings.
+3. Anything you notice in the images that is not in the data goes ONLY under the heading "Observed in images (AI-observed, not measured)", each item clearly worded as an observation, not a measurement.
+4. If the data are insufficient for a conclusion, say what is missing instead of guessing. Respect the notDeterminable list.
+5. Do not diagnose. Suggest clinical considerations and next steps for the clinician to decide on.
+${kind === 'assistive' ? '6. A rule-based device suggestion is provided. Explain and contextualise it using the measured findings; do not replace it with a different device. If the images suggest a factor the rules could not see, state it under the AI-observed heading and recommend the clinician weigh it.\n' : ''}
+Write in concise clinical language with these headings (##): "Interpretation of measured findings", "Observed in images (AI-observed, not measured)", "Clinical considerations and suggested next steps". No tables. Maximum ~400 words.`;
+    const userText = `MEASURED DATA (authoritative JSON):\n${JSON.stringify(compactForAI(structured))}\n\nThe attached images are frames from the same capture. Interpret per the rules.`;
+    const content = [{ type: 'text', text: userText }].concat((frames || []).slice(0, 6).map(url => ({ type: 'image_url', image_url: { url } })));
+    try {
+      const response = await fetch(`${aiConfig.endpoint.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiConfig.token}` },
+        body: JSON.stringify({ model: 'gpt-4.1', messages: [{ role: 'system', content: system }, { role: 'user', content }], max_tokens: 1400, temperature: 0.2 })
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        if (window.reportApiError) window.reportApiError({ status: response.status, bodyText: JSON.stringify(err), tool: kind, context: 'interpret motion measurements' });
+        return null;
+      }
+      const data = await response.json();
+      return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || null;
+    } catch (err) { console.warn('[Motion] AI interpretation unavailable:', err); return null; }
   }
 
   // ===========================================================================
-  // Gait — video capture -> sampled frames -> AI analysis
+  // History + clinical record. One structured record per assessment
+  // (rehablix.motion.v1, see js/views/motion-report.js). Existing nodes keep
+  // their older fields (results text, resultsHtml, patientName…) so Smart EMR's
+  // linked-records list and Lixa's Files list keep working unchanged.
   // ===========================================================================
-  function extractVideoFramesFromBlob(blob, frameCount = 5) {
-    return new Promise((resolve, reject) => {
-      const video = document.createElement('video');
-      video.preload = 'metadata'; video.muted = true; video.playsInline = true;
-      const url = URL.createObjectURL(blob);
-      video.src = url;
-      video.onloadedmetadata = async () => {
-        try {
-          const duration = video.duration;
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.min(video.videoWidth, 960) || 640;
-          canvas.height = Math.round(canvas.width * (video.videoHeight / video.videoWidth || 0.5625));
-          const ctx = canvas.getContext('2d');
-          const frames = [];
-          for (let i = 0; i < frameCount; i++) {
-            const t = (duration / (frameCount + 1)) * (i + 1);
-            await new Promise((res) => { video.currentTime = t; video.onseeked = res; });
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            frames.push(canvas.toDataURL('image/jpeg', 0.8));
+  const KIND_PATH = { rom: 'analysisHistory', gait: 'gaitHistory', assistive: 'assistiveHistory' };
+  const KIND_DOC_TYPE = { rom: 'ROM Analysis', gait: 'Gait Analysis', assistive: 'Assistive Device Assessment' };
+  const cleanJson = (o) => JSON.parse(JSON.stringify(o, (k, v) => (v === undefined || (typeof v === 'number' && !isFinite(v)) ? null : v)));
+
+  async function saveMotionRecord({ scopeUid, structured, resultsHtml, interpretationText }) {
+    const kind = structured.kind;
+    const MR = window.MotionReport;
+    const patientName = (structured.patient && structured.patient.name) || null;
+    const note = MR.clinicalNote(structured);
+    const fileName = kind === 'rom' ? `ROM - ${structured.title}` : `${kind === 'gait' ? 'Gait' : 'Assistive Device'} - ${patientName || 'Patient'}`;
+    const payload = {
+      contentType: kind, fileName, documentType: KIND_DOC_TYPE[kind],
+      request: `${KIND_DOC_TYPE[kind]}: ${structured.title || ''}`.trim(),
+      // `results` stays a plain-text field: Smart EMR + Lixa read it. Measured data first, AI text clearly labelled after.
+      results: note + (interpretationText ? `\n\nAI INTERPRETATION (not measured; unverified):\n${interpretationText}` : ''),
+      resultsHtml: resultsHtml || null,
+      clinicalNote: note,
+      timestamp: firebase.database.ServerValue.TIMESTAMP,
+      date: new Date().toLocaleDateString(),
+      patientName, emrPatientId: (structured.patient && structured.patient.emrPatientId) || null,
+      status: structured.status,
+      view: (structured.prefs && structured.prefs.view) || '',
+      notes: (structured.prefs && structured.prefs.notes) || '',
+      measurements: (structured.measurements || []).map(m => ({ name: m.name, value: m.value, unit: m.unit, side: m.side, confidence: m.confidenceLabel })),
+      measuredJointCount: (structured.measurements || []).filter(m => m.value != null).length,
+      structured: cleanJson(structured)
+    };
+    if (kind === 'rom') { payload.assessmentMode = structured.prefs && structured.prefs.assessmentMode; payload.frameCount = structured.capture && structured.capture.quality && structured.capture.quality.trackedFrames; }
+    const ref = await firebase.database().ref(`history/${scopeUid}/${KIND_PATH[kind]}`).push(cleanJson(payload));
+    if (window.RehablixCenter) window.RehablixCenter.logActivity(kind === 'rom' ? 'rom' : kind, `Saved ${KIND_DOC_TYPE[kind]}`, patientName || structured.title || KIND_DOC_TYPE[kind]).catch(() => {});
+    return ref.key;
+  }
+
+  async function updateMotionRecord(scopeUid, kind, id, patch) {
+    await firebase.database().ref(`history/${scopeUid}/${KIND_PATH[kind]}/${id}`).update(cleanJson(patch));
+  }
+
+  // Clinician review → CONFIRMED. Only the measurements/findings left ticked
+  // become part of the confirmed finding. Publishes a compact, stable record to
+  // history/{scope}/clinicalMeasurements/{kind}_{id} (for Smart EMR / Lixa /
+  // any future consumer) and, if the assessment was tied to an EMR patient,
+  // links it into that patient's record exactly like EMR's own "Link" button.
+  async function confirmMotionRecord({ scopeUid, emrScopeUid, id, structured, resultsHtml, user }) {
+    const MR = window.MotionReport; const db = firebase.database();
+    const kind = structured.kind;
+    structured.status = 'confirmed';
+    structured.confirmedAt = new Date().toISOString();
+    structured.confirmedBy = (user && (user.displayName || user.email)) || 'clinician';
+    const note = MR.clinicalNote(structured);
+    await updateMotionRecord(scopeUid, kind, id, { structured, status: 'confirmed', confirmedAt: structured.confirmedAt, clinicalNote: note, results: note, resultsHtml: resultsHtml || null });
+    const inc = (structured.measurements || []).filter(m => m.include && m.value != null);
+    const published = {
+      schema: 'rehablix.clinicalMeasurements.v1', sourceSchema: structured.schema, kind, kindLabel: structured.kindLabel, recordId: id, sourceNode: KIND_PATH[kind],
+      patientName: (structured.patient && structured.patient.name) || null, emrPatientId: (structured.patient && structured.patient.emrPatientId) || null,
+      confirmedAt: structured.confirmedAt, confirmedBy: structured.confirmedBy, method: structured.capture && structured.capture.method,
+      measurements: inc.map(m => ({ id: m.id, name: m.name, value: m.value, unit: m.unit, side: m.side, plane: m.plane, method: m.method, source: m.source, reference: m.reference, confidence: m.confidence, confidenceLabel: m.confidenceLabel })),
+      findings: (structured.findings || []).filter(f => f.include).map(f => ({ text: f.text, source: f.source })),
+      note
+    };
+    await db.ref(`history/${scopeUid}/clinicalMeasurements/${kind}_${id}`).set(cleanJson(published));
+    let linkedToEmr = false;
+    const pid = published.emrPatientId;
+    if (pid) {
+      try {
+        const pRef = db.ref(`history/${emrScopeUid || scopeUid}/patients/${pid}`);
+        const p = (await pRef.once('value')).val();
+        if (p) {
+          const linked = p.linkedRecords || [];
+          const dateStr = new Date(structured.confirmedAt).toLocaleDateString();
+          if (!linked.some(r => r.source === KIND_PATH[kind] && r.key === id)) {
+            linked.push({ source: KIND_PATH[kind], key: id, type: KIND_DOC_TYPE[kind], date: dateStr, linkedAt: structured.confirmedAt, confirmed: true });
+            const block = `--- Linked from ${KIND_DOC_TYPE[kind]} (${dateStr}) — CONFIRMED ---\n${note}`;
+            await pRef.update({ linkedRecords: linked, assessment: p.assessment ? `${p.assessment}\n\n${block}` : block });
           }
-          URL.revokeObjectURL(url);
-          resolve(frames);
-        } catch (err) { URL.revokeObjectURL(url); reject(err); }
-      };
-      video.onerror = () => { URL.revokeObjectURL(url); reject(new Error('video load failed')); };
-    });
-  }
-
-  async function analyzeGait({ aiConfig, frames, patientName, view, notes }) {
-    const systemPrompt = `You are rehablix Gait Monitor, a clinical AI specialized in gait analysis for rehabilitation professionals.
-
-IMPORTANT: First verify the provided frames clearly show a person walking/moving. If not (empty scene, too dark, no person visible), respond with exactly:
-"ERROR: No gait pattern detected in the provided video. Please ensure proper lighting and that the full body is visible while walking."
-
-If a person IS visible, provide a clinical gait analysis covering:
-1. **Observed Gait Pattern** — overall description of the walking pattern
-2. **Key Deviations** — stride/cadence, arm swing, pelvic tilt, foot clearance, trunk stability
-3. **Likely Impairments** — what these deviations may suggest clinically
-4. **Clinical Recommendations** — suggested interventions or further assessment
-
-Format with ## headings and bullet points. Do NOT use tables.`;
-
-    const userText = `View: ${view || 'Not specified'}
-Patient: ${patientName || 'Not specified'}
-Notes: ${notes || 'None'}
-
-These frames are sampled evenly across a walking video. Please analyze the gait pattern.`;
-
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: [{ type: 'text', text: userText }, ...frames.map(url => ({ type: 'image_url', image_url: { url } }))] }
-    ];
-
-    const response = await fetch(`${aiConfig.endpoint.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiConfig.token}` },
-      body: JSON.stringify({ model: 'gpt-4.1', messages, max_tokens: 2000, temperature: 0.3 })
-    });
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      if (window.reportApiError) window.reportApiError({ status: response.status, bodyText: JSON.stringify(err), tool: 'gait', context: 'analyze gait video' });
-      throw new Error(err.error?.message || 'API error');
+          linkedToEmr = true;
+        }
+      } catch (err) { console.warn('[Motion] EMR link failed:', err); }
     }
-    const data = await response.json();
-    return { text: data.choices[0].message.content };
+    return { structured, note, linkedToEmr };
   }
 
-  // ===========================================================================
-  // History
-  // ===========================================================================
-  async function saveRomToHistory({ scopeUid, result, measurements, jointName, assessmentMode, frameCount, patientName }) {
-    const measuredCount = (measurements || []).filter(m => m.measured).length;
-    const ref = await firebase.database().ref(`history/${scopeUid}/analysisHistory`).push({
-      contentType: 'rom',
-      fileName: `ROM - ${jointName}`,
-      documentType: 'ROM Analysis',
-      request: `Analyze ${jointName} range of motion from ${frameCount} captured frames`,
-      results: result,
-      timestamp: firebase.database.ServerValue.TIMESTAMP,
-      date: new Date().toLocaleDateString(),
-      frameCount,
-      assessmentMode,
-      patientName: patientName || null,
-      measurements: measurements || [],
-      measuredJointCount: measuredCount
-    });
-    if (window.RehablixCenter) window.RehablixCenter.logActivity('rom', 'Saved ROM analysis', patientName || jointName).catch(() => {});
-    return ref.key;
-  }
-
-  async function saveGaitToHistory({ scopeUid, result, patientName, view, notes }) {
-    const ref = await firebase.database().ref(`history/${scopeUid}/gaitHistory`).push({
-      contentType: 'gait',
-      fileName: `Gait - ${patientName || 'Patient'}`,
-      documentType: 'Gait Analysis',
-      request: `Analyze gait pattern (${view || 'view not specified'})`,
-      results: result,
-      timestamp: firebase.database.ServerValue.TIMESTAMP,
-      date: new Date().toLocaleDateString(),
-      patientName: patientName || '',
-      view: view || '',
-      notes: notes || ''
-    });
-    if (window.RehablixCenter) window.RehablixCenter.logActivity('gait', 'Saved gait analysis', patientName || 'Gait analysis').catch(() => {});
-    return ref.key;
+  // Confirmed measurements for one patient (by EMR id or name) — the read side
+  // used by Smart EMR / Lixa.
+  async function listConfirmed(scopeUid, { emrPatientId, patientName } = {}) {
+    const snap = await firebase.database().ref(`history/${scopeUid}/clinicalMeasurements`).once('value');
+    const all = Object.entries(snap.val() || {}).map(([k, v]) => Object.assign({ key: k }, v));
+    const norm = (s) => String(s || '').trim().toLowerCase();
+    return all.filter(r => (emrPatientId && r.emrPatientId === emrPatientId) || (patientName && norm(r.patientName) === norm(patientName))).sort((a, b) => String(b.confirmedAt).localeCompare(String(a.confirmedAt)));
   }
 
   window.MotionCore = {
-    movementPrompts, jointGroups, JOINT_GROUP_LABELS, JOINT_LANDMARK_MAP,
+    movementPrompts, jointGroups, JOINT_GROUP_LABELS,
     startCameraStream, stopCameraStream, captureFrameFromVideo, compressImage,
     checkImageBrightness, validateImageQuality,
-    loadPoseLandmarker, loadLiveLandmarker, currentAngleFromLandmarks, detectAngleInFrame, measureMovementROM,
-    speak, fetchOpenAiToken, analyzeROM, analyzeGait, extractVideoFramesFromBlob,
-    saveRomToHistory, saveGaitToHistory
+    loadLiveLandmarker, warmUpPoseModel, createSampler, resultToSample,
+    speak, fetchOpenAiToken, interpretMotion,
+    KIND_PATH, KIND_DOC_TYPE, saveMotionRecord, updateMotionRecord, confirmMotionRecord, listConfirmed
   };
 })();

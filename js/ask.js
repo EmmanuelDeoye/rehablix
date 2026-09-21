@@ -2245,9 +2245,23 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     }
   };
 
+  // A Motion result handed over via "Use in Lixa" (js/views/motion-view.js): drop its
+  // structured summary into the composer so the user can ask about it.
+  function applyMotionPrefill() {
+    let text = null;
+    try { text = sessionStorage.getItem('rehablix:lixaPrefill'); if (text) sessionStorage.removeItem('rehablix:lixaPrefill'); } catch (e) { text = null; }
+    if (!text || !messageInput) return;
+    messageInput.value = text;
+    messageInput.dispatchEvent(new Event('input'));
+    messageInput.focus();
+    try { messageInput.setSelectionRange(text.length, text.length); } catch (e) { /* ignore */ }
+    showToast('Motion result added to your message — add your question and send', 'info', 4000);
+  }
+
   async function initialize() {
     await fetchTokens();
     renderMessages();
+    applyMotionPrefill();
     // Skip auto-focus on mobile so the keyboard doesn't pop up unprompted
     // the moment the page loads (feature 4).
     if (!isMobile) messageInput.focus();
@@ -2266,6 +2280,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   // to the outer `onShow` variable so window.RehablixAskView.onShow (bound
   // once, below, outside mount()) always delegates to this mount's closure.
   onShow = function () {
+    applyMotionPrefill();
     if (navbarSlot && newChatNavBtn) navbarSlot.appendChild(newChatNavBtn);
     if (newChatNavBtn) newChatNavBtn.style.display = currentUser ? 'block' : 'none';
   };
