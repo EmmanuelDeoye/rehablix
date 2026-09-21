@@ -389,3 +389,125 @@
   .motion-fab { width: 46px; height: 46px; font-size: 1.05rem; }
   .motion-record-btn { width: 68px; height: 68px; }
 }
+
+/* ============================================================================
+   MOTION UPGRADE — session buttons, tracking quality, review bar, report
+   ============================================================================ */
+
+/* Preferences button becomes X / Cancel while a session is running */
+.motion-fab.is-cancel { background: rgba(220, 38, 38, 0.85); border-color: rgba(255, 255, 255, 0.5); }
+.motion-fab.is-cancel:hover { background: rgba(220, 38, 38, 1); }
+.motion-fab:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+/* Record button: Record (red dot) → Capture (shutter ring) → Stop (square) */
+.motion-record-btn .motion-record-label {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.motion-record-btn[data-mode="capture"] .motion-record-inner { background: var(--accent, #14b8a6); border-radius: 50%; width: 52px; height: 52px; box-shadow: inset 0 0 0 3px #fff; }
+.motion-record-btn[data-mode="capture"]:active .motion-record-inner { transform: scale(0.88); }
+.motion-record-btn[data-mode="stop"] .motion-record-inner { border-radius: 0.5rem; width: 28px; height: 28px; animation: motionRecPulse 1.4s infinite; }
+.motion-record-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+/* Live tracking-quality chip */
+.motion-quality-chip {
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  padding: 0.3rem 0.8rem;
+  border-radius: 1rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.motion-quality-chip[hidden] { display: none; }
+.motion-quality-chip::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; }
+.motion-quality-chip.q-good::before { background: #22c55e; }
+.motion-quality-chip.q-fair::before { background: #f59e0b; }
+.motion-quality-chip.q-poor::before { background: #ef4444; }
+
+/* Prefs modal helpers */
+.motion-optional { font-weight: 400; text-transform: none; letter-spacing: 0; opacity: 0.7; }
+.motion-field-hint { display: block; margin-top: 0.3rem; font-size: 0.72rem; color: var(--text-secondary); }
+.motion-protocol-hint { font-size: 0.78rem; line-height: 1.45; color: var(--text-secondary); background: var(--accent-soft); border: 1px solid var(--border-light); border-radius: 0.7rem; padding: 0.6rem 0.8rem; margin-bottom: 1rem; }
+.motion-protocol-hint:empty { display: none; }
+.motion-modal input[type="number"] { width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border-light); border-radius: 0.6rem; background: var(--surface); color: var(--text-primary); font-family: inherit; font-size: 0.9rem; }
+.motion-modal .form-group[hidden], .motion-modal div[hidden] { display: none !important; }
+
+/* Review bar: draft → confirmed */
+.motion-review-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.55rem 1rem;
+  background: #fef3c7;
+  border-bottom: 1px solid #fbbf24;
+  color: #92400e;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+.motion-review-bar[hidden] { display: none; }
+.motion-review-bar.confirmed { background: #dcfce7; border-bottom-color: #22c55e; color: #166534; }
+.motion-review-actions { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+.motion-review-btn { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 0.55rem; padding: 0.3rem 0.7rem; font-size: 0.75rem; font-weight: 700; font-family: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; }
+.motion-review-btn.primary { background: #92400e; border-color: #92400e; color: #fff; }
+.motion-review-bar.confirmed .motion-review-btn.primary { background: #166534; border-color: #166534; }
+.motion-review-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---------- Structured report (js/views/motion-report.js) ---------- */
+.motion-results-body .mr-sec { margin-bottom: 1.4rem; }
+.mr-tag { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-radius: 0.4rem; padding: 0.15rem 0.45rem; vertical-align: middle; margin-left: 0.3rem; }
+.mr-tag-measured { background: #ccfbf1; color: #0f766e; }
+.mr-tag-rule { background: #e0e7ff; color: #3730a3; }
+.mr-tag-ai { background: #fef3c7; color: #92400e; }
+.mr-note, .mr-sub { font-size: 0.72rem; color: var(--text-secondary); }
+.mr-note { margin: 0.2rem 0 0.7rem; }
+.mr-sub { margin-top: 0.15rem; }
+.mr-quality { border: 1px solid var(--border-light); border-left-width: 4px; border-radius: 0.6rem; padding: 0.5rem 0.75rem; font-size: 0.8rem; margin-bottom: 0.9rem; background: var(--surface); }
+.mr-quality.mr-q-good { border-left-color: #22c55e; } .mr-quality.mr-q-fair { border-left-color: #f59e0b; } .mr-quality.mr-q-poor { border-left-color: #ef4444; }
+.mr-flag { color: #b45309; font-size: 0.74rem; margin-top: 0.25rem; }
+.mr-na { color: var(--text-secondary); font-style: italic; }
+.mr-table-wrap { overflow-x: auto; margin: 0.4rem 0 0.8rem; }
+.mr-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.mr-table th, .mr-table td { border-bottom: 1px solid var(--border-light); padding: 0.45rem 0.5rem; text-align: left; vertical-align: top; }
+.mr-table th { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); background: var(--surface); }
+.mr-table .mr-inc { width: 28px; text-align: center; }
+.mr-table .mr-method { font-size: 0.7rem; color: var(--text-secondary); min-width: 160px; }
+.mr-row-na td { opacity: 0.75; }
+.mr-conf { display: inline-block; font-size: 0.68rem; font-weight: 700; border-radius: 0.8rem; padding: 0.15rem 0.55rem; white-space: nowrap; }
+.mr-conf-hi { background: #dcfce7; color: #166534; } .mr-conf-mo { background: #fef9c3; color: #854d0e; }
+.mr-conf-lo { background: #ffedd5; color: #9a3412; } .mr-conf-un { background: #fee2e2; color: #991b1b; }
+.mr-move { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-start; margin-bottom: 0.6rem; }
+.mr-move-chart { flex: 0 0 auto; max-width: 100%; }
+.mr-spark { width: 260px; max-width: 100%; height: 60px; background: var(--surface); border: 1px solid var(--border-light); border-radius: 0.5rem; }
+.mr-spark-line { fill: none; stroke: var(--accent, #14b8a6); stroke-width: 2; stroke-linejoin: round; }
+.mr-spark-zero { stroke: var(--border-light); stroke-dasharray: 3 3; }
+.mr-facts { flex: 1; min-width: 220px; margin: 0; padding-left: 1.1rem; font-size: 0.8rem; }
+.mr-comp ul, .mr-limits, .mr-cannot ul { font-size: 0.8rem; margin: 0.3rem 0; }
+.mr-flagged { color: #b45309; }
+.mr-cannot { border: 1px dashed #f59e0b; background: rgba(245, 158, 11, 0.08); border-radius: 0.6rem; padding: 0.6rem 0.8rem; margin: 0.8rem 0; font-size: 0.8rem; }
+.mr-reco { border: 1px solid var(--accent, #14b8a6); border-radius: 0.8rem; padding: 0.8rem 1rem; background: var(--accent-soft); margin-bottom: 0.8rem; }
+.mr-reco-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; font-size: 1rem; }
+.mr-reco-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+.mr-ai { border-top: 3px solid #f59e0b; padding-top: 0.6rem; }
+[data-theme="dark"] .mr-tag-measured { background: rgba(20,184,166,0.2); color: #5eead4; }
+[data-theme="dark"] .mr-tag-rule { background: rgba(99,102,241,0.2); color: #a5b4fc; }
+[data-theme="dark"] .mr-tag-ai { background: rgba(245,158,11,0.2); color: #fcd34d; }
+[data-theme="dark"] .motion-review-bar { background: rgba(245,158,11,0.15); color: #fcd34d; border-bottom-color: rgba(245,158,11,0.5); }
+[data-theme="dark"] .motion-review-bar.confirmed { background: rgba(34,197,94,0.15); color: #86efac; border-bottom-color: rgba(34,197,94,0.5); }
+[data-theme="dark"] .motion-review-btn.primary { background: #b45309; border-color: #b45309; }
+[data-theme="dark"] .motion-review-bar.confirmed .motion-review-btn.primary { background: #15803d; border-color: #15803d; }
+@media print { .motion-review-bar { display: none !important; } .mr-include { display: none; } }
