@@ -224,21 +224,15 @@
     <div id="toast-container"></div>
 
     <!-- ============================================================= -->
-    <!-- SCRIPTS                                                       -->
+    <!-- SCRIPTS — config.js/error-reporter.js/modal.js/center.js/
+         invite-modal.js/auth.js/ppt.js already load once in <head>; this
+         block used to repeat all of them a second time, which threw
+         "Identifier already declared" for every top-level let/const in
+         those files on the second run (silently swallowed since the
+         first copy had already done the real work). Only js/tools.js was
+         genuinely unique to this block. -->
     <!-- ============================================================= -->
-    <script src="js/config.js" defer>
-    </script>
-    <link rel="stylesheet" href="css/error-reporter.css">
-    <script src="js/error-reporter.js" defer></script>
-    <script src="js/modal.js" defer>
-    </script>
-    <script src="js/center.js" defer></script>
-  <script src="js/invite-modal.js" defer></script>
-  <script src="js/auth.js" defer>
-    </script>
     <script src="js/tools.js" defer>
-    </script>
-    <script src="js/ppt.js" defer>
     </script>
 
 </body>
