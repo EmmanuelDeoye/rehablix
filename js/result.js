@@ -409,144 +409,14 @@
   // ==============================================================
   // HTML -> docx.js conversion
   // ==============================================================
-  // BEFORE: Word export used `editor.innerText` split by newline, which
-  // throws away every bit of structure — headings, bold text, bullet
-  // lists, and tables all became identical flat paragraphs. That's not
-  // acceptable for a document meant to be handed to a hospital or
-  // presented at a multidisciplinary meeting. This walks the actual
-  // rendered DOM and rebuilds it as real Word structure: heading styles,
-  // bold/italic/underline runs, bulleted/numbered lists, and tables with
-  // a shaded header row — so the exported .docx looks like a properly
-  // formatted clinical document, not a text dump.
-  function inlineRunsFromNode(node, baseFormatting = {}) {
-    const runs = [];
-    node.childNodes.forEach((child) => {
-      if (child.nodeType === Node.TEXT_NODE) {
-        const text = child.textContent;
-        if (text) runs.push(new docx.TextRun({ text, ...baseFormatting }));
-        return;
-      }
-      if (child.nodeType !== Node.ELEMENT_NODE) return;
-
-      const tag = child.tagName.toLowerCase();
-      if (tag === 'br') {
-        runs.push(new docx.TextRun({ text: '', break: 1 }));
-        return;
-      }
-      const nextFormatting = { ...baseFormatting };
-      if (tag === 'strong' || tag === 'b') nextFormatting.bold = true;
-      if (tag === 'em' || tag === 'i') nextFormatting.italics = true;
-      if (tag === 'u') nextFormatting.underline = {};
-      runs.push(...inlineRunsFromNode(child, nextFormatting));
-    });
-    return runs;
-  }
-
-  function blockToDocxElements(el, listContext = null) {
-    const tag = el.tagName.toLowerCase();
-
-    if (tag === 'h1' || tag === 'h2' || tag === 'h3' || tag === 'h4') {
-      const levelMap = {
-        h1: docx.HeadingLevel.HEADING_1,
-        h2: docx.HeadingLevel.HEADING_2,
-        h3: docx.HeadingLevel.HEADING_3,
-        h4: docx.HeadingLevel.HEADING_4
-      };
-      return [new docx.Paragraph({
-        heading: levelMap[tag],
-        spacing: { before: 240, after: 120 },
-        children: inlineRunsFromNode(el)
-      })];
-    }
-
-    if (tag === 'p') {
-      const runs = inlineRunsFromNode(el);
-      if (runs.length === 0) return [new docx.Paragraph({ text: '' })];
-      return [new docx.Paragraph({ spacing: { after: 120 }, children: runs })];
-    }
-
-    if (tag === 'ul' || tag === 'ol') {
-      const elements = [];
-      Array.from(el.children).forEach((li, idx) => {
-        if (li.tagName.toLowerCase() !== 'li') return;
-        const runs = inlineRunsFromNode(li);
-        elements.push(new docx.Paragraph({
-          spacing: { after: 60 },
-          bullet: tag === 'ul' ? { level: 0 } : undefined,
-          numbering: tag === 'ol' ? { reference: 'docx-export-numbering', level: 0 } : undefined,
-          children: runs.length ? runs : [new docx.TextRun({ text: li.textContent || '' })]
-        }));
-      });
-      return elements;
-    }
-
-    if (tag === 'table') {
-      const rows = [];
-      Array.from(el.querySelectorAll('tr')).forEach((tr, rowIdx) => {
-        const isHeaderRow = rowIdx === 0 && tr.querySelector('th');
-        const cells = Array.from(tr.children).map((cell) => {
-          const runs = inlineRunsFromNode(cell, isHeaderRow ? { bold: true } : {});
-          return new docx.TableCell({
-            shading: isHeaderRow ? { fill: 'E3E6EA' } : undefined,
-            margins: { top: 80, bottom: 80, left: 120, right: 120 },
-            children: [new docx.Paragraph({ children: runs.length ? runs : [new docx.TextRun('')] })]
-          });
-        });
-        rows.push(new docx.TableRow({ children: cells }));
-      });
-      if (rows.length === 0) return [];
-      return [
-        new docx.Table({
-          width: { size: 100, type: docx.WidthType.PERCENTAGE },
-          rows
-        }),
-        new docx.Paragraph({ text: '' }) // breathing room after the table
-      ];
-    }
-
-    if (tag === 'blockquote') {
-      return [new docx.Paragraph({
-        indent: { left: 360 },
-        spacing: { after: 120 },
-        children: [new docx.TextRun({ text: el.textContent || '', italics: true })]
-      })];
-    }
-
-    if (tag === 'hr') {
-      return [new docx.Paragraph({
-        border: { bottom: { color: 'CCCCCC', space: 1, style: docx.BorderStyle.SINGLE, size: 6 } },
-        spacing: { before: 120, after: 120 },
-        text: ''
-      })];
-    }
-
-    // Unknown/unsupported element (e.g. div wrapper): recurse into children
-    // rather than dropping the content, falling back to plain paragraphs.
-    if (el.children.length > 0) {
-      const nested = [];
-      Array.from(el.children).forEach((child) => nested.push(...blockToDocxElements(child)));
-      if (nested.length > 0) return nested;
-    }
-    const text = el.textContent.trim();
-    return text ? [new docx.Paragraph({ text })] : [];
-  }
-
-  function editorContentToDocxElements(editorEl) {
-    const elements = [];
-    Array.from(editorEl.children).forEach((child) => {
-      elements.push(...blockToDocxElements(child));
-    });
-    // Fully empty editor (shouldn't happen given the generation-side
-    // validation, but keep export from producing a broken/blank .docx).
-    if (elements.length === 0) {
-      elements.push(new docx.Paragraph({ text: editorEl.innerText || '' }));
-    }
-    return elements;
-  }
-
+  // The actual HTML-walking/docx-building logic now lives in
+  // js/docx-export.js (window.RehablixDocx) so Lixa's generic "turn this
+  // into a Word doc" chat path can call the exact same builder instead of
+  // forking its own copy. Behavior here is unchanged from before the
+  // extraction — same headings/runs/lists/tables handling, same output.
   if (downloadBtn) {
     downloadBtn.addEventListener('click', async () => {
-      if (!window.docx) {
+      if (typeof docx === 'undefined' || !window.RehablixDocx) {
         showToast('Word export library not loaded', 'error');
         return;
       }
@@ -555,33 +425,7 @@
       try {
         const title = config.titleFor(resultData);
         const printMeta = config.printMeta ? config.printMeta(resultData) : [];
-        const bodyElements = editorContentToDocxElements(editor);
-
-        const doc = new docx.Document({
-          numbering: {
-            config: [{
-              reference: 'docx-export-numbering',
-              levels: [{ level: 0, format: 'decimal', text: '%1.', alignment: docx.AlignmentType.START }]
-            }]
-          },
-          sections: [{
-            children: [
-              new docx.Paragraph({ text: title, heading: docx.HeadingLevel.HEADING_1, spacing: { after: 120 } }),
-              new docx.Paragraph({ text: `Date: ${new Date().toLocaleString()}`, spacing: { after: 60 } }),
-              ...printMeta.map(([k, v]) => new docx.Paragraph({ text: `${k}: ${v}`, spacing: { after: 40 } })),
-              new docx.Paragraph({ text: '' }),
-              ...bodyElements
-            ]
-          }]
-        });
-
-        const blob = await docx.Packer.toBlob(doc);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${config.fileBase(resultData)}_${Date.now()}.docx`;
-        a.click();
-        URL.revokeObjectURL(url);
+        await window.RehablixDocx.download(editor, { title, printMeta, fileBase: config.fileBase(resultData) });
         showToast('Document downloaded successfully', 'success');
       } catch (err) {
         console.error('Download error:', err);

@@ -185,6 +185,34 @@ if (typeof THEMES === 'undefined') {
 }
 
 // =====================================================================
+// GRID + TYPE SCALE — a shared layout/typography system so slides are
+// hand-placed against a consistent frame instead of ad hoc per-function
+// coordinates. Bespoke layouts (comparison cards, timeline, big-number)
+// keep their own internally-tuned positions, but the outer frame — page
+// margins, heading position, body start, footer row — and font sizes are
+// drawn from here everywhere.
+// =====================================================================
+const GRID = {
+    pageW: 13.33, pageH: 7.5,
+    marginX: 0.7,           // left/right content margin
+    contentW: 11.93,        // pageW - 2*marginX
+    headingY: 0.55, headingH: 0.85,
+    accentY: 1.42,          // thin theme-colored rule just under the heading
+    bodyTop: 1.9,           // where slide body content starts
+    footerY: 7.15
+};
+const TYPE_SCALE = {
+    titleXL: 40,   // title-slide headline
+    titleL: 30,    // title-slide subtitle (patient/topic)
+    h1: 28,        // per-slide heading
+    h2: 18,        // sub-headings (two-column/agenda/quote card headings)
+    body: 16,      // standard bullet/paragraph text
+    bodySmall: 13.5,
+    small: 13,     // meta/attribution text
+    micro: 9       // footer
+};
+
+// =====================================================================
 // STATE
 // =====================================================================
 let selectedTheme = THEMES[0];
@@ -423,13 +451,15 @@ function loadContent() {
 // =====================================================================
 // VALIDATE AND CLEAN SLIDE DATA
 // =====================================================================
+const SLIDE_TYPES = ['content', 'chart', 'comparison', 'timeline', 'big-number', 'section', 'agenda', 'two-column', 'quote', 'process'];
+
 function validateAndCleanSlides(slides) {
     if (!Array.isArray(slides) || slides.length === 0) return null;
 
     const cleaned = slides.map((slide, index) => {
         const clean = {
             title: String(slide.title || `Slide ${index + 1}`).trim() || `Slide ${index + 1}`,
-            type: slide.type || 'content',
+            type: SLIDE_TYPES.includes(slide.type) ? slide.type : 'content',
             bullets: Array.isArray(slide.bullets) ? slide.bullets.slice(0, 6) : [],
             layout: slide.layout || 'single'
         };
@@ -437,12 +467,14 @@ function validateAndCleanSlides(slides) {
             .filter(b => b && String(b).trim().length > 0)
             .map(b => String(b).trim())
             .slice(0, 6);
-        if (clean.bullets.length === 0) clean.bullets = ['No content available for this section'];
+        if (clean.bullets.length === 0 && clean.type !== 'quote' && clean.type !== 'section') {
+            clean.bullets = ['No content available for this section'];
+        }
 
         if (slide.chartData && typeof slide.chartData === 'object') {
             const allowedTypes = ['bar', 'line', 'pie', 'doughnut', 'area', 'radar'];
             clean.chartData = {
-                type: allowedTypes.includes(slide.chartData.type) ? slide.chartData.type : 'bar',
+                type: allowedTypes.includes(slide.chartData.type) ? slide.chartData.type : null,
                 labels: Array.isArray(slide.chartData.labels) ? slide.chartData.labels : [],
                 datasets: Array.isArray(slide.chartData.datasets) ? slide.chartData.datasets : []
             };
@@ -462,6 +494,34 @@ function validateAndCleanSlides(slides) {
                 label: String(slide.bigNumber.label || 'Statistic')
             };
         }
+        // Two-column layout: either explicit left/right columns, or (if
+        // absent) the slide's own bullets get split in half at render time.
+        if (slide.columns && typeof slide.columns === 'object') {
+            const cleanCol = (c) => c && typeof c === 'object' ? {
+                heading: c.heading ? String(c.heading).trim() : '',
+                bullets: Array.isArray(c.bullets) ? c.bullets.filter(Boolean).map(String).slice(0, 6) : []
+            } : null;
+            clean.columns = { left: cleanCol(slide.columns.left), right: cleanCol(slide.columns.right) };
+        }
+        if (slide.imageUrl && typeof slide.imageUrl === 'string') clean.imageUrl = slide.imageUrl;
+        if (slide.imageData && typeof slide.imageData === 'string') clean.imageData = slide.imageData;
+
+        // Quote/callout.
+        if (slide.quote) clean.quote = String(slide.quote).trim();
+        if (slide.attribution) clean.attribution = String(slide.attribution).trim();
+
+        // Process/flow-step.
+        if (Array.isArray(slide.processSteps)) {
+            clean.processSteps = slide.processSteps.slice(0, 6).map((s, i) => ({
+                label: String((s && s.label) || s || `Step ${i + 1}`).trim(),
+                description: s && s.description ? String(s.description).trim() : ''
+            }));
+        }
+
+        // Speaker notes — only ever carried through if the source already
+        // supplied one; ppt.js never invents this field itself.
+        if (slide.notes) clean.notes = String(slide.notes).trim();
+
         return clean;
     });
 
@@ -486,19 +546,28 @@ async function structureContentWithAI(rawContent, modeLabel, patientName, diagno
 1. NEVER change or paraphrase the original text. Preserve exact wording.
 2. Each slide should have 4-6 bullet points with EXACT original text.
 3. Split content into logical slides - each covers one clear topic.
-4. Vary slide "type" across the deck (content, chart, comparison, timeline, big-number) where the data genuinely supports it — don't make every slide type "content".
+4. Vary slide "type" across the deck where the data genuinely supports it — don't make every slide type "content". Available types: content, chart, comparison, timeline, big-number, section, agenda, two-column, quote, process.
+   - "section": a section-divider slide introducing a new major part of the deck (use sparingly, at real topic boundaries).
+   - "agenda": an overview/table-of-contents slide — use near the start, with "bullets" listing the sections to come.
+   - "two-column": for content that's naturally two side-by-side groups (e.g. subjective vs objective, findings vs recommendations) — use "columns": { "left": {"heading","bullets"}, "right": {"heading","bullets"} } instead of "bullets".
+   - "quote": a single standout statement or key finding worth calling out on its own — use "quote" (the statement, EXACT original wording) and optionally "attribution" (who/where it's from).
+   - "process": a sequence of ordered steps (e.g. a treatment protocol or workflow) — use "processSteps": [{"label","description"}] instead of "bullets".
+   - "chart": pick the chartData "type" that actually fits the data — "pie"/"doughnut" for one series showing proportions of a whole, "line" for a trend over an ordered sequence (time/stages), "radar" for comparing several dimensions across 2+ series, "bar" for straightforward category comparison. Only include a "type" you're confident fits; omit it to let rendering choose.
 
 **OUTPUT FORMAT**: Return ONLY a JSON array of slide objects.
 
 Each slide object has:
 {
   "title": string,
-  "type": "content" | "chart" | "comparison" | "timeline" | "big-number",
-  "bullets": array of strings (EXACT original text, 4-6 per slide),
-  "chartData": { "type": "bar", "labels": [string], "datasets": [{ "label": string, "data": [number] }] },
+  "type": "content" | "chart" | "comparison" | "timeline" | "big-number" | "section" | "agenda" | "two-column" | "quote" | "process",
+  "bullets": array of strings (EXACT original text, 4-6 per slide) — omit for "two-column"/"quote"/"process" in favor of their own fields below,
+  "chartData": { "type": "bar" | "line" | "pie" | "doughnut" | "radar", "labels": [string], "datasets": [{ "label": string, "data": [number] }] },
   "comparisonData": { "left": [string], "right": [string] },
   "timelineData": [{ "time": string, "event": string }],
-  "bigNumber": { "number": string, "label": string }
+  "bigNumber": { "number": string, "label": string },
+  "columns": { "left": { "heading": string, "bullets": [string] }, "right": { "heading": string, "bullets": [string] } },
+  "quote": string, "attribution": string,
+  "processSteps": [{ "label": string, "description": string }]
 }
 
 **Raw Content:**
@@ -615,6 +684,13 @@ function createFallbackStructure(rawContent, modeLabel, patientName) {
         slides.push({ title: 'Clinical Presentation', type: 'content', bullets: ['Content could not be structured. Please check your document.'] });
     }
 
+    // With 3+ sections, lead with an agenda slide listing them — gives the
+    // fallback path (no AI structuring available) a real overview slide
+    // too, instead of only ever producing "content" slides.
+    if (slides.length >= 3) {
+        slides.unshift({ title: 'Agenda', type: 'agenda', bullets: slides.map(s => s.title) });
+    }
+
     return slides;
 }
 
@@ -648,17 +724,37 @@ function toPptColors(themeColors) {
 // =====================================================================
 // NATIVE TABLE (replaces the old hand-drawn grid of text boxes)
 // =====================================================================
-function addNativeTable(slide, data, colors, x, y, w) {
+// Weights each column by its longest cell's character length so a short
+// "Score" column doesn't get the same width as a long "Findings" column —
+// PptxGenJS's default is an even split across all columns.
+function autoColumnWidths(data, totalW, numCols) {
+    if (!numCols) return undefined;
+    const maxLens = new Array(numCols).fill(1);
+    data.forEach(row => row.forEach((cell, i) => {
+        if (i < numCols) maxLens[i] = Math.max(maxLens[i], String(cell || '').length);
+    }));
+    const total = maxLens.reduce((a, b) => a + b, 0) || numCols;
+    const minColW = totalW * 0.08;
+    let widths = maxLens.map(len => Math.max(minColW, (len / total) * totalW));
+    const sum = widths.reduce((a, b) => a + b, 0);
+    return widths.map(w => +(w * (totalW / sum)).toFixed(2)); // normalize to exactly totalW
+}
+
+function addNativeTable(slide, data, colors, x, y, w, colWidths) {
     if (!data || !Array.isArray(data) || data.length === 0) return;
+    const numCols = data[0] ? data[0].length : 0;
+    const widths = (Array.isArray(colWidths) && colWidths.length === numCols) ? colWidths : autoColumnWidths(data, w, numCols);
     const rows = data.map((row, rIdx) => {
         const isHeader = rIdx === 0;
+        // Zebra-stripe every other DATA row (header is never striped).
+        const striped = !isHeader && rIdx % 2 === 0;
         return row.map(cell => ({
             text: String(cell || ''),
             options: {
                 bold: isHeader,
                 fontSize: isHeader ? 13 : 12,
                 color: isHeader ? 'FFFFFF' : colors.text,
-                fill: { color: isHeader ? colors.primary : 'FFFFFF' },
+                fill: { color: isHeader ? colors.primary : (striped ? 'F5F6F7' : 'FFFFFF') },
                 align: 'left',
                 valign: 'middle',
                 fontFace: 'Arial'
@@ -666,7 +762,7 @@ function addNativeTable(slide, data, colors, x, y, w) {
         }));
     });
     slide.addTable(rows, {
-        x, y, w,
+        x, y, w, colW: widths,
         border: { type: 'solid', color: 'E0E0E0', pt: 0.5 },
         autoPage: false,
         margin: 6
@@ -676,46 +772,69 @@ function addNativeTable(slide, data, colors, x, y, w) {
 // =====================================================================
 // CHART
 // =====================================================================
+// Picks a chart type from the data's shape when the source didn't specify
+// one (or specified one that doesn't fit): a single series over a handful
+// of categories reads as "proportions of a whole" (doughnut); 3+ series
+// over 3+ categories reads as a multi-dimension comparison (radar); labels
+// that look sequential/temporal read as a trend (line); everything else
+// falls back to a plain category comparison (bar).
+function pickChartType(chartData) {
+    const numSeries = (chartData.datasets || []).length;
+    const numCats = (chartData.labels || []).length;
+    if (numSeries === 1 && numCats >= 2 && numCats <= 6) return 'doughnut';
+    if (numSeries >= 3 && numCats >= 3) return 'radar';
+    const firstLabel = String((chartData.labels || [])[0] || '');
+    if (/^(20\d{2}|q[1-4]|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|week|day \d|month|year)/i.test(firstLabel)) return 'line';
+    return 'bar';
+}
+
 function addChartToSlide(slide, slideData, colors) {
-    if (!slideData.chartData || !slideData.chartData.labels || !slideData.chartData.datasets) return;
-    const { labels, datasets } = slideData.chartData;
-    if (labels.length === 0 || datasets.length === 0) return;
+    const cd = slideData.chartData;
+    if (!cd || !Array.isArray(cd.labels) || !Array.isArray(cd.datasets) || cd.labels.length === 0 || cd.datasets.length === 0) return;
 
-    const chartData = [];
-    const headerRow = ['Category'];
-    labels.forEach(label => headerRow.push(String(label)));
-    chartData.push(headerRow);
+    const type = cd.type || pickChartType(cd);
+    // Pie/doughnut can only meaningfully plot ONE series (slices must sum
+    // to a whole) — PptxGenJS renders each entry below as its own series,
+    // so multiple would overlay several unrelated pies. Keep the first.
+    const isRing = type === 'pie' || type === 'doughnut';
+    const datasets = isRing ? cd.datasets.slice(0, 1) : cd.datasets;
 
-    datasets.forEach(dataset => {
-        const row = [dataset.label || 'Series'];
-        if (Array.isArray(dataset.data)) {
-            dataset.data.forEach(val => row.push(typeof val === 'number' ? val : parseFloat(val) || 0));
-        }
-        chartData.push(row);
-    });
+    // PptxGenJS's real chart-data shape is an array of series objects —
+    // NOT a spreadsheet-style [header, ...rows] 2D array (confirmed
+    // against the actual library; the old [header, ...rows] shape throws
+    // internally and silently produced no chart at all).
+    const chartData = datasets.map((dataset) => ({
+        name: dataset.label || 'Series',
+        labels: cd.labels.map(String),
+        values: (Array.isArray(dataset.data) ? dataset.data : []).map(v => (typeof v === 'number' ? v : parseFloat(v) || 0))
+    }));
 
     const chartColors = colors.chartColors || [colors.primary, colors.secondary, colors.accent, colors.primaryLight, colors.primaryDark];
 
+    const opts = {
+        x: 0.7, y: 1.9, w: 7.5, h: 4.3,
+        chartColors,
+        showTitle: false,
+        showLegend: isRing ? true : datasets.length > 1,
+        legendPos: isRing ? 'r' : 'b',
+        showValue: true,
+        dataLabelColor: isRing ? 'FFFFFF' : colors.text,
+        dataLabelFontSize: 11,
+        catAxisLabelColor: colors.text,
+        valAxisLabelColor: colors.text,
+        catAxisLabelFontSize: 12,
+        valAxisLabelFontSize: 11,
+        catAxisLineColor: 'E0E0E0',
+        valAxisLineColor: 'E0E0E0',
+        valGridLine: { color: 'EDEDED', style: 'solid', size: 0.75 },
+        catGridLine: { style: 'none' }
+    };
+    if (!isRing) opts.dataLabelPosition = 'outEnd';
+    if (isRing) opts.dataLabelPosition = 'bestFit';
+    if (type === 'radar') { opts.showLegend = true; delete opts.valGridLine; delete opts.catGridLine; }
+
     try {
-        slide.addChart(slideData.chartData.type || 'bar', chartData, {
-            x: 0.7, y: 1.9, w: 7.5, h: 4.3,
-            chartColors,
-            showTitle: false,
-            showLegend: datasets.length > 1,
-            legendPos: 'b',
-            showValue: true,
-            dataLabelPosition: 'outEnd',
-            dataLabelColor: colors.text,
-            dataLabelFontSize: 11,
-            catAxisLabelColor: colors.text,
-            valAxisLabelColor: colors.text,
-            catAxisLabelFontSize: 12,
-            valAxisLabelFontSize: 11,
-            catAxisLineColor: 'E0E0E0',
-            valAxisLineColor: 'E0E0E0',
-            valGridLine: { color: 'EDEDED', style: 'solid', size: 0.75 },
-            catGridLine: { style: 'none' }
-        });
+        slide.addChart(type, chartData, opts);
     } catch (e) {
         console.warn('Chart generation failed:', e);
     }
@@ -823,6 +942,189 @@ function addBigNumberSlide(slide, slideData, colors) {
 }
 
 // =====================================================================
+// SHARED HEADER ACCENT + FOOTER — used by every "standard" content slide
+// (content/chart/comparison/timeline/big-number/agenda/two-column/process)
+// so the frame around each slide's own content stays consistent instead of
+// each slide type re-implementing its own footer/heading treatment.
+// =====================================================================
+function addHeaderAccent(slide, colors) {
+    // A slim theme-colored rule directly under the heading — ties every
+    // content slide to the active theme without a heavy full-width bar.
+    slide.addShape('rect', {
+        x: GRID.marginX, y: GRID.accentY, w: 1.1, h: 0.045,
+        fill: { color: colors.accentBar || colors.primary }, line: { type: 'none' }
+    });
+}
+
+function addFooter(slide, pageNum, totalSlides, colors, label) {
+    if (label) {
+        slide.addText(label, {
+            x: GRID.marginX, y: GRID.footerY, w: 6, h: 0.3,
+            fontSize: TYPE_SCALE.micro, color: '999999', align: 'left', fontFace: 'Arial'
+        });
+    }
+    slide.addText(`${pageNum} / ${totalSlides}`, {
+        x: GRID.pageW - GRID.marginX - 2, y: GRID.footerY, w: 2, h: 0.3,
+        fontSize: TYPE_SCALE.micro, color: '999999', align: 'right', fontFace: 'Arial'
+    });
+}
+
+// =====================================================================
+// SECTION DIVIDER — full-bleed themed slide marking a new major part of
+// the deck. Builds and returns the whole slide itself (unlike the other
+// add*Slide helpers) since it deliberately skips the standard
+// heading+footer frame in favor of its own full-bleed treatment.
+// =====================================================================
+function addSectionDividerSlide(pptx, slideData, colors, sectionNum) {
+    const slide = pptx.addSlide();
+    slide.background = { color: colors.primaryDark || colors.primary };
+    slide.addShape('rect', { x: 0, y: 3.55, w: GRID.pageW, h: 0.035, fill: { color: colors.accent || colors.secondary }, line: { type: 'none' } });
+    slide.addText(String(sectionNum).padStart(2, '0'), {
+        x: GRID.marginX, y: 2.45, w: 2, h: 0.7, fontSize: TYPE_SCALE.small, bold: true,
+        color: colors.onDarkFaint, fontFace: 'Arial'
+    });
+    slide.addText(slideData.title || 'Section', {
+        x: GRID.marginX, y: 3.0, w: GRID.contentW, h: 1.1, fontSize: 36, bold: true,
+        color: 'FFFFFF', fontFace: 'Arial'
+    });
+    if (slideData.bullets && slideData.bullets[0]) {
+        slide.addText(slideData.bullets[0], {
+            x: GRID.marginX, y: 4.15, w: GRID.contentW, h: 0.6, fontSize: TYPE_SCALE.body,
+            italic: true, color: colors.onDarkMuted, fontFace: 'Arial'
+        });
+    }
+    return slide;
+}
+
+// =====================================================================
+// AGENDA / TABLE OF CONTENTS — numbered list of upcoming sections.
+// =====================================================================
+function addAgendaSlide(slide, slideData, colors) {
+    const items = slideData.bullets || [];
+    if (items.length === 0) return;
+    const top = GRID.bodyTop;
+    const rowH = Math.min(0.85, 4.9 / items.length);
+    let y = top;
+    items.slice(0, 8).forEach((item, idx) => {
+        slide.addShape('ellipse', { x: GRID.marginX, y: y + (rowH - 0.42) / 2, w: 0.42, h: 0.42, fill: { color: colors.primary }, line: { type: 'none' } });
+        slide.addText(String(idx + 1), {
+            x: GRID.marginX, y: y + (rowH - 0.42) / 2, w: 0.42, h: 0.42, fontSize: TYPE_SCALE.small,
+            bold: true, color: 'FFFFFF', align: 'center', valign: 'middle', fontFace: 'Arial'
+        });
+        slide.addText(item, {
+            x: GRID.marginX + 0.65, y, w: GRID.contentW - 0.65, h: rowH,
+            fontSize: TYPE_SCALE.body, color: colors.text, valign: 'middle', fontFace: 'Arial'
+        });
+        y += rowH;
+    });
+}
+
+// =====================================================================
+// TWO-COLUMN — text+text, or text+image when an image source is present
+// on the slide data (imageUrl/imageData). Nothing upstream currently
+// supplies an image for a Lixa-generated document, so this path is
+// dormant today but ready the moment one is — see slide.imageUrl/imageData
+// handling in validateAndCleanSlides().
+// =====================================================================
+function addTwoColumnSlide(slide, slideData, colors) {
+    const left = (slideData.columns && slideData.columns.left) || {};
+    const right = (slideData.columns && slideData.columns.right) || {};
+    const bullets = slideData.bullets || [];
+    const leftItems = left.bullets && left.bullets.length ? left.bullets : bullets.slice(0, Math.ceil(bullets.length / 2));
+    const rightItems = right.bullets && right.bullets.length ? right.bullets : bullets.slice(Math.ceil(bullets.length / 2));
+    const imageSrc = slideData.imageData || slideData.imageUrl;
+
+    const colW = 5.6, gap = 0.35, startX = GRID.marginX, top = GRID.bodyTop;
+    const rightX = startX + colW + gap;
+
+    if (left.heading) {
+        slide.addText(left.heading, { x: startX, y: top, w: colW, h: 0.5, fontSize: TYPE_SCALE.h2, bold: true, color: colors.headingColor || colors.primary, fontFace: 'Arial' });
+    }
+    let ly = top + (left.heading ? 0.6 : 0);
+    leftItems.slice(0, 6).forEach((item) => {
+        slide.addText(item, { x: startX, y: ly, w: colW, h: 0.6, fontSize: TYPE_SCALE.bodySmall, color: colors.text, fontFace: 'Arial', valign: 'top', bullet: { code: '25CF', indent: 14 } });
+        ly += 0.65;
+    });
+
+    if (imageSrc) {
+        const imgOpts = { x: rightX, y: top, w: colW, h: 4.6, sizing: { type: 'contain', w: colW, h: 4.6 } };
+        if (/^data:/.test(imageSrc)) imgOpts.data = imageSrc; else imgOpts.path = imageSrc;
+        try { slide.addImage(imgOpts); } catch (e) { console.warn('Two-column image failed to embed:', e); }
+    } else {
+        if (right.heading) {
+            slide.addText(right.heading, { x: rightX, y: top, w: colW, h: 0.5, fontSize: TYPE_SCALE.h2, bold: true, color: colors.secondary || colors.primary, fontFace: 'Arial' });
+        }
+        let ry = top + (right.heading ? 0.6 : 0);
+        rightItems.slice(0, 6).forEach((item) => {
+            slide.addText(item, { x: rightX, y: ry, w: colW, h: 0.6, fontSize: TYPE_SCALE.bodySmall, color: colors.text, fontFace: 'Arial', valign: 'top', bullet: { code: '25CF', indent: 14 } });
+            ry += 0.65;
+        });
+    }
+}
+
+// =====================================================================
+// QUOTE / CALLOUT — a single standout statement, set apart from ordinary
+// content slides. Builds the whole slide (its own background/heading
+// treatment), like the section divider.
+// =====================================================================
+function addQuoteSlide(pptx, slideData, colors) {
+    const slide = pptx.addSlide();
+    slide.background = { color: 'FAFAFA' };
+    slide.addText('“', { x: GRID.marginX, y: 0.5, w: 2, h: 1.5, fontSize: 90, bold: true, color: colors.primaryLight || colors.primary, fontFace: 'Georgia' });
+    const quoteText = slideData.quote || (slideData.bullets && slideData.bullets[0]) || '';
+    slide.addText(quoteText, {
+        x: 1.3, y: 2.2, w: 10.73, h: 2.6, fontSize: 26, italic: true,
+        color: colors.headingColor || colors.text, align: 'center', valign: 'middle', fontFace: 'Arial'
+    });
+    const attribution = slideData.attribution || '';
+    if (attribution) {
+        slide.addText(`— ${attribution}`, {
+            x: 1.3, y: 5.0, w: 10.73, h: 0.5, fontSize: TYPE_SCALE.small,
+            color: colors.secondary || colors.primary, align: 'center', bold: true, fontFace: 'Arial'
+        });
+    }
+    return slide;
+}
+
+// =====================================================================
+// PROCESS / FLOW-STEP — an ordered sequence of steps (protocol, workflow),
+// distinct from the timeline (which is date/event-based).
+// =====================================================================
+function addProcessSlide(slide, slideData, colors) {
+    const steps = (slideData.processSteps && slideData.processSteps.length)
+        ? slideData.processSteps
+        : (slideData.bullets || []).map(b => ({ label: b, description: '' }));
+    const n = Math.min(steps.length, 6);
+    if (n === 0) return;
+
+    const startX = GRID.marginX, top = 2.7, gap = 0.22, boxH = 2.0;
+    const boxW = (GRID.contentW - gap * (n - 1)) / n;
+
+    steps.slice(0, n).forEach((step, idx) => {
+        const x = startX + idx * (boxW + gap);
+        const fill = idx % 2 === 0 ? colors.primary : (colors.primaryDark || colors.primary);
+        slide.addShape('roundRect', { x, y: top, w: boxW, h: boxH, rectRadius: 0.08, fill: { color: fill }, line: { type: 'none' } });
+        slide.addText(String(idx + 1), { x, y: top + 0.12, w: boxW, h: 0.4, fontSize: TYPE_SCALE.body, bold: true, color: 'FFFFFF', align: 'center', fontFace: 'Arial' });
+        slide.addText(step.label || `Step ${idx + 1}`, {
+            x: x + 0.12, y: top + 0.55, w: boxW - 0.24, h: 0.6, fontSize: 12.5, bold: true,
+            color: 'FFFFFF', align: 'center', valign: 'top', fontFace: 'Arial', shrinkText: true
+        });
+        if (step.description) {
+            slide.addText(step.description, {
+                x: x + 0.12, y: top + 1.15, w: boxW - 0.24, h: boxH - 1.25, fontSize: 10.5,
+                color: colors.onDarkMuted || 'E8E8E8', align: 'center', valign: 'top', fontFace: 'Arial', shrinkText: true
+            });
+        }
+        if (idx < n - 1) {
+            slide.addShape('rightArrow', {
+                x: x + boxW + (gap - 0.16) / 2, y: top + boxH / 2 - 0.08, w: 0.16, h: 0.16,
+                fill: { color: colors.accent || colors.secondary }, line: { type: 'none' }
+            });
+        }
+    });
+}
+
+// =====================================================================
 // GENERATE PPTX
 // =====================================================================
 async function generatePPTX() {
@@ -883,6 +1185,10 @@ async function generatePPTX() {
         // PptxGenJS-safe colors (no '#', no rgba) — this is the fix.
         const colors = toPptColors(selectedTheme.colors);
         const totalSlides = slides.length + 2 + (extractedTables.length > 0 ? 1 : 0);
+        // Footer topic/patient label (feature: footer on every content
+        // slide except the title slide) — prefers the patient's name when
+        // there is one, falls back to the deck's own topic/mode label.
+        const footerLabel = (patientDisplay && patientDisplay !== 'N/A') ? patientDisplay : modeLabel;
 
         // -----------------------------------------------------------
         // TITLE SLIDE — solid dark background, no duplicate overlay,
@@ -893,11 +1199,11 @@ async function generatePPTX() {
 
         slideTitle.addText(modeLabel, {
             x: 0.9, y: 1.5, w: 11.53, h: 1.6,
-            fontSize: 42, color: 'FFFFFF', fontFace: 'Arial', bold: true, align: 'center'
+            fontSize: TYPE_SCALE.titleXL, color: 'FFFFFF', fontFace: 'Arial', bold: true, align: 'center'
         });
         slideTitle.addText(patientDisplay, {
             x: 0.9, y: 3.1, w: 11.53, h: 0.9,
-            fontSize: 30, color: 'FFFFFF', fontFace: 'Arial', bold: true, align: 'center'
+            fontSize: TYPE_SCALE.titleL, color: 'FFFFFF', fontFace: 'Arial', bold: true, align: 'center'
         });
         slideTitle.addText('Clinical Presentation', {
             x: 0.9, y: 4.0, w: 11.53, h: 0.55,
@@ -906,39 +1212,66 @@ async function generatePPTX() {
         const meta = [`Clinician: ${profession}`, `Diagnosis: ${diagnosis}`, `Date: ${new Date().toLocaleDateString()}`];
         slideTitle.addText(meta.join('   |   '), {
             x: 0.9, y: 4.75, w: 11.53, h: 0.5,
-            fontSize: 13, color: colors.onDarkMuted, fontFace: 'Arial', align: 'center'
+            fontSize: TYPE_SCALE.small, color: colors.onDarkMuted, fontFace: 'Arial', align: 'center'
         });
         slideTitle.addText('Generated by rehablix', {
             x: 0, y: 6.95, w: 13.33, h: 0.4,
-            fontSize: 10, color: colors.onDarkSubtle, align: 'center', fontFace: 'Arial'
+            fontSize: TYPE_SCALE.micro, color: colors.onDarkSubtle, align: 'center', fontFace: 'Arial'
         });
+        // Speaker notes are only ever written when the source data already
+        // carries one — ppt.js never fabricates this field (see
+        // validateAndCleanSlides / contentData.notes).
+        if (contentData.notes) slideTitle.addNotes(String(contentData.notes));
 
         // -----------------------------------------------------------
-        // CONTENT SLIDES
+        // CONTENT SLIDES — 'section' and 'quote' are full-bleed slide
+        // types that build their own complete slide (background, title
+        // placement, everything) and skip the standard heading+footer
+        // frame every other type shares.
         // -----------------------------------------------------------
         let slideIndex = 1;
+        let sectionCounter = 0;
         for (const slideData of slides) {
+            const type = slideData.type || 'content';
+            const pageNum = slideIndex + 1;
+
+            if (type === 'section') {
+                sectionCounter++;
+                const slide = addSectionDividerSlide(pptx, slideData, colors, sectionCounter);
+                addFooter(slide, pageNum, totalSlides, colors, null);
+                if (slideData.notes) slide.addNotes(String(slideData.notes));
+                slideIndex++;
+                continue;
+            }
+            if (type === 'quote') {
+                const slide = addQuoteSlide(pptx, slideData, colors);
+                addFooter(slide, pageNum, totalSlides, colors, footerLabel);
+                if (slideData.notes) slide.addNotes(String(slideData.notes));
+                slideIndex++;
+                continue;
+            }
+
             const slide = pptx.addSlide();
             slide.background = { color: 'FFFFFF' };
+            addHeaderAccent(slide, colors);
 
             slide.addText(slideData.title || 'Section', {
-                x: 0.7, y: 0.55, w: 11.93, h: 0.85,
-                fontSize: 28, color: colors.headingColor || colors.primary,
+                x: GRID.marginX, y: GRID.headingY, w: GRID.contentW, h: GRID.headingH,
+                fontSize: TYPE_SCALE.h1, color: colors.headingColor || colors.primary,
                 fontFace: 'Arial', bold: true, valign: 'middle', margin: 0
             });
 
-            const type = slideData.type || 'content';
             const bullets = slideData.bullets || [];
 
             switch (type) {
                 case 'chart':
                     if (slideData.chartData) addChartToSlide(slide, slideData, colors);
                     if (bullets.length > 0) {
-                        let yPos = 1.9;
+                        let yPos = GRID.bodyTop;
                         bullets.slice(0, 5).forEach(bullet => {
                             slide.addText(bullet, {
                                 x: 8.5, y: yPos, w: 4.1, h: 0.7,
-                                fontSize: 13, color: colors.text, fontFace: 'Arial',
+                                fontSize: TYPE_SCALE.small, color: colors.text, fontFace: 'Arial',
                                 valign: 'top', bullet: { code: '25CF', indent: 12 }
                             });
                             yPos += 0.78;
@@ -958,15 +1291,27 @@ async function generatePPTX() {
                     addBigNumberSlide(slide, slideData, colors);
                     break;
 
+                case 'agenda':
+                    addAgendaSlide(slide, slideData, colors);
+                    break;
+
+                case 'two-column':
+                    addTwoColumnSlide(slide, slideData, colors);
+                    break;
+
+                case 'process':
+                    addProcessSlide(slide, slideData, colors);
+                    break;
+
                 default: {
                     const bulletCount = Math.min(bullets.length, 6);
                     if (bulletCount > 0) {
-                        let yPos = 1.85;
+                        let yPos = GRID.bodyTop;
                         const rowH = Math.min(0.85, 4.9 / bulletCount);
                         bullets.slice(0, bulletCount).forEach(bullet => {
                             slide.addText(bullet, {
                                 x: 0.9, y: yPos, w: 11.53, h: rowH,
-                                fontSize: 16, color: colors.text, fontFace: 'Arial',
+                                fontSize: TYPE_SCALE.body, color: colors.text, fontFace: 'Arial',
                                 valign: 'top', bullet: { code: '25CF', indent: 16 },
                                 paraSpaceAfter: 8
                             });
@@ -983,11 +1328,8 @@ async function generatePPTX() {
                 }
             }
 
-            const pageNum = slideIndex + 1;
-            slide.addText(`${pageNum} / ${totalSlides}`, {
-                x: 0, y: 7.15, w: 13.33, h: 0.3,
-                fontSize: 9, color: '999999', align: 'center', fontFace: 'Arial'
-            });
+            addFooter(slide, pageNum, totalSlides, colors, footerLabel);
+            if (slideData.notes) slide.addNotes(String(slideData.notes));
             slideIndex++;
         }
 
@@ -997,20 +1339,17 @@ async function generatePPTX() {
         if (extractedTables.length > 0) {
             const tableSlide = pptx.addSlide();
             tableSlide.background = { color: 'FFFFFF' };
+            addHeaderAccent(tableSlide, colors);
 
             tableSlide.addText('Data Table', {
-                x: 0.7, y: 0.55, w: 11.93, h: 0.85,
-                fontSize: 28, color: colors.headingColor || colors.primary,
+                x: GRID.marginX, y: GRID.headingY, w: GRID.contentW, h: GRID.headingH,
+                fontSize: TYPE_SCALE.h1, color: colors.headingColor || colors.primary,
                 fontFace: 'Arial', bold: true, valign: 'middle', margin: 0
             });
 
-            addNativeTable(tableSlide, extractedTables[0], colors, 0.9, 1.85, 11.53);
+            addNativeTable(tableSlide, extractedTables[0], colors, 0.9, GRID.bodyTop, 11.53);
 
-            const pageNum = slideIndex + 1;
-            tableSlide.addText(`${pageNum} / ${totalSlides}`, {
-                x: 0, y: 7.15, w: 13.33, h: 0.3,
-                fontSize: 9, color: '999999', align: 'center', fontFace: 'Arial'
-            });
+            addFooter(tableSlide, slideIndex + 1, totalSlides, colors, footerLabel);
             slideIndex++;
         }
 

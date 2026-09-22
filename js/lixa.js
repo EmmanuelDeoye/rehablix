@@ -37,6 +37,104 @@
     return ACTION_INTENT.test(text || '');
   }
 
+  // =====================================================================
+  // Edit-in-place (Lixa History + Intelligence Upgrade #2) — when Lixa has
+  // already produced a file/artifact and the user's next message asks to
+  // edit/modify/update/reformat/add/remove content "on it", route to that
+  // tool's own edit() (not a fresh generate()) and always come back with an
+  // updated file card, never a raw-text-only reply. "CREATE_NEW" wins over
+  // an edit verb so "add a NEW study set about X" still starts a fresh
+  // generation instead of trying to edit the last one.
+  // =====================================================================
+  const EDIT_VERBS = /\b(edit|modify|update|revise|rewrite|reformat|re-format|adjust|change|fix|correct|shorten|lengthen|expand|condense|simplify|rephrase|reword|add|remove|delete|include|insert|append)\b/i;
+  const CREATE_NEW = /\b(generate|create a new|make a new|start (a|an) new|new (format|assessment|presentation|report|transcript|study set|assignment|standardized tool))\b/i;
+  const REFERENCE_WORDS = /\b(it|this|that|the file|the document|the report|the format|the assessment|the presentation|the transcript|the set|the study set|the assignment|the tool|the note)\b/i;
+
+  function findLastFileCard(messages) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant' && messages[i].fileCard) return messages[i].fileCard;
+    }
+    return null;
+  }
+
+  // Returns the fileCard being targeted, or null if this isn't an edit.
+  function detectEditTarget(text, messages) {
+    if (!text || !EDIT_VERBS.test(text) || CREATE_NEW.test(text)) return null;
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.role === 'assistant' && lastMsg.fileCard) return lastMsg.fileCard;
+    if (REFERENCE_WORDS.test(text)) return findLastFileCard(messages);
+    return null;
+  }
+
+  // =====================================================================
+  // Generic export intent ("turn this into a PDF/Word doc/PowerPoint") —
+  // this fires independently of the six-tool keyword/pattern registry
+  // below, so a bare export request that never mentions format/standardized/
+  // presentation/etc. by name still converts instead of falling through to
+  // plain chat. Checked BEFORE isGenuineToolRequest()'s question-vs-request
+  // heuristic runs at all, so "can you turn this into a pdf?" — a genuine
+  // request merely phrased as a question — still converts.
+  // =====================================================================
+  const EXPORT_VERB_RE = /\b(turn\b.{0,20}\binto\b|convert\b.{0,20}\b(?:in)?to\b|export\b.{0,20}\bas\b|save\b.{0,20}\bas\b|make\b.{0,20}\ba\b|give\b.{0,20}\bas\b|download\b.{0,20}\bas\b|get\b.{0,20}\bas\b)/i;
+  const EXPORT_FORMATS = [
+    { id: 'pdf', re: /\bpdf\b/i },
+    { id: 'docx', re: /\b(word|docx?)\b/i },
+    { id: 'pptx', re: /\b(powerpoint|power\s*point|pptx?|slides?)\b/i }
+  ];
+
+  // Returns 'pdf' | 'docx' | 'pptx' | null. Requires BOTH an export-shaped
+  // verb phrase and a recognizable format noun — either alone is too weak
+  // a signal (e.g. "save" alone, or "word" alone in an unrelated sentence).
+  function detectExportIntent(text) {
+    if (!text || !EXPORT_VERB_RE.test(text)) return null;
+    for (const f of EXPORT_FORMATS) { if (f.re.test(text)) return f.id; }
+    return null;
+  }
+
+  // "a specific earlier item" (per the task spec) — lets "turn the study
+  // set into a PDF" reach back past whatever Lixa said most recently to the
+  // right file card, instead of always grabbing the very last one.
+  const EXPORT_TARGET_HINTS = [
+    { toolId: 'format', re: /\b(assessment\s+format|format)\b/i },
+    { toolId: 'standardized', re: /\bstandardi[sz]ed\s+(tool|assessment)\b/i },
+    { toolId: 'presentation', re: /\b(presentation|case\s+report|clinical\s+report|documentation)\b/i },
+    { toolId: 'audio', re: /\b(transcript|audio|recording)\b/i },
+    { toolId: 'study', re: /\b(study\s+set|flashcards|quiz)\b/i },
+    { toolId: 'assignment', re: /\b(assignment|essay|coursework)\b/i }
+  ];
+
+  function findFileCardByTool(messages, toolId) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === 'assistant' && m.fileCard && m.fileCard.toolId === toolId) return m.fileCard;
+    }
+    return null;
+  }
+
+  // "Substantive" skips short transitional lines ("Sounds like you want
+  // a...", "Sorry, I couldn't...", a slot-filling prompt) so a bare "turn
+  // this into a PDF" reaches actual content — a message WITH a file card
+  // always counts, regardless of how short its own chat bubble text is.
+  function isSubstantiveAssistantMsg(msg) {
+    if (!msg || msg.role !== 'assistant') return false;
+    if (msg.fileCard) return true;
+    const words = (msg.content || '').trim().split(/\s+/).filter(Boolean).length;
+    return words >= 25;
+  }
+  function findLastSubstantiveAssistantMsg(messages) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (isSubstantiveAssistantMsg(messages[i])) return messages[i];
+    }
+    return null;
+  }
+
+  function escapeHtmlSimple(str) {
+    return String(str || '').replace(/[&<>]/g, (m) => (m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;'));
+  }
+  function htmlFromPlainText(text) {
+    return (text || '').split(/\n{2,}/).map((p) => `<p>${escapeHtmlSimple(p)}</p>`).join('');
+  }
+
   // A bare mention of a tool's own keyword phrase (e.g. just typing
   // "assessment format") is exactly as ambiguous as a question about it —
   // Lixa shouldn't guess. The moment the message carries any real extra
@@ -507,6 +605,144 @@
       }
     }
 
+    // Edit-in-place (feature 2): re-runs the owning tool's edit() against
+    // the SAME saved record instead of generate()-ing a brand-new one, and
+    // always pushes back an updated file card (never plain text) on success.
+    async function startEdit(card, instruction) {
+      const tool = TOOLS[card.toolId];
+      pushUserText(instruction);
+      if (!tool || typeof tool.edit !== 'function') {
+        // No edit support for this tool — say so plainly rather than
+        // silently regenerating something unrelated from scratch.
+        pushAssistantText(`I can open **${(tool && tool.meta && tool.meta.name) || 'that file'}** for you to edit directly, but I can't apply text edits to it here yet.`);
+        return true;
+      }
+      const stages = (tool.meta.editStatusStages && tool.meta.editStatusStages.length) ? tool.meta.editStatusStages : ['Reading the current file…', 'Applying your changes…', 'Updating the file…'];
+      showStatus(stages);
+      core.setWaiting(true);
+      try {
+        const result = await tool.edit(card.recordId, instruction, card);
+        hideStatus();
+        if (result && result.ok) {
+          pushAssistantText(result.summary || `Here's the updated ${tool.meta.name.toLowerCase()}:`, result.fileCard);
+        } else {
+          pushAssistantText(`Sorry, I couldn't update that: ${(result && result.error) || 'unknown error'}. Want to try again?`);
+        }
+      } catch (err) {
+        hideStatus();
+        console.error('[lixa] edit failed', err);
+        pushAssistantText(`Sorry, something went wrong updating that (${err.message || err}). Want to try again?`);
+      } finally {
+        core.setWaiting(false);
+        core.refreshHistoryList && core.refreshHistoryList();
+      }
+      return true;
+    }
+
+    // =====================================================================
+    // Generic export ("turn this into a PDF/Word doc/PowerPoint") — resolves
+    // WHAT to export (an attachment on this turn > a specific earlier item
+    // named in the message > the last substantive assistant message), then
+    // routes to the SAME builders the dedicated tool pages already use:
+    //   pdf  -> standardized-gen.js's print-view opener (openPrintView)
+    //   docx -> js/docx-export.js (window.RehablixDocx), shared with result.js
+    //   pptx -> presentation-gen.js's existing 'export-pptx' handleAction
+    // =====================================================================
+    const EXPORT_FORMAT_LABEL = { pdf: 'PDF', docx: 'Word document', pptx: 'PowerPoint' };
+
+    // Re-fetches a tool-produced item's OWN saved content (via
+    // getExportContent) rather than trusting the short chat summary text
+    // sitting next to its file card — e.g. exporting the Assessment Format
+    // Lixa just made means exporting the actual generated form, not the
+    // one-line "Here's your assessment format for X" reply.
+    async function exportContentFromCard(card) {
+      const tool = TOOLS[card.toolId];
+      if (tool && typeof tool.getExportContent === 'function' && card.recordId) {
+        const content = await tool.getExportContent(card.recordId);
+        if (content) return content;
+      }
+      if (card.html) return { title: card.title, html: card.html, exportData: card.exportData };
+      return null;
+    }
+
+    async function resolveExportTarget(text, attachedFiles, messages) {
+      // 1) An attachment on THIS turn is the most explicit possible target.
+      if (attachedFiles && attachedFiles.length) {
+        const att = attachedFiles.find((a) => a.extractedText) || attachedFiles[0];
+        if (att) return { title: (att.name || 'Document').replace(/\.[^.]+$/, ''), html: htmlFromPlainText(att.extractedText || '') };
+      }
+
+      // 2) A specific earlier item named in the message (may not be the
+      // most recent thing Lixa said).
+      for (const hint of EXPORT_TARGET_HINTS) {
+        if (hint.re.test(text)) {
+          const card = findFileCardByTool(messages, hint.toolId);
+          if (card) {
+            const content = await exportContentFromCard(card);
+            if (content) return content;
+          }
+        }
+      }
+
+      // 3) The last substantive assistant message (skips status/tool-banner
+      // bubbles automatically — those never enter `messages` — and skips
+      // short transitional chat lines too; see isSubstantiveAssistantMsg).
+      const lastMsg = findLastSubstantiveAssistantMsg(messages);
+      if (lastMsg) {
+        if (lastMsg.fileCard) {
+          const content = await exportContentFromCard(lastMsg.fileCard);
+          if (content) return content;
+        }
+        const html = (typeof marked !== 'undefined') ? marked.parse(lastMsg.content || '') : htmlFromPlainText(lastMsg.content);
+        return { title: 'Lixa Response', html };
+      }
+
+      return null; // nothing to export — caller asks instead of guessing
+    }
+
+    async function startExport(format, text, attachedFiles) {
+      pushUserText(text);
+      const target = await resolveExportTarget(text, attachedFiles, core.getMessages());
+      if (!target) {
+        pushAssistantText(`I don't have anything to turn into a ${EXPORT_FORMAT_LABEL[format]} yet — paste the content you'd like exported, or ask me to create something first.`);
+        return true;
+      }
+
+      showStatus(['Preparing your file…']);
+      core.setWaiting(true);
+      try {
+        if (format === 'pdf') {
+          const std = TOOLS.standardized;
+          if (std && typeof std.openPrintView === 'function') std.openPrintView(target.title, target.html);
+          hideStatus();
+          pushAssistantText(`Here's **${target.title}** ready as a PDF — it opened in a new tab; use the Print button there (or your browser's Print → Save as PDF).`, {
+            icon: '📄', title: target.title, meta: 'PDF', snippet: 'Opened in a new tab for printing/saving.',
+            toolId: 'standardized', html: target.html,
+            actions: [{ type: 'button', id: 'view-pdf', label: 'Open PDF Viewer', primary: true, icon: 'fa-file-pdf' }]
+          });
+        } else if (format === 'docx') {
+          if (!window.RehablixDocx) throw new Error('Word export is not available right now.');
+          const fileBase = (target.title || 'document').replace(/[^a-z0-9]+/gi, '_').slice(0, 60) || 'document';
+          await window.RehablixDocx.download(target.html, { title: target.title, fileBase });
+          hideStatus();
+          pushAssistantText(`Here's **${target.title}** as a Word document — check your downloads.`);
+        } else if (format === 'pptx') {
+          const pres = TOOLS.presentation;
+          const exportData = target.exportData || { content: target.html, patientName: '', profession: '', diagnosis: '', modeLabel: target.title, mode: 'report' };
+          if (pres && typeof pres.handleAction === 'function') pres.handleAction('export-pptx', { exportData });
+          hideStatus();
+          pushAssistantText(`Here's **${target.title}** ready for PowerPoint — pick a theme and click Generate in the new tab.`);
+        }
+      } catch (err) {
+        hideStatus();
+        console.error('[lixa] export failed', err);
+        pushAssistantText(`Sorry, I couldn't export that (${err.message || err}). Want to try again?`);
+      } finally {
+        core.setWaiting(false);
+      }
+      return true;
+    }
+
     // =====================================================================
     // Inline audio recorder
     // =====================================================================
@@ -585,6 +821,16 @@
       }
 
       if (!text) return false;
+
+      // Generic export intent is checked ahead of everything below it —
+      // it fires regardless of whether the message matches any of the six
+      // registered tools' keywords/patterns (feature: generic export).
+      const exportFormat = detectExportIntent(text);
+      if (exportFormat) return await startExport(exportFormat, text, attachedFiles);
+
+      const editTarget = detectEditTarget(text, core.getMessages());
+      if (editTarget) return await startEdit(editTarget, text);
+
       const detected = detectToolIntent(text, attachedFiles);
       if (detected && detected.score >= CONFIDENCE_THRESHOLD && isGenuineToolRequest(text, detected, attachedFiles)) {
         return await startTool(detected.toolId, text, text, attachedFiles, { confirmed: false });

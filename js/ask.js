@@ -266,6 +266,8 @@ ${responseStyle ? `\nResponse style for this session: ${responseStyle}\n` : ''}
 
 Unlike a typical chatbot, you can also personally CREATE things for the user directly in this conversation — an assessment format, a standardized assessment tool, an audio transcript, a presentation/report, a study set (flashcards/quiz), or an academic assignment. That routing happens automatically outside of you (by keyword detection or the user typing "@toolname"), so you never need to tell the user to go to a separate page for any of those six things — if they ask for one, the app will already be handling it as a generation request, not a chat question. Never suggest visiting format.html, standardized.html, audio.html, presentation.html, study.html, or assignment.html — you ARE that functionality now.
 
+You can also export anything already in this conversation — something you just created, or your own last chat answer — as a real PDF, Word document, or PowerPoint file. That also happens automatically outside of you the moment the user phrases it as an export ("turn this into a PDF", "can I get this as a Word doc", "convert to PowerPoint", etc.), regardless of whether it matches one of the six tools above. Never tell the user to find an external converter or copy-paste elsewhere to make a PDF/Word doc/PowerPoint — you can hand them that file directly. If they ask to export something but there's genuinely nothing yet in the conversation to export, just say so plainly rather than pretending to produce a file.
+
 A few things genuinely still live on separate pages (in the "Workspace" tab, reachable via the bottom nav) because they're too complex for chat — only recommend these, and only when truly relevant:
 - [Smart EMR](doc.html) – AI-powered workspace for documentation, patient management, treatment planning, progress tracking.
 - [Motion & Gait Analyzer](index.html#/motion) – a full-screen camera scanner that measures joint range of motion or analyzes gait via a voice-guided scan.
@@ -275,6 +277,8 @@ A few things genuinely still live on separate pages (in the "Workspace" tab, rea
 When a user's need clearly matches one of these four, say so directly and link to it. Don't link a page unless it's actually relevant.
 
 STRICT RULE: most messages do NOT need a page recommendation. Do not mention or link ANY of these pages in greetings, small talk, general knowledge questions, or when you're already able to fully answer the question yourself in chat. Only bring one up when the user is explicitly trying to do something one of these four tools is specifically built for — and even then, mention at most one page per response. If in doubt, don't mention a page at all.
+
+CLINICAL INTEGRITY (always applies): you cannot see, touch, or measure the patient, and you do not have access to Smart EMR's full patient records unless a "RECORDED PATIENT CONTEXT" block is provided to you in this conversation. Never invent a joint-angle, gait, balance, or other physical-measurement result, and never claim a specific patient's history/diagnosis/records as fact unless it was actually given to you as attached content or a provided patient-context block — if asked to "measure" or "analyze" a patient's movement from a text description alone, explain that this needs the Motion & Gait Analyzer's camera-based tracking, and link to it, rather than guessing a number. When you do reason about a clinical case, clearly separate what was actually stated/measured/recorded from your own inference or suggestion, and say plainly when something needed to answer well is missing instead of filling the gap with a guess.
 
 About rehablix itself: rehablix was built by rehabverve enterprise, founded by Emmanuel Adeoye — an occupational therapist by profession and a programmer by passion. Only share this if asked about the creator, company, or "who made this."
 
@@ -1222,22 +1226,185 @@ If the user's message includes content extracted from an uploaded file, an image
   }
 
   // =========================================================================
-  // Typing indicator
+  // Typing indicator — dynamic contextual status text (Lixa Intelligence
+  // Upgrade #3) instead of a generic three-dot animation. Reuses the same
+  // `.lixa-status-bubble` markup/CSS js/lixa.js's tool-generation status
+  // already uses, so a plain chat turn and a tool generation now look and
+  // behave consistently. `stages` (from stagesFromPlan(), below) cycles
+  // through short, fixed vocabulary labels — never raw internal reasoning.
   // =========================================================================
-  function showTyping() {
-    const existingTyping = document.getElementById('typingIndicator');
-    if (existingTyping) existingTyping.remove();
+  let typingCycleInterval = null;
+
+  function showTyping(stages) {
+    removeTyping();
+    const list = (stages && stages.length) ? stages : ['Thinking…'];
     const typingDiv = document.createElement('div');
-    typingDiv.className = 'typing-indicator';
+    typingDiv.className = 'message assistant';
     typingDiv.id = 'typingIndicator';
-    typingDiv.innerHTML = '<span></span><span></span><span></span>';
+    typingDiv.innerHTML = `<div class="lixa-status-bubble"><span class="lixa-status-spinner"></span><span class="lixa-status-text" id="typingStatusText">${escapeHtml(list[0])}</span></div>`;
     chatMessages.appendChild(typingDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+    if (list.length > 1) {
+      let i = 0;
+      typingCycleInterval = setInterval(() => {
+        i = Math.min(i + 1, list.length - 1);
+        const textEl = document.getElementById('typingStatusText');
+        if (textEl) {
+          textEl.classList.remove('lixa-status-text-in');
+          textEl.textContent = list[i];
+          void textEl.offsetWidth;
+          textEl.classList.add('lixa-status-text-in');
+        }
+        if (i >= list.length - 1) { clearInterval(typingCycleInterval); typingCycleInterval = null; }
+      }, 1600);
+    }
   }
 
   function removeTyping() {
+    if (typingCycleInterval) { clearInterval(typingCycleInterval); typingCycleInterval = null; }
     const el = document.getElementById('typingIndicator');
     if (el) el.remove();
+  }
+
+  // =========================================================================
+  // Multi-step intelligence (Lixa Intelligence Upgrade #4/#6) — a lightweight
+  // internal planning pass for messages that look like they need more than a
+  // single reflexive answer. This is deliberately cheap and best-effort: it
+  // never blocks or breaks a normal chat turn if it fails, and it NEVER
+  // surfaces its own output to the user — only the mapped status label
+  // (Thinking/Analysing/Checking/…) from stagesFromPlan() is ever shown.
+  // =========================================================================
+  const PLAN_SYSTEM_PROMPT = `You are the internal planner for "Lixa", a clinical AI assistant. You never talk to the user directly — you only decide how to approach their message internally, silently.
+
+Given the user's latest message, return ONLY a compact JSON object (no markdown, no commentary, no code fences):
+{
+  "steps": ["2-4 short internal step labels, present tense, e.g. 'Understand the request', 'Check patient context', 'Draft the answer', 'Verify accuracy'"],
+  "responseMode": "concise" | "detailed" | "clinical",
+  "needsPatientContext": true or false — true ONLY if the message names or clearly refers to a specific patient/case whose previously recorded data would materially help answer accurately,
+  "clinicalRequest": true or false — true if this is a clinical/health reasoning question (diagnosis, treatment planning, assessment interpretation, patient management) rather than general chat or small talk
+}`;
+
+  // A message "looks complex" enough to warrant a planning pass when it's
+  // long, or moderately long AND either multi-sentence or clinically/
+  // analytically phrased — short everyday messages skip this entirely so
+  // simple chat stays fast and cheap.
+  const PLAN_TRIGGER_WORDS = /\b(plan|steps|analy[sz]e|assess|compare|evaluate|develop|design|recommend|manage|treatment|intervention|goals?|prognosis|differential|protocol|progress|reassess)\b/i;
+  function looksComplex(text) {
+    const words = (text || '').trim().split(/\s+/).filter(Boolean);
+    if (words.length >= 25) return true;
+    if (words.length >= 10 && (PLAN_TRIGGER_WORDS.test(text) || /[.?!].+[.?!]/.test(text))) return true;
+    return false;
+  }
+
+  async function buildPlan(text) {
+    try {
+      if (!aiConfig.token) { const ok = await fetchTokens(); if (!ok) return null; }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(`${aiConfig.endpoint}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiConfig.token}` },
+        body: JSON.stringify({
+          model: aiConfig.model,
+          messages: [{ role: 'system', content: PLAN_SYSTEM_PROMPT }, { role: 'user', content: text.slice(0, 1500) }],
+          max_tokens: 180,
+          temperature: 0.2
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (!res.ok) return null;
+      const data = await res.json();
+      const raw = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (!m) return null;
+      const plan = JSON.parse(m[0]);
+      if (!plan || !Array.isArray(plan.steps)) return null;
+      return plan;
+    } catch (e) {
+      return null; // planning is best-effort — never block the actual answer
+    }
+  }
+
+  // Maps a plan's free-form step label onto Lixa's fixed, user-facing status
+  // vocabulary (feature 3) — this is the ONLY thing from the plan that ever
+  // reaches the UI.
+  const STATUS_WORD_MAP = [
+    [/check|patient|record|data|context/i, 'Checking'],
+    [/verify|review|confirm|accuracy/i, 'Reviewing'],
+    [/draft|writ|creat|generat|compos/i, 'Creating'],
+    [/updat|revis|edit/i, 'Updating'],
+    [/structur|organiz|process|combin/i, 'Processing'],
+    [/final|polish|wrap/i, 'Finalising'],
+    [/understand|read|interpret/i, 'Thinking'],
+    [/analy/i, 'Analysing']
+  ];
+  function labelForStep(step) {
+    for (const [re, label] of STATUS_WORD_MAP) { if (re.test(step)) return label + '…'; }
+    return 'Thinking…';
+  }
+  function stagesFromPlan(plan, hasFiles) {
+    if (plan && plan.steps && plan.steps.length) {
+      const labels = [];
+      plan.steps.forEach(s => { const l = labelForStep(s); if (labels[labels.length - 1] !== l) labels.push(l); });
+      if (labels[labels.length - 1] !== 'Finalising…') labels.push('Finalising…');
+      return labels.slice(0, 5);
+    }
+    return hasFiles ? ['Reading your files…', 'Analysing…', 'Thinking…'] : ['Thinking…', 'Processing…'];
+  }
+
+  // Clinical context awareness (Lixa Intelligence Upgrade #6.3/#7) — a
+  // best-effort, read-only lookup of a Smart EMR patient the user's message
+  // names, so an answer can be grounded in what's actually recorded instead
+  // of invented. Returns null on any failure or no match; never throws.
+  async function findPatientContext(text) {
+    if (!currentUser || !text) return null;
+    try {
+      const snap = await database.ref(`history/${currentUser.uid}/patients`).once('value');
+      const patients = snap.val();
+      if (!patients) return null;
+      const lower = text.toLowerCase();
+      let match = null;
+      Object.values(patients).forEach(p => {
+        const name = (p && p.name || '').toLowerCase().trim();
+        if (name && name.length > 2 && lower.includes(name)) match = p;
+      });
+      if (!match) return null;
+      return {
+        name: match.name,
+        diagnosis: match.diagnosis || match.condition || '',
+        assessment: (match.assessment || '').slice(0, 2000)
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Self-verification (Lixa Intelligence Upgrade #6.5) — a short, silent,
+  // second pass over the assembled answer for clinical requests only (kept
+  // rare/cheap on purpose): checks for contradictions with the recorded
+  // patient context, specific-sounding fabricated measurements, or a missing
+  // safety caveat. Returns null (append nothing) when the answer is fine —
+  // this NEVER blocks or replaces the answer itself, only optionally adds
+  // one short caveat line.
+  async function verifyReply(question, answer, patientContext) {
+    try {
+      if (!aiConfig.token) { const ok = await fetchTokens(); if (!ok) return null; }
+      const sys = `You are a silent quality checker for a clinical AI assistant's answer. Check ONLY for: contradictions with the given patient context, specific clinical numbers/measurements stated as established fact that were not present anywhere in the context or question, or a clearly missing safety caveat. If the answer is fine, reply with exactly: OK. Otherwise reply with ONE short caveat sentence (under 25 words) for the clinician to see — do not repeat or summarize the whole answer.`;
+      const usr = `QUESTION: ${question}\n\n${patientContext ? `RECORDED PATIENT CONTEXT: ${JSON.stringify(patientContext)}\n\n` : ''}ANSWER TO CHECK:\n${(answer || '').slice(0, 3000)}`;
+      const res = await fetch(`${aiConfig.endpoint}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiConfig.token}` },
+        body: JSON.stringify({ model: aiConfig.model, messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }], max_tokens: 60, temperature: 0 })
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const out = ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '').trim();
+      if (!out || /^OK\.?$/i.test(out)) return null;
+      return out.replace(/^["']|["']$/g, '');
+    } catch (e) {
+      return null;
+    }
   }
 
   // =========================================================================
@@ -1538,7 +1705,11 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     }
   }
 
-  async function callAI(onToken) {
+  // `turnCtx` (from runAssistantTurn's planning pass, feature 4/6) optionally
+  // carries { plan, patientContext } — both are best-effort and may be null;
+  // when present they only ever ADD grounding/style instructions to the
+  // system prompt, never replace the normal chat behavior.
+  async function callAI(onToken, turnCtx) {
     const recentMessages = messages.slice(-20);
     const needsVision = recentMessages.some(m => m.visionImages && m.visionImages.length > 0);
 
@@ -1547,8 +1718,23 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
 
     await checkQuotaOrThrow();
 
+    let systemPrompt = buildSystemPrompt(config.responseStyle);
+    const plan = turnCtx && turnCtx.plan;
+    const patientContext = turnCtx && turnCtx.patientContext;
+    if (patientContext) {
+      systemPrompt += `\n\nRECORDED PATIENT CONTEXT (from Smart EMR — factual background only, may be incomplete; do not assume anything beyond it):\nName: ${patientContext.name}\nDiagnosis: ${patientContext.diagnosis || 'not recorded'}\nRecorded notes/history: ${patientContext.assessment || 'none recorded'}\n\nClearly separate, in your answer: (1) facts drawn from this recorded context, (2) any measured/clinician-entered results it contains, and (3) your own interpretation or suggestions. Never present your own interpretation as a confirmed clinical finding.`;
+    }
+    if (plan && plan.clinicalRequest) {
+      systemPrompt += `\n\nThis appears to be a clinical reasoning request. Be evidence-aware: state clearly when something is a measured/recorded fact versus your own inference. If information needed to answer well is missing, say what's missing instead of guessing. You may connect findings to goals, intervention considerations, monitoring or reassessment points, but make clear these are suggestions for the clinician to confirm — never present them as confirmed clinical findings.`;
+    }
+    if (plan && plan.responseMode === 'concise') {
+      systemPrompt += `\n\nKeep this particular response concise and to the point.`;
+    } else if (plan && plan.responseMode === 'detailed') {
+      systemPrompt += `\n\nThis warrants a thorough, well-structured, detailed answer.`;
+    }
+
     const apiMessages = [
-      { role: 'system', content: buildSystemPrompt(config.responseStyle) },
+      { role: 'system', content: systemPrompt },
       ...recentMessages.map(m => ({ role: m.role, content: buildApiContent(m) }))
     ];
 
@@ -1634,7 +1820,21 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   async function runAssistantTurn(promptTextForSuggestions) {
     isWaiting = true;
     sendBtn.disabled = true;
-    showTyping();
+
+    // Multi-step intelligence (feature 4): plan silently for messages that
+    // look complex, then show the plan's steps as short status text (feature
+    // 3) instead of a generic three-dot animation. Cheap/simple messages
+    // skip planning entirely and just show a couple of generic stages.
+    const lastMsg = messages[messages.length - 1];
+    const hasFiles = !!(lastMsg && lastMsg.attachmentMeta && lastMsg.attachmentMeta.length > 0);
+    let plan = null;
+    if (looksComplex(promptTextForSuggestions)) plan = await buildPlan(promptTextForSuggestions);
+    showTyping(stagesFromPlan(plan, hasFiles));
+
+    // Clinical context awareness (feature 6.3/7): only looked up when the
+    // plan flagged that a specific patient is referenced.
+    let patientContext = null;
+    if (plan && plan.needsPatientContext) patientContext = await findPatientContext(promptTextForSuggestions);
 
     let assistantMsg = null;
     let bubbleEl = null;
@@ -1682,7 +1882,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     }
 
     try {
-      const { text: reply, finishReason } = await callAI(handleToken);
+      const { text: reply, finishReason } = await callAI(handleToken, { plan, patientContext });
       removeTyping();
       if (!assistantMsg) {
         // Defensive fallback: streaming produced no visible tokens (e.g. a
@@ -1696,6 +1896,15 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       // a natural stop — flag it so renderMessages() offers a Continue button
       // instead of silently handing back a response that trails off.
       assistantMsg.finishReason = finishReason;
+
+      // Self-verification (feature 6.5): only for clinical requests, and
+      // only ever ADDS one short caveat line — it never edits or blocks the
+      // model's actual answer.
+      if (plan && plan.clinicalRequest) {
+        const note = await verifyReply(promptTextForSuggestions, reply, patientContext);
+        if (note) assistantMsg.content = assistantMsg.content + `\n\n> ⚠️ ${note}`;
+      }
+
       const suggestions = await generateSuggestions(promptTextForSuggestions, reply);
       assistantMsg.suggestions = suggestions;
       renderMessages();
@@ -1910,9 +2119,22 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   }
 
   // =========================================================================
-  // History list
+  // History list — incrementally paginated (Lixa History + Intelligence
+  // Upgrade #1): the first 15 conversations load up front, and scrolling
+  // near the bottom of the drawer fetches 7 more at a time straight from
+  // Firebase (a cursor query, not "load everything then slice"), until
+  // there's nothing left. Loaded pages are kept in `allConversations` so
+  // re-opening the drawer, searching, and re-rendering after a save/delete
+  // never re-fetch or duplicate what's already there.
   // =========================================================================
   let allConversations = [];
+  const HISTORY_PAGE_FIRST = 15;
+  const HISTORY_PAGE_MORE = 7;
+  let historyHasMore = true;
+  let historyLoadingMore = false;
+  let historyOldestKey = null;
+  let historyOldestVal = null;
+  let historyScrollBound = false;
 
   // "3:45 PM" for anything within the last 24h, "Sep 14" beyond that.
   function formatRelative(ts) {
@@ -1923,30 +2145,105 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
   }
 
+  function historyRowsFromSnapshot(snap) {
+    const items = [];
+    // Firebase iterates children in ascending order-by-value — collecting
+    // via forEach (not snap.val(), which would lose that order to plain
+    // object-key order) and reversing gives newest-first for display.
+    snap.forEach(child => { items.push({ id: child.key, ...child.val() }); return false; });
+    items.reverse();
+    return items;
+  }
+
   async function loadHistoryList() {
     if (!currentUser) {
       console.warn('[loadHistoryList] No user logged in');
       return;
     }
+    allConversations = [];
+    historyHasMore = true;
+    historyLoadingMore = false;
+    historyOldestKey = null;
+    historyOldestVal = null;
     if (historyLoading) historyLoading.hidden = false;
     try {
-      console.log('[loadHistoryList] Fetching conversations for user:', currentUser.uid);
-      const snap = await database.ref(`history/${currentUser.uid}/askConversations`).orderByChild('updatedAt').once('value');
-      const data = snap.val();
-      allConversations = [];
-      if (data) {
-        allConversations = Object.entries(data).map(([id, item]) => ({ id, ...item }));
-        allConversations.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
-        console.log('[loadHistoryList] Loaded', allConversations.length, 'conversations');
-      } else {
-        console.log('[loadHistoryList] No conversations found');
+      const snap = await database.ref(`history/${currentUser.uid}/askConversations`)
+        .orderByChild('updatedAt').limitToLast(HISTORY_PAGE_FIRST).once('value');
+      const items = historyRowsFromSnapshot(snap);
+      allConversations = items;
+      if (items.length) {
+        const oldest = items[items.length - 1];
+        historyOldestKey = oldest.id;
+        historyOldestVal = oldest.updatedAt != null ? oldest.updatedAt : 0;
       }
+      historyHasMore = items.length === HISTORY_PAGE_FIRST;
       renderHistoryList(allConversations);
+      bindHistoryScroll();
     } catch (error) {
       console.error('[loadHistoryList] Error:', error);
     } finally {
       if (historyLoading) historyLoading.hidden = true;
     }
+  }
+
+  // Fetches the next older page. Uses an (updatedAt, key) compound cursor
+  // (endBefore's 2-arg form) so ties in updatedAt can't cause a
+  // duplicated or skipped row at the page boundary.
+  async function loadMoreHistory() {
+    if (!currentUser || !historyHasMore || historyLoadingMore || historyOldestKey == null) return;
+    historyLoadingMore = true;
+    showHistoryLoadMoreRow(true);
+    try {
+      const snap = await database.ref(`history/${currentUser.uid}/askConversations`)
+        .orderByChild('updatedAt').endBefore(historyOldestVal, historyOldestKey).limitToLast(HISTORY_PAGE_MORE).once('value');
+      const items = historyRowsFromSnapshot(snap);
+      const seen = new Set(allConversations.map(c => c.id));
+      const fresh = items.filter(c => !seen.has(c.id));
+      allConversations = allConversations.concat(fresh);
+      if (items.length) {
+        const oldest = items[items.length - 1];
+        historyOldestKey = oldest.id;
+        historyOldestVal = oldest.updatedAt != null ? oldest.updatedAt : 0;
+      }
+      historyHasMore = items.length === HISTORY_PAGE_MORE;
+      renderHistoryList(allConversations);
+    } catch (error) {
+      console.error('[loadMoreHistory] Error:', error);
+    } finally {
+      historyLoadingMore = false;
+      showHistoryLoadMoreRow(false);
+    }
+  }
+
+  // Small inline shimmer row appended below the loaded rows while a "load
+  // more" fetch is in flight — the big #historyLoading skeleton is reserved
+  // for the very first load, per feature 1 ("keep the existing loading
+  // state/shimmer").
+  function showHistoryLoadMoreRow(on) {
+    if (!historyList) return;
+    let row = document.getElementById('historyLoadMoreRow');
+    if (on) {
+      if (!row) {
+        row = document.createElement('div');
+        row.id = 'historyLoadMoreRow';
+        row.className = 'drawer-loading';
+        row.innerHTML = '<div class="drawer-skeleton"></div>';
+        historyList.appendChild(row);
+      }
+    } else if (row) {
+      row.remove();
+    }
+  }
+
+  const HISTORY_SCROLL_THRESHOLD = 80;
+  function bindHistoryScroll() {
+    if (historyScrollBound || !historyList) return;
+    historyScrollBound = true;
+    historyList.addEventListener('scroll', () => {
+      if (!historyHasMore || historyLoadingMore) return;
+      const nearBottom = historyList.scrollHeight - historyList.scrollTop - historyList.clientHeight < HISTORY_SCROLL_THRESHOLD;
+      if (nearBottom) loadMoreHistory();
+    });
   }
 
   function renderHistoryList(conversations) {
