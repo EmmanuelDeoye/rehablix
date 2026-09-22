@@ -178,6 +178,16 @@ Requirements:
     };
   }
 
+  // Generic export (Lixa History + Intelligence Upgrade): normalizes this
+  // tool's saved record into { title, html }.
+  async function getExportContent(recordId) {
+    const user = firebase.auth().currentUser;
+    if (!user) return null;
+    const record = (await firebase.database().ref(`history/${user.uid}/standardizedTools/${recordId}`).once('value')).val();
+    if (!record) return null;
+    return { title: record.toolName || 'Standardized Tool', html: record.generatedContent || '' };
+  }
+
   window.RehablixGenerators = window.RehablixGenerators || {};
   window.RehablixGenerators.standardized = {
     meta: {
@@ -239,6 +249,7 @@ Requirements:
     editStatusStages: ['Reading the current tool…', 'Applying your changes…', 'Re-formatting for printing…'],
     generate,
     edit,
+    getExportContent,
     handleAction(actionId, card) {
       if (actionId === 'view-pdf' && card.html) viewHtmlContent(card.title, card.html);
     },
@@ -248,6 +259,11 @@ Requirements:
     openFromRecord(record, id) {
       if (id) window.RehablixRouter.go(`index.html?openId=${id}#/standardized`);
       else if (record) viewHtmlContent(record.toolName, record.generatedContent);
-    }
+    },
+    // Generic, title/html-agnostic "open as a printable page" — this is
+    // what Lixa's chat-wide "turn this into a PDF" export reuses (any
+    // tool's exported HTML, not just a standardized assessment), rather
+    // than forking a second print-view implementation.
+    openPrintView: viewHtmlContent
   };
 })();

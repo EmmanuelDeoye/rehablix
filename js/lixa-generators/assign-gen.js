@@ -122,6 +122,16 @@
     };
   }
 
+  // Generic export (Lixa History + Intelligence Upgrade): normalizes this
+  // tool's saved record into { title, html }.
+  async function getExportContent(recordId) {
+    const user = firebase.auth().currentUser;
+    if (!user) return null;
+    const record = (await firebase.database().ref(`history/${user.uid}/assignments/${recordId}`).once('value')).val();
+    if (!record) return null;
+    return { title: record.topic || 'Assignment', html: record.html || '' };
+  }
+
   window.RehablixGenerators = window.RehablixGenerators || {};
   window.RehablixGenerators.assignment = {
     meta: {
@@ -148,6 +158,7 @@
     ],
     editStatusStages: ['Reading the current assignment…', 'Applying your changes…', 'Final polish…'],
     generate,
-    edit
+    edit,
+    getExportContent
   };
 })();

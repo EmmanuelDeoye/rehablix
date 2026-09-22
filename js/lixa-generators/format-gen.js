@@ -161,6 +161,18 @@ Return ONLY the HTML.`;
     };
   }
 
+  // Generic export (Lixa History + Intelligence Upgrade — "turn this into a
+  // PDF/Word doc/PPTX"): normalizes this tool's saved record into
+  // { title, html } so the generic exporter in js/lixa.js can hand it to
+  // the shared docx/PDF/PPTX builders without knowing this tool's schema.
+  async function getExportContent(recordId) {
+    const user = firebase.auth().currentUser;
+    if (!user) return null;
+    const record = (await firebase.database().ref(`history/${user.uid}/formats/${recordId}`).once('value')).val();
+    if (!record) return null;
+    return { title: `${record.assessmentType || 'Assessment'} — ${record.diagnosis || ''}`.trim(), html: record.generatedText || '' };
+  }
+
   window.RehablixGenerators = window.RehablixGenerators || {};
   window.RehablixGenerators.format = {
     meta: {
@@ -190,6 +202,7 @@ Return ONLY the HTML.`;
     ],
     editStatusStages: ['Reading the current format…', 'Applying your changes…', 'Re-formatting for printing…'],
     generate,
-    edit
+    edit,
+    getExportContent
   };
 })();

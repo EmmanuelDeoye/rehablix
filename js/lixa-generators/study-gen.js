@@ -175,6 +175,24 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
     };
   }
 
+  // Generic export (Lixa History + Intelligence Upgrade): normalizes this
+  // tool's saved record into { title, html } — includes the summary plus a
+  // simple flashcards/quiz listing so exporting the set doesn't lose them.
+  async function getExportContent(recordId) {
+    const user = firebase.auth().currentUser;
+    if (!user) return null;
+    const record = (await firebase.database().ref(`history/${user.uid}/study/sets/${recordId}`).once('value')).val();
+    if (!record) return null;
+    const summaryHtml = typeof marked !== 'undefined' ? marked.parse(record.summary || '') : `<p>${record.summary || ''}</p>`;
+    const flashcardsHtml = (record.flashcards || []).length
+      ? `<h2>Flashcards</h2><ol>${record.flashcards.map(c => `<li><strong>${(c.front || '').replace(/</g, '&lt;')}</strong> — ${(c.back || '').replace(/</g, '&lt;')}</li>`).join('')}</ol>`
+      : '';
+    const quizHtml = (record.quiz || []).length
+      ? `<h2>Quiz</h2><ol>${record.quiz.map(q => `<li>${(q.question || '').replace(/</g, '&lt;')}<ul>${(q.options || []).map((o, i) => `<li${i === q.correctIndex ? ' style="font-weight:bold"' : ''}>${String(o).replace(/</g, '&lt;')}</li>`).join('')}</ul></li>`).join('')}</ol>`
+      : '';
+    return { title: record.title || 'Study Set', html: summaryHtml + flashcardsHtml + quizHtml };
+  }
+
   window.RehablixGenerators = window.RehablixGenerators || {};
   window.RehablixGenerators.study = {
     meta: {
@@ -206,6 +224,7 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
     editStatusStages: ['Reading the current study set…', 'Applying your changes…'],
     generate,
     edit,
+    getExportContent,
     openFromRecord(record, id, item) {
       const subjectId = record && record.subjectId;
       if (subjectId) window.RehablixRouter.go(`index.html?subject=${subjectId}#/study`);

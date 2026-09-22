@@ -177,6 +177,19 @@
     };
   }
 
+  // Generic export (Lixa History + Intelligence Upgrade): normalizes this
+  // tool's saved record into { title, html } — the transcript is plain
+  // text, so it's wrapped as paragraphs rather than left as one long run.
+  async function getExportContent(recordId) {
+    const user = firebase.auth().currentUser;
+    if (!user) return null;
+    const record = (await firebase.database().ref(`history/${user.uid}/audio/${recordId}`).once('value')).val();
+    if (!record) return null;
+    const text = record.cleanedTranscript || record.rawTranscript || '';
+    const html = text.split(/\n{2,}/).map(p => `<p>${p.replace(/</g, '&lt;')}</p>`).join('');
+    return { title: record.title || 'Audio Transcript', html };
+  }
+
   window.RehablixGenerators = window.RehablixGenerators || {};
   window.RehablixGenerators.audio = {
     meta: {
@@ -195,6 +208,7 @@
     editStatusStages: ['Reading the current transcript…', 'Applying your changes…'],
     generate,
     edit,
+    getExportContent,
     // No handleAction anymore — the fileCard's action is a plain link into
     // #/audioview now, not a button that opens a custom popup window.
     openFromRecord(record, id) {

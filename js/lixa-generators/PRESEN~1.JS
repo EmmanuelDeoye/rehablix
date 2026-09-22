@@ -150,6 +150,24 @@ ${data.content}`;
     };
   }
 
+  // Generic export (Lixa History + Intelligence Upgrade): normalizes this
+  // tool's saved record into { title, html, exportData } — exportData is
+  // included so the generic PPTX path can reuse the exact same shape the
+  // dedicated "Export to PPTX" button already sends to ppt-export.html.
+  async function getExportContent(recordId) {
+    const user = firebase.auth().currentUser;
+    if (!user) return null;
+    const record = (await firebase.database().ref(`history/${user.uid}/caseHistory/${recordId}`).once('value')).val();
+    if (!record) return null;
+    const modeText = record.documentType || 'Document';
+    const html = record.resultsHtml || (typeof marked !== 'undefined' ? marked.parse(record.resultsMarkdown || record.results || '') : (record.resultsMarkdown || record.results || ''));
+    return {
+      title: `${modeText} — ${record.patientName || 'Patient'}`,
+      html,
+      exportData: { content: html, patientName: record.patientName, profession: record.profession, diagnosis: record.diagnosis, modeLabel: modeText, mode: record.mode }
+    };
+  }
+
   window.RehablixGenerators = window.RehablixGenerators || {};
   window.RehablixGenerators.presentation = {
     meta: {
@@ -177,6 +195,7 @@ ${data.content}`;
     editStatusStages: ['Reading the current document…', 'Applying your changes…', 'Polishing the formatting…'],
     generate,
     edit,
+    getExportContent,
     handleAction(actionId, card) {
       if (actionId === 'export-pptx' && card.exportData) {
         localStorage.setItem('pptExportData', JSON.stringify(card.exportData));
