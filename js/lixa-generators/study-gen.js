@@ -130,7 +130,46 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
         toolId: 'study',
         recordId: setRef.key,
         actions: [
-          { type: 'link', href: `index.html?subject=${subjectId}#/study`, label: 'Open Study Buddy', primary: true, external: true, icon: 'fa-book-open' }
+          { type: 'link', href: `index.html?subject=${subjectId}#/study`, label: 'Open Study Buddy', primary: true, icon: 'fa-book-open' }
+        ]
+      }
+    };
+  }
+
+  // Edit-in-place (Lixa History + Intelligence Upgrade #2): revises the
+  // SAME saved study set's written summary — the flashcards/quiz keep their
+  // own spaced-repetition/mastery state in study.html, so an in-chat edit
+  // deliberately only touches the summary text rather than silently
+  // reshuffling cards a learner may already be partway through reviewing.
+  async function edit(recordId, instruction) {
+    const user = firebase.auth().currentUser;
+    if (!user) return { ok: false, error: 'Please log in to edit this study set.' };
+    const ref = firebase.database().ref(`history/${user.uid}/study/sets/${recordId}`);
+    const record = (await ref.once('value')).val();
+    if (!record) return { ok: false, error: 'The original file could not be found.' };
+
+    await window.LixaCore.checkToolQuota();
+    const config = await window.LixaCore.resolveToolModelConfig();
+    if (!config) throw new Error('AI service is not configured.');
+    const systemPrompt = `You are revising the written summary of an existing study set for a rehabilitation/healthcare student. Return ONLY the complete revised markdown summary.`;
+    const userPrompt = `CURRENT SUMMARY:\n${record.summary}\n\nREQUESTED CHANGE:\n${instruction}`;
+    const summary = (await callAI(systemPrompt, userPrompt, config)) || record.summary;
+    window.LixaCore.reportToolTokenUsage(systemPrompt + userPrompt + summary, config.weight);
+
+    await ref.update({ summary });
+
+    return {
+      ok: true,
+      summary: `Updated the summary for **${record.title}**:`,
+      fileCard: {
+        icon: '🧠',
+        title: record.title,
+        meta: 'Study Set · Updated',
+        snippet: summary.replace(/[#*`_>-]/g, '').slice(0, 150).trim(),
+        toolId: 'study',
+        recordId,
+        actions: [
+          { type: 'link', href: `index.html?subject=${record.subjectId}#/study`, label: 'Open Study Buddy', primary: true, icon: 'fa-book-open' }
         ]
       }
     };
@@ -164,10 +203,12 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
       'Writing flashcards…',
       'Building the quiz…'
     ],
+    editStatusStages: ['Reading the current study set…', 'Applying your changes…'],
     generate,
+    edit,
     openFromRecord(record, id, item) {
       const subjectId = record && record.subjectId;
-      if (subjectId) window.open(`index.html?subject=${subjectId}#/study`, '_blank');
+      if (subjectId) window.RehablixRouter.go(`index.html?subject=${subjectId}#/study`);
     }
   };
 })();

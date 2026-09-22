@@ -128,6 +128,55 @@
     };
   }
 
+  // Edit-in-place (Lixa History + Intelligence Upgrade #2): revises the
+  // SAME saved transcript's narrative text instead of re-transcribing —
+  // audio isn't re-recorded, only the written-up narrative changes.
+  async function edit(recordId, instruction) {
+    const user = firebase.auth().currentUser;
+    if (!user) return { ok: false, error: 'Please log in to edit this transcript.' };
+    const ref = firebase.database().ref(`history/${user.uid}/audio/${recordId}`);
+    const record = (await ref.once('value')).val();
+    if (!record) return { ok: false, error: 'The original file could not be found.' };
+
+    const config = await window.LixaCore.resolveToolModelConfig().catch(() => null);
+    if (!config) return { ok: false, error: 'AI service is not configured.' };
+    await window.LixaCore.checkToolQuota();
+    const systemPrompt = `You are revising an existing clinical session transcript/narrative. Never invent observations, measurements, or outcomes not present in the original. Output ONLY the complete revised narrative text.`;
+    const userPrompt = `CURRENT NARRATIVE:\n${record.cleanedTranscript || record.rawTranscript}\n\nREQUESTED CHANGE:\n${instruction}`;
+    const response = await fetch(`${config.endpoint.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+      body: JSON.stringify({
+        model: config.model,
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+        max_tokens: config.maxTokens,
+        temperature: Math.min(config.temperature ?? 0.3, 0.3)
+      })
+    });
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
+    const data = await response.json();
+    const revised = (data.choices?.[0]?.message?.content || '').trim() || (record.cleanedTranscript || record.rawTranscript);
+    window.LixaCore.reportToolTokenUsage(systemPrompt + userPrompt + revised, config.weight);
+
+    await ref.update({ cleanedTranscript: revised, updatedAt: new Date().toISOString() });
+
+    return {
+      ok: true,
+      summary: `Updated the transcript:`,
+      fileCard: {
+        icon: '🎧',
+        title: record.title,
+        meta: 'Audio Transcript · Updated',
+        snippet: revised.slice(0, 150),
+        toolId: 'audio',
+        recordId,
+        actions: [
+          { type: 'link', href: `index.html?id=${recordId}#/audioview`, label: 'Open & Edit', primary: true, icon: 'fa-pen-to-square' }
+        ]
+      }
+    };
+  }
+
   window.RehablixGenerators = window.RehablixGenerators || {};
   window.RehablixGenerators.audio = {
     meta: {
@@ -143,11 +192,13 @@
       'Transcribing speech…',
       'Writing the session narrative…'
     ],
+    editStatusStages: ['Reading the current transcript…', 'Applying your changes…'],
     generate,
+    edit,
     // No handleAction anymore — the fileCard's action is a plain link into
     // #/audioview now, not a button that opens a custom popup window.
     openFromRecord(record, id) {
-      if (id) window.location.href = `index.html?id=${id}#/audioview`;
+      if (id) window.RehablixRouter.go(`index.html?id=${id}#/audioview`);
     }
   };
 })();

@@ -122,6 +122,45 @@ Return ONLY the HTML.`;
     };
   }
 
+  // Edit-in-place (Lixa History + Intelligence Upgrade #2): revises the
+  // SAME saved format record instead of generating a new one, and always
+  // returns an updated file card. Reads the current HTML back from Firebase
+  // rather than trusting anything held in memory, since a chat page reload
+  // between generation and edit would otherwise lose it.
+  async function edit(recordId, instruction) {
+    const user = firebase.auth().currentUser;
+    if (!user) return { ok: false, error: 'Please log in to edit this format.' };
+    const ref = firebase.database().ref(`history/${user.uid}/formats/${recordId}`);
+    const record = (await ref.once('value')).val();
+    if (!record) return { ok: false, error: 'The original file could not be found.' };
+
+    await window.LixaCore.checkToolQuota();
+    const config = await window.LixaCore.resolveToolModelConfig();
+    if (!config) throw new Error('AI service is not configured.');
+    const prompt = `Here is an existing printable HTML medical assessment form:\n\n${record.generatedText}\n\nApply this change requested by the clinician, preserving the rest of the form exactly as-is unless the change requires otherwise:\n"${instruction}"\n\nReturn ONLY the complete updated HTML document (no markdown, no code fences, no commentary).`;
+    const html = await callAIWithValidation(prompt, config, 1);
+    window.LixaCore.reportToolTokenUsage(prompt + html, config.weight);
+
+    const preview = html.replace(/<[^>]*>/g, ' ').substring(0, 150).replace(/\n/g, ' ');
+    await ref.update({ generatedText: html, preview, updatedAt: new Date().toISOString() });
+
+    return {
+      ok: true,
+      summary: `Updated your assessment format for **${record.diagnosis}**:`,
+      fileCard: {
+        icon: '📋',
+        title: `${record.assessmentType} — ${record.diagnosis}`,
+        meta: 'Assessment Format · Updated',
+        snippet: preview,
+        toolId: 'format',
+        recordId,
+        actions: [
+          { type: 'link', href: `index.html?id=${recordId}#/formatview`, label: 'Open & Edit', primary: true, icon: 'fa-pen-to-square' }
+        ]
+      }
+    };
+  }
+
   window.RehablixGenerators = window.RehablixGenerators || {};
   window.RehablixGenerators.format = {
     meta: {
@@ -149,6 +188,8 @@ Return ONLY the HTML.`;
       'Adding relevant standardized tools…',
       'Formatting for printing…'
     ],
-    generate
+    editStatusStages: ['Reading the current format…', 'Applying your changes…', 'Re-formatting for printing…'],
+    generate,
+    edit
   };
 })();

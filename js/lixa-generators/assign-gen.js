@@ -84,6 +84,44 @@
     };
   }
 
+  // Edit-in-place (Lixa History + Intelligence Upgrade #2): revises the SAME
+  // saved assignment record instead of generating a new one.
+  async function edit(recordId, instruction) {
+    const user = firebase.auth().currentUser;
+    if (!user) return { ok: false, error: 'Please log in to edit this assignment.' };
+    const ref = firebase.database().ref(`history/${user.uid}/assignments/${recordId}`);
+    const record = (await ref.once('value')).val();
+    if (!record) return { ok: false, error: 'The original file could not be found.' };
+
+    await window.LixaCore.checkToolQuota();
+    const config = await window.LixaCore.resolveToolModelConfig();
+    if (!config) throw new Error('AI service is not configured.');
+    const systemPrompt = `You are revising an existing academic assignment. Keep the natural, human tone and overall structure unless asked to change it. Return the complete revised assignment in Markdown.`;
+    const userPrompt = `CURRENT ASSIGNMENT:\n${record.markdown}\n\nREQUESTED CHANGE:\n${instruction}\n\nReturn ONLY the complete updated assignment in Markdown.`;
+    const markdown = await callAI(systemPrompt, userPrompt, config);
+    window.LixaCore.reportToolTokenUsage(systemPrompt + userPrompt + markdown, config.weight);
+    const html = cleanAIResponse(markdown);
+    const plainPreview = markdown.replace(/[#*`_>-]/g, ' ').replace(/\s+/g, ' ').slice(0, 150).trim();
+
+    await ref.update({ html, markdown, plainPreview, updatedAt: Date.now() });
+
+    return {
+      ok: true,
+      summary: `Updated your assignment on **${record.topic}**:`,
+      fileCard: {
+        icon: '📝',
+        title: record.topic,
+        meta: `Assignment — ${record.course} · Updated`,
+        snippet: plainPreview,
+        toolId: 'assignment',
+        recordId,
+        actions: [
+          { type: 'link', href: `index.html?type=answer&id=${recordId}#/result`, label: 'Open & Edit', primary: true, icon: 'fa-pen-to-square' }
+        ]
+      }
+    };
+  }
+
   window.RehablixGenerators = window.RehablixGenerators || {};
   window.RehablixGenerators.assignment = {
     meta: {
@@ -108,6 +146,8 @@
       'Refining the writing style…',
       'Final polish…'
     ],
-    generate
+    editStatusStages: ['Reading the current assignment…', 'Applying your changes…', 'Final polish…'],
+    generate,
+    edit
   };
 })();
