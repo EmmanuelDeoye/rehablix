@@ -88,6 +88,13 @@ function mount() {
   const audioPatientName = $('audioPatientName');
   const audioPatientList = $('audioPatientList');
   const audioPatientHint = $('audioPatientHint');
+  const audioPrevSessionHint = $('audioPrevSessionHint');
+
+  // AUDIO UPGRADE: microphone device picker + noise handling, upload
+  // preview, and a way to cancel an in-progress transcription.
+  const micDeviceSelect = $('micDeviceSelect');
+  const uploadWaveformCanvas = $('uploadWaveformCanvas');
+  const cancelProcessingBtn = $('cancelProcessingBtn');
 
   // History lives in the shell's single global drawer (js/history-drawer.js) —
   // this view registers its data source as a provider (see the History section).
@@ -122,6 +129,11 @@ function mount() {
   let interimEl = null;
   let hasReceivedAnyResult = false;
   let noResultWatchdog = null;
+  let currentPlan = 'free';
+  let selectedDeviceId = localStorage.getItem('rehablix_audio_input_device') || '';
+  let transcriptionAbortController = null;
+  let recorderStoppedResolve = null;
+  let prevSessionsForPatient = [];
 
   function showToast(message, type = 'success', duration = 3000) {
     let container = document.getElementById('toast-container');
@@ -260,11 +272,54 @@ function mount() {
     uploadFileInfo.style.display = 'flex';
     uploadFileInfo.innerHTML = `<i class="fas fa-file-audio"></i> ${escapeHtml(file.name)} (${(file.size / 1024 / 1024).toFixed(1)}MB)`;
     transcribeUploadBtn.disabled = false;
+    drawUploadWaveform(file);
+  }
+
+  // AUDIO UPGRADE: a quick static waveform + duration preview for an
+  // uploaded file, so the clinician can confirm it's the right recording
+  // before spending a transcription on it — upload previously showed only
+  // the file name/size.
+  async function drawUploadWaveform(file) {
+    if (!uploadWaveformCanvas) return;
+    uploadWaveformCanvas.style.display = 'none';
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      const raw = audioBuffer.getChannelData(0);
+      const canvas = uploadWaveformCanvas;
+      const w = canvas.width = canvas.clientWidth || 300;
+      const h = canvas.height = 80;
+      const barCount = Math.min(120, Math.floor(w / 3));
+      const blockSize = Math.floor(raw.length / barCount);
+      const peaks = [];
+      for (let i = 0; i < barCount; i++) {
+        let max = 0;
+        const start = i * blockSize;
+        for (let j = 0; j < blockSize; j++) max = Math.max(max, Math.abs(raw[start + j] || 0));
+        peaks.push(max);
+      }
+      const drawCtx = canvas.getContext('2d');
+      drawCtx.clearRect(0, 0, w, h);
+      const accent = getComputedStyle(document.documentElement).getPropertyValue('--audio-accent').trim() || '#7c3aed';
+      drawCtx.fillStyle = accent;
+      const barWidth = w / barCount;
+      peaks.forEach((p, i) => {
+        const barHeight = Math.max(2, p * h);
+        drawCtx.fillRect(i * barWidth, (h - barHeight) / 2, Math.max(1, barWidth - 1), barHeight);
+      });
+      uploadFileInfo.innerHTML += ` <span style="color:var(--text-secondary);">· ${formatTime(Math.round(audioBuffer.duration))}</span>`;
+      uploadWaveformCanvas.style.display = 'block';
+      ctx.close().catch(() => {});
+    } catch (err) {
+      console.warn('Could not render upload preview waveform:', err);
+    }
   }
 
   transcribeUploadBtn.addEventListener('click', async () => {
     if (!uploadedFile || !currentUser) return;
     if (scopeUid === null) { showToast('Your access to Audio Transcription has been turned off by your center admin.', 'error', 6000); return; }
+    try { await checkQuotaOrThrow(); } catch (err) { showToast(err.message, 'error', 6000); return; }
 
     localSessionId = newSessionId();
     sessionMeta = {
@@ -287,11 +342,13 @@ function mount() {
 
     try {
       const text = await transcribeBlob(uploadedFile);
+      recordQuotaUsage(text, 1);
       rawSegments = [text || ''];
       sessionMeta.rawSegments = rawSegments;
       await idbPutSession(sessionMeta);
       await finalizeSession();
     } catch (err) {
+      if (err.name === 'AbortError') return; // cancelled — resetToSetup() already ran
       console.error(err);
       showToast('Transcription failed: ' + err.message, 'error', 5000);
       setStage(1);
@@ -328,7 +385,29 @@ function mount() {
     }
 
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // AUDIO UPGRADE: browser-native noise suppression/echo cancellation/
+      // auto gain — the bare `{ audio: true }` this used to send left all
+      // three off. `deviceId` honors whatever mic the clinician picked in
+      // the setup panel (js/audio.js's populateMicDevices()).
+      const audioConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      if (selectedDeviceId) audioConstraints.deviceId = { exact: selectedDeviceId };
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+      } catch (deviceErr) {
+        // The previously-picked mic may have been unplugged/disconnected —
+        // fall back to the system default rather than failing outright.
+        if (deviceErr.name === 'OverconstrainedError' && selectedDeviceId) {
+          selectedDeviceId = '';
+          localStorage.removeItem('rehablix_audio_input_device');
+          if (micDeviceSelect) micDeviceSelect.value = '';
+          showToast('Your selected microphone is no longer available — using the default instead.', 'info', 5000);
+          delete audioConstraints.deviceId;
+          mediaStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+        } else {
+          throw deviceErr;
+        }
+      }
+      populateMicDevices(); // now that permission is granted, real device labels are available
     } catch (err) {
       console.error('getUserMedia failed:', err.name, err.message);
       const messages = {
@@ -381,13 +460,22 @@ function mount() {
     mediaRecorder.onstop = () => {
       if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
       releaseWakeLock();
+      // AUDIO FIX: the final ondataavailable chunk fires before this event
+      // per spec — resolving here (instead of a blind setTimeout after
+      // .stop()) means whoever's waiting is guaranteed the last chunk is
+      // already in IndexedDB before they read chunks back out.
+      if (recorderStoppedResolve) { recorderStoppedResolve(); recorderStoppedResolve = null; }
     };
 
     mediaRecorder.start(CHUNK_INTERVAL_MS);
     requestWakeLock();
     setupWaveform();
     startTimer();
-    startLiveTranscription();
+    // AUDIO FIX: startLiveTranscription() was already called (and awaited
+    // 250ms) in startNewRecording() before mic permission was even
+    // requested — calling it again here was a redundant duplicate that only
+    // "worked" because its own try/catch silently swallows the resulting
+    // "already started" exception.
 
     recIndicator.classList.remove('paused');
     recStatusText.textContent = 'Recording';
@@ -448,32 +536,47 @@ function mount() {
     sessionMeta.status = 'transcribing';
     await idbPutSession(sessionMeta);
 
-    if (mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+    // AUDIO FIX: wait for the recorder's actual onstop event (which itself
+    // only fires after the final ondataavailable chunk is flushed) instead
+    // of guessing with a fixed setTimeout — a slow device or a large last
+    // chunk used to be able to get silently dropped.
+    const stopped = mediaRecorder.state === 'inactive'
+      ? Promise.resolve()
+      : new Promise((resolve) => { recorderStoppedResolve = resolve; mediaRecorder.stop(); });
 
     showProcessing('Finishing up transcription…', 'Wrapping up.', 40);
     setStage(3);
+    await stopped;
 
-    setTimeout(async () => {
-      let hasText = rawSegments.some(s => s && s.trim());
+    let hasText = rawSegments.some(s => s && s.trim());
 
-      if (!hasText) {
-        try {
-          updateProcessingProgress(55, 'Transcribing the recording…');
-          const chunks = await idbGetChunksForSession(localSessionId);
-          if (chunks.length) {
-            const fullBlob = new Blob(chunks.map(c => c.blob), { type: sessionMeta.mimeType || 'audio/webm' });
-            const text = await transcribeBlob(fullBlob);
-            if (text) { rawSegments = [text]; appendLiveTranscript(text); }
-          }
-        } catch (err) {
-          console.error('Fallback transcription failed:', err);
+    if (!hasText) {
+      try {
+        updateProcessingProgress(55, 'Transcribing the recording…');
+        const chunks = await idbGetChunksForSession(localSessionId);
+        if (chunks.length) {
+          const fullBlob = new Blob(chunks.map(c => c.blob), { type: sessionMeta.mimeType || 'audio/webm' });
+          await checkQuotaOrThrow();
+          const text = await transcribeBlob(fullBlob);
+          recordQuotaUsage(text, 1);
+          if (text) { rawSegments = [text]; appendLiveTranscript(text); }
         }
+      } catch (err) {
+        if (err.name === 'AbortError') { return; } // cancelled — resetToSetup() already ran
+        console.error('Fallback transcription failed:', err);
+        showToast(err.message || 'Transcription failed', 'error', 5000);
       }
+    }
 
-      sessionMeta.rawSegments = rawSegments;
-      await idbPutSession(sessionMeta);
-      await finalizeSession();
-    }, 400);
+    sessionMeta.rawSegments = rawSegments;
+    await idbPutSession(sessionMeta);
+    await finalizeSession();
+  });
+
+  cancelProcessingBtn?.addEventListener('click', () => {
+    if (transcriptionAbortController) transcriptionAbortController.abort();
+    showToast('Cancelled', 'info');
+    resetToSetup();
   });
 
   function startTimer() {
@@ -497,6 +600,45 @@ function mount() {
     const ss = String(s).padStart(2, '0');
     return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
   }
+
+  // AUDIO UPGRADE: microphone device picker. Browsers can't "pair" a
+  // Bluetooth/USB mic from a web page — that's an OS-level step — but once
+  // paired, enumerateDevices() lists it, so the clinician can select it here
+  // and it's used as this session's `deviceId` constraint. Device labels are
+  // blank until mic permission has been granted at least once; this is
+  // re-run right after a successful getUserMedia so the list fills in.
+  async function populateMicDevices() {
+    if (!micDeviceSelect || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter(d => d.kind === 'audioinput');
+      const options = ['<option value="">Default microphone</option>']
+        .concat(inputs.map((d, i) => `<option value="${escapeHtml(d.deviceId)}">${escapeHtml(d.label || `Microphone ${i + 1}`)}</option>`));
+      micDeviceSelect.innerHTML = options.join('');
+      // Keep the saved choice selected only if that device is still present.
+      if (selectedDeviceId && inputs.some(d => d.deviceId === selectedDeviceId)) {
+        micDeviceSelect.value = selectedDeviceId;
+      } else if (selectedDeviceId) {
+        selectedDeviceId = '';
+        localStorage.removeItem('rehablix_audio_input_device');
+      }
+    } catch (err) {
+      console.warn('Could not list microphones:', err);
+    }
+  }
+  if (micDeviceSelect) {
+    micDeviceSelect.addEventListener('change', () => {
+      selectedDeviceId = micDeviceSelect.value;
+      if (selectedDeviceId) localStorage.setItem('rehablix_audio_input_device', selectedDeviceId);
+      else localStorage.removeItem('rehablix_audio_input_device');
+    });
+  }
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+    const onDeviceChange = () => populateMicDevices();
+    navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
+    cleanupFns.push(() => navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange));
+  }
+  populateMicDevices();
 
   function setupWaveform() {
     try {
@@ -658,10 +800,12 @@ function mount() {
     formData.append('file', blob, filename);
     formData.append('model', 'whisper-1');
 
+    if (!transcriptionAbortController) transcriptionAbortController = new AbortController();
     const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${aiConfig.token}` },
-      body: formData
+      body: formData,
+      signal: transcriptionAbortController.signal
     });
 
     if (!response.ok) {
@@ -684,6 +828,28 @@ function mount() {
     }
   }
 
+  // AUDIO UPGRADE: this page had no quota enforcement at all — every other
+  // AI tool in the app (format.js, presentation.js, emr-view.js, etc.) gates
+  // its AI calls the same way. Guards both the Whisper transcription and the
+  // GPT narrative-cleanup pass, whichever path a session takes to reach them.
+  async function checkQuotaOrThrow() {
+    if (!currentUser || !window.RehabPlanTiers) return;
+    const quota = window.RehablixQuotaModal
+      ? await window.RehablixQuotaModal.checkAndWarn(currentUser.uid, currentPlan)
+      : await window.RehabPlanTiers.hasQuota(currentUser.uid, currentPlan);
+    if (!quota.allowed) {
+      const resetMins = Math.max(1, Math.ceil((quota.resetAt - Date.now()) / 60000));
+      throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
+    }
+  }
+  function recordQuotaUsage(text, weight) {
+    if (!currentUser || !window.RehabPlanTiers) return;
+    window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlan, window.RehabPlanTiers.estimateTokens(text || ''), weight || 1).catch(() => {});
+  }
+  const onPlanUpdated = (e) => { currentPlan = (e.detail && e.detail.plan) || 'free'; };
+  document.addEventListener('planUpdated', onPlanUpdated);
+  cleanupFns.push(() => document.removeEventListener('planUpdated', onPlanUpdated));
+
   function buildNarrativeSystemPrompt(professionalLabel) {
     return `You are helping a ${professionalLabel} turn a raw speech-to-text transcript of a real session into a professional session narrative — the kind of note this ${professionalLabel} would write to document what took place, for the clinical record.
 
@@ -691,6 +857,7 @@ Your job:
 1. Write a clear, well-organized narrative, in third person, describing what happened throughout the session — what was discussed, done, observed, or reported, in the order it makes sense as a summary (you do not need to follow the transcript's exact sentence order).
 2. Use professional documentation language and terminology appropriate to a ${professionalLabel}, while staying faithful to what was actually said.
 3. You may paraphrase, combine related points, and smooth out filler words, false starts, and speech-to-text artifacts — this is expected and different from a verbatim transcript.
+4. If the transcript clearly reflects more than one speaker (e.g. the ${professionalLabel} and a patient/caregiver going back and forth), you may mark distinct speaker turns with a short bolded label such as **Clinician:** or **Patient:** — only when genuinely distinguishable from context (turn-taking, direct address, differing perspectives), never guessed or invented. A single-voice summary/monologue transcript should stay as plain narrative with no speaker labels at all.
 
 You must NOT:
 - Invent observations, assessments, measurements, scores, outcomes, diagnoses, or clinical judgments that are not present in the transcript.
@@ -729,6 +896,7 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     for (let i = 0; i < pieces.length; i++) {
       if (onProgress) onProgress(i, pieces.length);
       try {
+        if (!transcriptionAbortController) transcriptionAbortController = new AbortController();
         const url = `${aiConfig.endpoint.replace(/\/$/, '')}/chat/completions`;
         const response = await fetch(url, {
           method: 'POST',
@@ -737,7 +905,8 @@ Output ONLY the narrative text, as flowing paragraphs.`;
             model: aiConfig.model,
             messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: pieces[i] }],
             max_tokens: 4000, temperature: 0.3
-          })
+          }),
+          signal: transcriptionAbortController.signal
         });
         if (!response.ok) {
           const errBody = await response.text().catch(() => '');
@@ -747,6 +916,7 @@ Output ONLY the narrative text, as flowing paragraphs.`;
         const data = await response.json();
         cleanedPieces.push(data.choices?.[0]?.message?.content?.trim() || pieces[i]);
       } catch (err) {
+        if (err.name === 'AbortError') throw err; // cancelled — propagate, don't silently keep raw text
         console.error('Narrative pass failed for a section, keeping raw text for it:', err);
         cleanedPieces.push(pieces[i]);
       }
@@ -760,10 +930,21 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     const professionalLabel = PROFESSIONAL_LABELS[professionalKey] || 'Clinician';
 
     showProcessing('Writing the session narrative…', `Summarizing what happened, from a ${professionalLabel}'s documentation perspective.`, 70);
-    cleanedTranscript = await cleanupTranscript(rawText, professionalKey, (i, total) => {
-      const pct = 70 + Math.round(((i + 1) / total) * 25);
-      updateProcessingProgress(pct, `Writing section ${i + 1} of ${total}…`);
-    });
+    try {
+      await checkQuotaOrThrow();
+      cleanedTranscript = await cleanupTranscript(rawText, professionalKey, (i, total) => {
+        const pct = 70 + Math.round(((i + 1) / total) * 25);
+        updateProcessingProgress(pct, `Writing section ${i + 1} of ${total}…`);
+      });
+      recordQuotaUsage(rawText + cleanedTranscript, 1);
+    } catch (err) {
+      if (err.name === 'AbortError') throw err; // cancelled — let the caller's catch handle it
+      // Out of quota (or any other cleanup failure) — the raw transcript is
+      // still a usable clinical record, so fall back to it rather than
+      // losing the session.
+      showToast(err.message || 'Could not write the polished narrative — showing the raw transcript instead.', 'error', 6000);
+      cleanedTranscript = '';
+    }
 
     sessionMeta.rawTranscript = rawText;
     sessionMeta.cleanedTranscript = cleanedTranscript;
@@ -825,7 +1006,9 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     currentView = 'cleaned';
     viewCleanedBtn.classList.add('active');
     viewRawBtn.classList.remove('active');
-    transcriptTextarea.value = sessionMeta.cleanedTranscript || '';
+    // Falls back to the raw transcript if the narrative pass didn't run
+    // (e.g. quota-blocked) so this tab is never just an empty box.
+    transcriptTextarea.value = sessionMeta.cleanedTranscript || sessionMeta.rawTranscript || '';
   });
   viewRawBtn.addEventListener('click', () => {
     currentView = 'raw';
@@ -892,10 +1075,14 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     localSessionId = null; sessionMeta = null; rawSegments = []; cleanedTranscript = '';
     uploadedFile = null; firebaseAudioId = null; chunkIndex = 0;
     stopLiveTranscription();
+    transcriptionAbortController = null;
     uploadFileInfo.style.display = 'none';
+    if (uploadWaveformCanvas) uploadWaveformCanvas.style.display = 'none';
     transcribeUploadBtn.disabled = true;
     audioFileInput.value = '';
     sessionTitleInput.value = '';
+    if (audioPrevSessionHint) audioPrevSessionHint.innerHTML = '';
+    lastPrevSessionLookupId = null;
     setStage(1);
   }
 
@@ -917,7 +1104,7 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     resumeBanner.style.display = 'none';
     showProcessing('Picking up where you left off…', 'Finishing transcription of what was already recorded.', 30);
     setStage(3);
-    await finalizeSession();
+    try { await finalizeSession(); } catch (err) { if (err.name !== 'AbortError') { console.error(err); showToast('Could not finish transcription: ' + err.message, 'error', 5000); } }
   });
 
   discardSessionBtn.addEventListener('click', async () => {
@@ -1057,6 +1244,36 @@ Output ONLY the narrative text, as flowing paragraphs.`;
         ? `✓ Linked to Smart EMR${matchedEmrPatient.regNumber ? ' — ' + matchedEmrPatient.regNumber : ''}`
         : '';
     }
+    checkPreviousSessions();
+  }
+
+  // AUDIO UPGRADE: previous-session quick-compare — once a patient is
+  // linked, surface their most recent prior transcript inline, reusing the
+  // same findByRegOrName search Presentation and Smart EMR's Linked Records
+  // already use, instead of inventing another lookup mechanism.
+  let lastPrevSessionLookupId = null;
+  async function checkPreviousSessions() {
+    if (!audioPrevSessionHint) return;
+    if (!matchedEmrPatient) { audioPrevSessionHint.innerHTML = ''; prevSessionsForPatient = []; lastPrevSessionLookupId = null; return; }
+    if (lastPrevSessionLookupId === matchedEmrPatient.id) return;
+    lastPrevSessionLookupId = matchedEmrPatient.id;
+    if (!window.RehablixPatientReg || !scopeUid) return;
+    try {
+      const query = matchedEmrPatient.regNumber || matchedEmrPatient.name;
+      const sources = window.RehablixPatientReg.SEARCH_SOURCES.filter(s => s.path === 'audio');
+      const results = await window.RehablixPatientReg.findByRegOrName(scopeUid, query, sources);
+      prevSessionsForPatient = results.filter(r => r.id !== firebaseAudioId);
+      if (prevSessionsForPatient.length > 0) {
+        const latest = prevSessionsForPatient[0];
+        audioPrevSessionHint.innerHTML = `<i class="fas fa-clock-rotate-left"></i> ${prevSessionsForPatient.length} previous transcript${prevSessionsForPatient.length > 1 ? 's' : ''} found — most recent: ${escapeHtml(latest.date)} <a href="#" id="viewPrevSessionLink">View</a>`;
+        const link = document.getElementById('viewPrevSessionLink');
+        if (link) link.addEventListener('click', (e) => { e.preventDefault(); openHistoryItem(latest.id, latest.raw); });
+      } else {
+        audioPrevSessionHint.innerHTML = '';
+      }
+    } catch (err) {
+      console.warn('[audio] previous-session lookup failed:', err);
+    }
   }
   if (audioPatientName) {
     audioPatientName.addEventListener('input', refreshAudioPatientMatch);
@@ -1080,6 +1297,7 @@ Output ONLY the narrative text, as flowing paragraphs.`;
       showToast('Working on your center\'s shared transcripts', 'info', 3000);
     }
 
+    if (window.rehabPlans) currentPlan = window.rehabPlans.getCurrentPlan() || 'free';
     await loadAiConfig();
     loadHistory();
     loadEmrPatientsForLink(user); // EMR UPGRADE (item 4)

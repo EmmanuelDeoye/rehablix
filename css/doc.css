@@ -1089,6 +1089,12 @@
   position: fixed;
   bottom: 1.5rem;
   right: 1.5rem;
+  /* Every view's CSS loads on every page (shared #toast-container id), and
+     css/sets.css's own centered-toast design (left:50%; translateX(-50%))
+     was leaking in here unreset, shifting this right-anchored stack
+     roughly half its own width off-screen to the left. */
+  left: auto;
+  transform: none;
   z-index: 9999;
   display: flex;
   flex-direction: column;

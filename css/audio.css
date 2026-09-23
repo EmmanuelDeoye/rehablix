@@ -876,15 +876,122 @@
     width: auto;
     height: auto;
   }
-  
+
   .glass-card {
-  background: var(--card-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  padding: 1rem;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.25s ease, border-color 0.25s ease;
-    }
+    padding: 1rem;
+  }
+}
+
+/* =========================================================================
+   AUDIO UPGRADE: a deliberate mobile pass — the sections below were never
+   individually tuned for narrow phones (they held up by luck, being simple
+   flex/stacked layouts), plus styling for the new mic-device picker, upload
+   waveform preview, and previous-session hint.
+   ========================================================================= */
+@media (max-width: 480px) {
+  .audio-main {
+    padding: 1.1rem 0.7rem 2.5rem;
+    /* iOS safe-area so the bottom recording controls never sit under a
+       home-indicator/notch. */
+    padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .audio-progress {
+    gap: 1.1rem;
+  }
+
+  .progress-step .step-number {
+    width: 26px;
+    height: 26px;
+    font-size: 0.78rem;
+  }
+
+  .progress-step .step-label {
+    font-size: 0.62rem;
+  }
+
+  .card-header h3 {
+    font-size: 1.05rem;
+  }
+
+  .source-mode-tab {
+    padding: 0.6rem 0.5rem;
+    font-size: 0.8rem;
+  }
+
+  .record-start-btn {
+    width: 76px;
+    height: 76px;
+    font-size: 1.5rem;
+  }
+
+  .record-hero-ring {
+    width: 76px;
+    height: 76px;
+  }
+
+  .record-hero-dot {
+    width: 56px;
+    height: 56px;
+    font-size: 1.2rem;
+  }
+
+  .rec-timer {
+    font-size: 1.6rem;
+  }
+
+  /* Bigger, easier-to-hit circular controls on touch, with room to wrap
+     instead of crowding on the narrowest phones. */
+  .recording-controls {
+    gap: 1.1rem;
+    flex-wrap: wrap;
+  }
+
+  .control-circle-btn {
+    width: 52px;
+    height: 52px;
+  }
+
+  .control-stop {
+    width: 62px;
+    height: 62px;
+  }
+
+  .live-transcript-text {
+    max-height: 200px;
+    padding: 0.85rem;
+    font-size: 0.85rem;
+  }
+
+  .processing-card {
+    padding: 2.25rem 1.1rem;
+  }
+}
+
+/* ---------- Microphone device picker (item 3: noise handling + devices) ---------- */
+.mic-device-group select {
+  cursor: pointer;
+}
+
+.mic-device-group label i {
+  color: var(--audio-accent);
+  margin-right: 0.2rem;
+}
+
+/* ---------- Previous-session quick-compare ---------- */
+#audioPrevSessionHint:not(:empty) {
+  display: flex !important;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-secondary);
+}
+
+#audioPrevSessionHint a {
+  color: var(--audio-accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+#audioPrevSessionHint a:hover {
+  text-decoration: underline;
 }

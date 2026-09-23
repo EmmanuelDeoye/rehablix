@@ -289,6 +289,9 @@
   <!-- Shell chrome + router (router boots last, after every view has registered) -->
   <script src="js/tools.js" defer></script>
   <script src="js/bottom-nav.js" defer></script>
+  <!-- Tracks per-tool usage counts so the Workspace page can rank cards by
+       "most used first" — listens for router.js's own routechange event. -->
+  <script src="js/tool-usage.js" defer></script>
   <!-- Every routed view's HTML, as plain strings — must load before
        router.js, which reads window.RehablixTemplates synchronously. -->
   <script src="js/view-templates.js" defer></script>

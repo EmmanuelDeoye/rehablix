@@ -10,21 +10,26 @@
   let onShow = function () {};
 
   function mount() {
-    // Scoped to #toolGrid only — the collapsible "more tools" section below
-    // it is a static list of links, not part of the searchable/filterable
-    // main grid (its cards would otherwise "match" a search while staying
-    // invisible behind the collapsed toggle).
-    const toolCards = document.querySelectorAll('#toolGrid .tool-card-link');
+    const toolGrid = document.getElementById('toolGrid');
+    const moreToolsGridEl = document.getElementById('moreToolsGrid');
     const emptyMessage = document.getElementById('emptyMessage');
     const searchInput = document.getElementById('searchInput');
     const searchToggle = document.getElementById('searchToggle');
     const moreToolsToggle = document.getElementById('moreToolsToggle');
     const moreToolsGrid = document.getElementById('moreToolsGrid');
 
+    // Workspace personalization (item 1b): "more tools" is expanded by
+    // default now, so the original reason for scoping search to #toolGrid
+    // only (its cards would "match" while staying hidden behind the
+    // collapsed toggle) no longer applies — search covers every card.
+    function getToolCards() {
+      return document.querySelectorAll('#toolGrid .tool-card-link, #moreToolsGrid .tool-card-link');
+    }
+
     function filterTools(searchText) {
       const searchTerm = searchText.trim().toLowerCase();
       let visibleCount = 0;
-      toolCards.forEach(card => {
+      getToolCards().forEach(card => {
         const title = card.querySelector('.tool-title').textContent.toLowerCase();
         const description = card.querySelector('.tool-description').textContent.toLowerCase();
         const meta = card.querySelector('.tool-meta').textContent.toLowerCase();
@@ -33,6 +38,31 @@
         if (matches) visibleCount++;
       });
       if (emptyMessage) emptyMessage.classList.toggle('hidden', visibleCount !== 0);
+    }
+
+    // Workspace personalization (item 1c): rank every tool card by how
+    // often this clinician has actually used it (js/tool-usage.js), most
+    // used first, and redistribute the top 4 into the always-visible
+    // #toolGrid — moving the existing DOM nodes rather than rewriting them,
+    // so nothing about the cards themselves changes. Ties (including a
+    // first-time user with no usage data at all) keep today's curated
+    // order, since Array.prototype.sort is a stable sort.
+    async function applyUsageRanking() {
+      if (!window.RehablixToolUsage || !toolGrid || !moreToolsGridEl) return;
+      const user = firebase.auth().currentUser;
+      if (!user) return;
+      const usage = await window.RehablixToolUsage.getUsage(user.uid);
+      if (!usage || Object.keys(usage).length === 0) return; // nothing to rank by yet — leave the curated order alone
+
+      const cards = Array.from(getToolCards());
+      const ranked = cards
+        .map((card, index) => ({ card, index, count: usage[card.dataset.tool] || 0 }))
+        .sort((a, b) => (b.count - a.count) || (a.index - b.index))
+        .map(r => r.card);
+
+      ranked.forEach((card, i) => {
+        (i < 4 ? toolGrid : moreToolsGridEl).appendChild(card);
+      });
     }
 
     if (searchInput) {
@@ -131,7 +161,7 @@
     cleanupFns.push(() => document.removeEventListener('planUpdated', onPlanUpdated));
     setTimeout(updatePlanCard, 500);
     if (typeof firebase !== 'undefined') {
-      const unsubPlan = firebase.auth().onAuthStateChanged(() => setTimeout(updatePlanCard, 500));
+      const unsubPlan = firebase.auth().onAuthStateChanged(() => { setTimeout(updatePlanCard, 500); applyUsageRanking(); });
       cleanupFns.push(unsubPlan);
     }
 
@@ -292,6 +322,7 @@
     onShow = function () {
       if (navbarSlot && switcherWrap) navbarSlot.appendChild(switcherWrap);
       initCenterContext();
+      applyUsageRanking(); // item 1c — counts may have changed since the tab was last shown
     };
   }
 

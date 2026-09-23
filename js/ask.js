@@ -608,6 +608,9 @@ If the user's message includes content extracted from an uploaded file, an image
         } else if (mode === 'videos') {
           fileInput.setAttribute('accept', 'video/*');
           fileInput.removeAttribute('capture');
+        } else if (mode === 'audio') {
+          fileInput.setAttribute('accept', 'audio/*');
+          fileInput.removeAttribute('capture');
         } else {
           fileInput.setAttribute('accept', 'image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip,.csv,.md');
           fileInput.removeAttribute('capture');
