@@ -1,7 +1,9 @@
 <!-- index.html — rehablix SPA shell. Routes (js/router.js) swap #appRoot's
      content between programmatically rendered views (js/view-templates.js);
-     Smart EMR, Project Maker, and the pptx export page remain real
-     standalone pages linked normally. -->
+     Smart EMR now lives here too (route "emr", js/views/emr-view.js) —
+     doc.html/js/doc.js are kept on disk as a rollback path but are no
+     longer linked from normal navigation. Project Maker and the pptx
+     export page remain real standalone pages linked normally. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -92,6 +94,7 @@
   <link rel="stylesheet" href="css/sub.css">
   <link rel="stylesheet" href="css/result.css">
   <link rel="stylesheet" href="css/docresult.css">
+  <link rel="stylesheet" href="css/doc.css">
 
   <script>
     if ('serviceWorker' in navigator) {
@@ -220,6 +223,10 @@
   <script src="js/plan-tiers.js" defer></script>
   <script src="js/plan.js" defer></script>
   <script src="js/handoff.js" defer></script>
+  <!-- Shared clinical-context builder for a Smart EMR patient — used by
+       both js/views/emr-view.js's own AI features and js/ask.js's Lixa
+       patient-context lookup. -->
+  <script src="js/patient-context.js" defer></script>
 
   <!-- The one global History drawer — must load before any view registers a provider -->
   <script src="js/history-drawer.js" defer></script>
@@ -261,6 +268,8 @@
   <script src="js/docresult.js" defer></script>
   <script src="js/views/formatview-view.js" defer></script>
   <script src="js/views/audioview-view.js" defer></script>
+  <!-- Smart EMR — migrated off the old standalone doc.html/js/doc.js. -->
+  <script src="js/views/emr-view.js" defer></script>
 
   <!-- Shell chrome + router (router boots last, after every view has registered) -->
   <script src="js/tools.js" defer></script>

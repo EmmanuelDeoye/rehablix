@@ -14,24 +14,20 @@
     return 'report';
   }
 
-  async function fetchDeepSeekToken() {
-    const snap = await firebase.database().ref('tokens/deepseek').once('value');
-    const data = snap.val();
-    if (!data || !data.api_key) throw new Error('AI credentials are not configured.');
-    return data.api_key;
-  }
-
-  async function callAIWithValidation(messages, token, maxTokens, attempt) {
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+  // Uses whichever of the 4 Lixa models the user has selected, instead of
+  // always hardcoding DeepSeek — this tool is embedded in Lixa, not a
+  // separate AI product with its own model/gating.
+  async function callAIWithValidation(messages, config, attempt) {
+    const response = await fetch(`${config.endpoint}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ model: 'deepseek-v4-flash', messages, max_tokens: maxTokens, temperature: 0.3, top_p: 0.9 })
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+      body: JSON.stringify({ model: config.model, messages, max_tokens: config.maxTokens, temperature: config.temperature ?? 0.3, top_p: config.top_p ?? 0.9 })
     });
     if (!response.ok) throw new Error(`API error: ${response.status}`);
     const data = await response.json();
     const content = (data.choices?.[0]?.message?.content || '').trim();
     if (content.length < 20) {
-      if (attempt < 2) return callAIWithValidation(messages, token, maxTokens + 1000, attempt + 1);
+      if (attempt < 2) return callAIWithValidation(messages, config, attempt + 1);
       throw new Error('The AI returned an empty response. Please try again.');
     }
     return content;
@@ -65,11 +61,14 @@ CLINICIAN: ${profession}
 SOURCE NOTES / CONTENT:
 ${data.content}`;
 
-    const token = await fetchDeepSeekToken();
+    await window.LixaCore.checkToolQuota();
+    const config = await window.LixaCore.resolveToolModelConfig();
+    if (!config) throw new Error('AI service is not configured.');
     const rawMarkdown = await callAIWithValidation(
       [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }],
-      token, 3500, 1
+      config, 1
     );
+    window.LixaCore.reportToolTokenUsage(systemPrompt + userContent + rawMarkdown, config.weight);
     const htmlContent = marked.parse(rawMarkdown);
 
     const historyItem = {
@@ -99,10 +98,73 @@ ${data.content}`;
         recordId: ref.key,
         exportData: { content: htmlContent, patientName, profession, diagnosis, modeLabel: modeText, mode },
         actions: [
-          { type: 'link', href: `result.html?type=case&id=${ref.key}`, label: 'Open & Edit', primary: true, external: true, icon: 'fa-pen-to-square' },
+          { type: 'link', href: `index.html?type=case&id=${ref.key}#/result`, label: 'Open & Edit', primary: true, icon: 'fa-pen-to-square' },
           { type: 'button', id: 'export-pptx', label: 'Export to PPTX', icon: 'fa-file-powerpoint' }
         ]
       }
+    };
+  }
+
+  // Edit-in-place (Lixa History + Intelligence Upgrade #2): revises the SAME
+  // saved presentation/report/documentation record instead of generating a
+  // new one — preserves the original clinical content unless the requested
+  // change specifically touches it.
+  async function edit(recordId, instruction) {
+    const user = firebase.auth().currentUser;
+    if (!user) return { ok: false, error: 'Please log in to edit this document.' };
+    const ref = firebase.database().ref(`history/${user.uid}/caseHistory/${recordId}`);
+    const record = (await ref.once('value')).val();
+    if (!record) return { ok: false, error: 'The original file could not be found.' };
+
+    await window.LixaCore.checkToolQuota();
+    const config = await window.LixaCore.resolveToolModelConfig();
+    if (!config) throw new Error('AI service is not configured.');
+    const modeText = record.documentType || 'document';
+    const messages = [
+      { role: 'system', content: `You are revising an existing ${modeText.toLowerCase()} for a clinician. Preserve the existing clinically accurate content and structure; do not invent new clinical facts. Return the complete revised document in Markdown.` },
+      { role: 'user', content: `CURRENT DOCUMENT:\n${record.resultsMarkdown || record.results}\n\nREQUESTED CHANGE:\n${instruction}\n\nReturn ONLY the complete updated document in Markdown.` }
+    ];
+    const rawMarkdown = await callAIWithValidation(messages, config, 1);
+    window.LixaCore.reportToolTokenUsage(JSON.stringify(messages) + rawMarkdown, config.weight);
+    const htmlContent = marked.parse(rawMarkdown);
+    const preview = rawMarkdown.replace(/[#*`_>-]/g, '').slice(0, 150).trim();
+
+    await ref.update({ results: rawMarkdown, resultsMarkdown: rawMarkdown, resultsHtml: htmlContent, updatedAt: Date.now() });
+
+    return {
+      ok: true,
+      summary: `Updated your ${modeText.toLowerCase()} for **${record.patientName || 'the patient'}**:`,
+      fileCard: {
+        icon: '📑',
+        title: `${modeText} — ${record.patientName || 'Patient'}`,
+        meta: `${modeText} · Updated`,
+        snippet: preview,
+        toolId: 'presentation',
+        recordId,
+        exportData: { content: htmlContent, patientName: record.patientName, profession: record.profession, diagnosis: record.diagnosis, modeLabel: modeText, mode: record.mode },
+        actions: [
+          { type: 'link', href: `index.html?type=case&id=${recordId}#/result`, label: 'Open & Edit', primary: true, icon: 'fa-pen-to-square' },
+          { type: 'button', id: 'export-pptx', label: 'Export to PPTX', icon: 'fa-file-powerpoint' }
+        ]
+      }
+    };
+  }
+
+  // Generic export (Lixa History + Intelligence Upgrade): normalizes this
+  // tool's saved record into { title, html, exportData } — exportData is
+  // included so the generic PPTX path can reuse the exact same shape the
+  // dedicated "Export to PPTX" button already sends to ppt-export.html.
+  async function getExportContent(recordId) {
+    const user = firebase.auth().currentUser;
+    if (!user) return null;
+    const record = (await firebase.database().ref(`history/${user.uid}/caseHistory/${recordId}`).once('value')).val();
+    if (!record) return null;
+    const modeText = record.documentType || 'Document';
+    const html = record.resultsHtml || (typeof marked !== 'undefined' ? marked.parse(record.resultsMarkdown || record.results || '') : (record.resultsMarkdown || record.results || ''));
+    return {
+      title: `${modeText} — ${record.patientName || 'Patient'}`,
+      html,
+      exportData: { content: html, patientName: record.patientName, profession: record.profession, diagnosis: record.diagnosis, modeLabel: modeText, mode: record.mode }
     };
   }
 
@@ -124,7 +186,16 @@ ${data.content}`;
       collected.mode = detectMode(text);
       return collected;
     },
+    statusStages: [
+      'Reviewing your notes…',
+      'Organizing the outline…',
+      'Writing each section…',
+      'Polishing the formatting…'
+    ],
+    editStatusStages: ['Reading the current document…', 'Applying your changes…', 'Polishing the formatting…'],
     generate,
+    edit,
+    getExportContent,
     handleAction(actionId, card) {
       if (actionId === 'export-pptx' && card.exportData) {
         localStorage.setItem('pptExportData', JSON.stringify(card.exportData));

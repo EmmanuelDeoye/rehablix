@@ -23,25 +23,21 @@ Requirements:
 - Return ONLY the HTML (no markdown, no explanations).`;
   }
 
-  async function fetchOpenAiToken() {
-    const snap = await firebase.database().ref('tokens/open_ai').once('value');
-    const data = snap.val();
-    if (!data || !data.api_key) throw new Error('AI credentials are not configured.');
-    return data.api_key;
-  }
-
-  async function callAIWithValidation(prompt, token, attempt) {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  // Uses whichever of the 4 Lixa models the user has selected, instead of
+  // always hardcoding the top-tier model — this tool is embedded in Lixa,
+  // not a separate AI product with its own gating.
+  async function callAIWithValidation(prompt, config, attempt) {
+    const response = await fetch(`${config.endpoint}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
       body: JSON.stringify({
-        model: 'gpt-4.1',
+        model: config.model,
         messages: [
           { role: 'system', content: 'You output clean HTML with proper tables. No extra text.' },
           { role: 'user', content: prompt }
         ],
-        temperature: 0.3,
-        max_tokens: attempt === 1 ? 4000 : 5500
+        temperature: Math.min(config.temperature ?? 0.3, 0.3),
+        max_tokens: config.maxTokens
       })
     });
     if (!response.ok) throw new Error(`API error: ${response.status}`);
@@ -52,7 +48,7 @@ Requirements:
       throw new Error('The AI declined to generate this content — try again with a different tool name.');
     }
     if (content.length < 20) {
-      if (attempt < 2) return callAIWithValidation(prompt, token, attempt + 1);
+      if (attempt < 2) return callAIWithValidation(prompt, config, attempt + 1);
       throw new Error('The AI returned an empty response. Please try again.');
     }
     return content;
@@ -81,7 +77,10 @@ Requirements:
     const blob = new Blob([fullHtml], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank');
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    // Revoking right away (it used to be after 1s) races the new tab's own
+    // load: on a busy/slow page the tab hadn't fetched the blob yet and
+    // showed an empty page. Keep it alive long enough for any load.
+    setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
   }
 
   async function generate(data) {
@@ -103,9 +102,12 @@ Requirements:
       recordId = existingEntry[0];
       content = existingEntry[1].generatedContent;
     } else {
-      const token = await fetchOpenAiToken();
+      await window.LixaCore.checkToolQuota();
+      const config = await window.LixaCore.resolveToolModelConfig();
+      if (!config) throw new Error('AI service is not configured.');
       const prompt = buildPrompt(toolName, includeGuides);
-      content = await callAIWithValidation(prompt, token, 1);
+      content = await callAIWithValidation(prompt, config, 1);
+      window.LixaCore.reportToolTokenUsage(prompt + content, config.weight);
       const historyItem = {
         toolName,
         includeGuides,
@@ -139,6 +141,53 @@ Requirements:
     };
   }
 
+  // Edit-in-place (Lixa History + Intelligence Upgrade #2): revises the SAME
+  // saved tool record instead of generating a new one.
+  async function edit(recordId, instruction) {
+    const user = firebase.auth().currentUser;
+    if (!user) return { ok: false, error: 'Please log in to edit this tool.' };
+    const ref = firebase.database().ref(`history/${user.uid}/standardizedTools/${recordId}`);
+    const record = (await ref.once('value')).val();
+    if (!record) return { ok: false, error: 'The original file could not be found.' };
+
+    await window.LixaCore.checkToolQuota();
+    const config = await window.LixaCore.resolveToolModelConfig();
+    if (!config) throw new Error('AI service is not configured.');
+    const prompt = `Here is the existing content of the "${record.toolName}" standardized assessment tool (HTML):\n\n${record.generatedContent}\n\nApply this requested change, preserving the accuracy of the original tool's items/scoring unless the change specifically asks to alter them:\n"${instruction}"\n\nReturn ONLY the complete updated HTML (no markdown, no code fences, no commentary).`;
+    const content = await callAIWithValidation(prompt, config, 1);
+    window.LixaCore.reportToolTokenUsage(prompt + content, config.weight);
+
+    const preview = content.replace(/<[^>]*>/g, '').substring(0, 150);
+    await ref.update({ generatedContent: content, preview, updatedAt: new Date().toISOString() });
+
+    return {
+      ok: true,
+      summary: `Updated **${record.toolName}**:`,
+      fileCard: {
+        icon: '⚖️',
+        title: record.toolName,
+        meta: 'Standardized Tool · Updated',
+        snippet: preview,
+        toolId: 'standardized',
+        recordId,
+        html: content,
+        actions: [
+          { type: 'button', id: 'view-pdf', label: 'Open PDF Viewer', primary: true, icon: 'fa-file-pdf' }
+        ]
+      }
+    };
+  }
+
+  // Generic export (Lixa History + Intelligence Upgrade): normalizes this
+  // tool's saved record into { title, html }.
+  async function getExportContent(recordId) {
+    const user = firebase.auth().currentUser;
+    if (!user) return null;
+    const record = (await firebase.database().ref(`history/${user.uid}/standardizedTools/${recordId}`).once('value')).val();
+    if (!record) return null;
+    return { title: record.toolName || 'Standardized Tool', html: record.generatedContent || '' };
+  }
+
   window.RehablixGenerators = window.RehablixGenerators || {};
   window.RehablixGenerators.standardized = {
     meta: {
@@ -146,23 +195,75 @@ Requirements:
       name: 'Standardized Tool',
       icon: '⚖️',
       description: 'Full copy of a standardized assessment (MMSE, Berg Balance Scale, etc.)',
-      keywords: ['standardized tool', 'standardized assessment', 'mmse', 'berg balance', 'outcome measure', 'rating scale']
+      // A short list can't enumerate every scale a user might name, so this
+      // combines (a) generic phrases that always mean "standardized tool"
+      // and (b) the most commonly requested named scales in rehab practice.
+      // `pattern` below (generic "generate/give me the X scale/index/test"
+      // phrasing) is what actually catches names not on this list.
+      keywords: [
+        'standardized tool', 'standardized assessment', 'standardized test', 'standardised tool', 'standardised assessment',
+        'outcome measure', 'rating scale', 'scoring tool', 'screening tool',
+        'mmse', 'mini mental', 'moca', 'montreal cognitive',
+        'berg balance', 'tinetti', 'mini-bestest', 'mini bestest', 'timed up and go', 'tug test',
+        'barthel index', 'katz index', 'lawton', 'fim scale', 'functional independence measure',
+        'oswestry', 'dash score', 'dash questionnaire', 'roland morris',
+        'glasgow coma', 'gcs score', 'nihss', 'fugl-meyer', 'fugl meyer',
+        'modified ashworth', 'visual analog scale', 'vas pain', 'numeric pain rating',
+        'six minute walk', '6-minute walk', '6 minute walk test', 'gait speed test',
+        'beck depression', 'beck anxiety', 'geriatric depression', 'pittsburgh sleep',
+        'quick dash', 'shoulder pain and disability', 'spadi', 'womac', 'harris hip score'
+      ],
+      // Catches named scales not in the keyword list above, e.g. "generate
+      // the Modified Fatigue Impact Scale" or "give me the ABC scale".
+      pattern: /\b(generate|give|create|provide|show|need|want|build|make)\b[^.?!]{0,40}\b(the\s+)?[a-z][a-z\s-]{2,40}\b(scale|index|inventory|questionnaire|score|assessment tool)\b/i
     },
     requiredFields: [
       { key: 'toolName', prompt: 'Which standardized tool do you need (e.g. Berg Balance Scale, MMSE)?' }
     ],
     extractFromText(text) {
       const collected = {};
-      if (text && text.trim()) collected.toolName = text.trim();
+      if (text && text.trim()) {
+        // Strip generic leading request-phrasing so the AI prompt gets a
+        // clean tool name instead of the whole sentence, e.g. "can you
+        // generate the Berg Balance Scale for me" -> "Berg Balance Scale".
+        let cleaned = text.trim()
+          .replace(/^(can|could|would)\s+you\s+/i, '')
+          .replace(/^(please\s+)?(generate|give|create|provide|show|build|make)\s+me\s+/i, '')
+          .replace(/^(please\s+)?(generate|give|create|provide|show|build|make)\s+/i, '')
+          .replace(/^i\s+(need|want)\s+/i, '')
+          .replace(/^the\s+/i, '')
+          .replace(/\s+for\s+(me|my\s+(patient|client|assessment)s?)\.?$/i, '')
+          .replace(/\s+(please|now)\.?$/i, '')
+          .replace(/[.?!]+$/, '')
+          .trim();
+        collected.toolName = cleaned || text.trim();
+      }
       collected.includeGuides = true;
       return collected;
     },
+    statusStages: [
+      'Looking up the assessment structure…',
+      'Laying out items and scoring…',
+      'Formatting for printing…'
+    ],
+    editStatusStages: ['Reading the current tool…', 'Applying your changes…', 'Re-formatting for printing…'],
     generate,
+    edit,
+    getExportContent,
     handleAction(actionId, card) {
       if (actionId === 'view-pdf' && card.html) viewHtmlContent(card.title, card.html);
     },
-    openFromRecord(record) {
-      if (record) viewHtmlContent(record.toolName, record.generatedContent);
-    }
+    // Files / history open the saved tool inside the app (Standardized view,
+    // saved-copy preview) instead of a popup window that a browser can block
+    // or that can load empty.
+    openFromRecord(record, id) {
+      if (id) window.RehablixRouter.go(`index.html?openId=${id}#/standardized`);
+      else if (record) viewHtmlContent(record.toolName, record.generatedContent);
+    },
+    // Generic, title/html-agnostic "open as a printable page" — this is
+    // what Lixa's chat-wide "turn this into a PDF" export reuses (any
+    // tool's exported HTML, not just a standardized assessment), rather
+    // than forking a second print-view implementation.
+    openPrintView: viewHtmlContent
   };
 })();
