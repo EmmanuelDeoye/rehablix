@@ -492,6 +492,20 @@
   transition: opacity 0.3s ease;
 }
 
+/* Every view's CSS loads on every page, so this duplicate of main.css's
+   .toast rule was clobbering main.css's own mobile-safe positioning
+   (left/right/bottom get overridden here at full size, but nothing after
+   this file redeclares them for narrow screens) — pushing the toast mostly
+   off-screen on mobile. Restoring the same mobile override main.css uses. */
+@media (max-width: 640px) {
+  .toast {
+    left: 1rem;
+    right: 1rem;
+    bottom: 1rem;
+    max-width: none;
+  }
+}
+
 .toast.hidden {
   opacity: 0;
   pointer-events: none;
