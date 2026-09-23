@@ -356,8 +356,37 @@
     sidebarItems.forEach(item => {
         item.addEventListener('click', () => {
             switchScreen(item.dataset.screen);
+            closeMobileNav();
         });
     });
+
+    // =========================================================================
+    // Mobile nav toggle (item 1) — the sidebar looks like the desktop
+    // version on mobile too, just collapsed into a dropdown by default.
+    // =========================================================================
+    const emrSidebarEl = document.getElementById('emrSidebar');
+    const mobileNavToggle = document.getElementById('emrMobileNavToggle');
+    function closeMobileNav() {
+        if (emrSidebarEl) emrSidebarEl.classList.remove('mobile-open');
+        if (mobileNavToggle) mobileNavToggle.setAttribute('aria-expanded', 'false');
+    }
+    let mobileNavScrollStart = null;
+    mobileNavToggle?.addEventListener('click', function() {
+        const isOpen = emrSidebarEl.classList.toggle('mobile-open');
+        mobileNavToggle.setAttribute('aria-expanded', String(isOpen));
+        mobileNavScrollStart = isOpen ? window.scrollY : null;
+    });
+    // Retract on scroll, on mobile only — a small threshold so ordinary
+    // touch jitter while reading a screen doesn't close it accidentally.
+    window.addEventListener('scroll', function() {
+        if (!emrSidebarEl || !emrSidebarEl.classList.contains('mobile-open')) return;
+        if (!window.matchMedia('(max-width: 768px)').matches) return;
+        if (mobileNavScrollStart === null) { mobileNavScrollStart = window.scrollY; return; }
+        if (Math.abs(window.scrollY - mobileNavScrollStart) > 15) {
+            closeMobileNav();
+            mobileNavScrollStart = null;
+        }
+    }, { passive: true });
 
     // =========================================================================
     // Patient Tab Navigation
@@ -527,13 +556,12 @@
         dashPendingDocs.querySelectorAll('.pending-doc-item').forEach(el => {
             el.addEventListener('click', async () => {
                 const item = pending[parseInt(el.dataset.index, 10)];
-                if (item.kind === 'session') {
-                    window.RehablixRouter.go(`index.html?id=${encodeURIComponent(item.patientId)}&type=session&sessionId=${encodeURIComponent(item.sessionId)}#/docresult`);
-                    return;
-                }
                 await openPatient(item.patientId);
                 switchScreen('patient');
-                switchPatientTab(item.kind === 'problems' ? 'problems' : 'treatment');
+                // EMR UPGRADE (item 2): every kind lands on the patient's own
+                // tab now — a session used to jump straight to the standalone
+                // docresult editor, bypassing the patient section entirely.
+                switchPatientTab(item.kind === 'problems' ? 'problems' : item.kind === 'treatment' ? 'treatment' : 'sessions');
             });
         });
     }
@@ -543,6 +571,12 @@
     // =========================================================================
     document.getElementById('statPatientsCard')?.addEventListener('click', function() {
         switchScreen('patients');
+    });
+
+    // EMR UPGRADE (item 7): jump straight to the Pending Documentation list
+    // instead of making the clinician scroll down to find it themselves.
+    document.getElementById('statNotesPendingCard')?.addEventListener('click', function() {
+        dashPendingDocs?.closest('.glass-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
 
     async function loadPatientsList() {
@@ -692,114 +726,55 @@
     }
 
     // =========================================================================
-    // Linked Records — surfaces candidate entries from presentation.html
-    // (Case Presentation/Report), gait.html (Gait Analysis), and rom.html
-    // (ROM Analysis) history. Those pages don't share a patient ID with the
-    // EMR, so nothing is auto-linked: every candidate is ranked by how well
-    // it matches (patient name AND clinical "story" — diagnosis/notes
-    // overlap), and the clinician reviews and explicitly links the ones
-    // that are actually the same patient. Linking can be undone any time.
+    // Linked Records — searches Case Presentation/Report, Gait, ROM, and
+    // Assistive Device history for this patient's reg number or name, using
+    // the SAME mechanism as Presentation's "Find patient history" search
+    // (js/patient-reg.js's findByRegOrName) — item 4. Auto-runs once with
+    // the open patient's own reg number/name, but the clinician can type a
+    // different query and re-search (e.g. a record saved under an old name).
     // =========================================================================
-    function namesLikelyMatch(a, b) {
-        if (!a || !b) return false;
-        const na = a.trim().toLowerCase();
-        const nb = b.trim().toLowerCase();
-        if (!na || !nb) return false;
-        return na === nb || na.includes(nb) || nb.includes(na);
-    }
+    const LINKED_RECORDS_SOURCES = ['caseHistory', 'gaitHistory', 'analysisHistory', 'assistiveHistory'];
+    const LINKED_RECORDS_ICON = { caseHistory: 'bx-file', gaitHistory: 'bx-walk', analysisHistory: 'bx-run', assistiveHistory: 'bx-plus-medical' };
 
-    const KEYWORD_STOPWORDS = new Set(['the', 'and', 'with', 'for', 'from', 'this', 'that', 'have', 'has', 'been', 'were', 'pain', 'patient', 'right', 'left', 'both']);
-    function extractKeywords(text) {
-        return Array.from(new Set(
-            (text || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
-                .filter(w => w.length > 3 && !KEYWORD_STOPWORDS.has(w))
-        ));
-    }
-
-    // Scores how likely a history entry belongs to the current patient:
-    // name match is a strong signal, shared clinical terms ("the story
-    // tallies") is a secondary signal. Both are shown to the clinician so
-    // they make the final call, rather than the system silently deciding.
-    function computeRecordMatch(entry, patient) {
-        const reasons = [];
-        let score = 0;
-        // A Motion assessment saved against this exact EMR patient is a certain match, not a guess.
-        if (entry.emrPatientId && entry.emrPatientId === currentPatientId) {
-            reasons.push('Recorded for this patient in Motion');
-            score += 200;
-        }
-        if (namesLikelyMatch(entry.patientName, patient.name)) {
-            reasons.push('Name matches');
-            score += 100;
-        }
-        const patientTerms = extractKeywords(`${patient.primaryDx || ''} ${patient.chiefComplaint || ''} ${patient.goals || ''}`);
-        const entryTerms = extractKeywords(`${entry.diagnosis || ''} ${entry.notes || ''} ${entry.request || ''} ${entry.view || ''} ${entry.fileName || ''}`);
-        const shared = patientTerms.filter(t => entryTerms.includes(t));
-        if (shared.length > 0) {
-            reasons.push(`Shares details: ${shared.slice(0, 3).join(', ')}`);
-            score += shared.length * 10;
-        }
-        return { score, reasons };
-    }
-
-    async function loadLinkedRecords() {
+    async function loadLinkedRecords(query) {
         const container = document.getElementById('linkedRecordsList');
-        if (!container || !currentUser || !currentPatientId) return;
+        const searchInput = document.getElementById('linkedRecordsSearchInput');
+        if (!container || !currentUser || !currentPatientId || !window.RehablixPatientReg) return;
+        const patient = currentPatientData || {};
+        const q = query !== undefined ? query : (patient.regNumber || patient.name || '');
+        if (searchInput && document.activeElement !== searchInput) searchInput.value = q;
+        if (!q) {
+            container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-link"></i><p>This patient has no name or reg number to search by yet.</p></div>`;
+            return;
+        }
         container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-loader-alt bx-spin"></i><p>Searching Case Presentation/Report, Gait, ROM, and Assistive Device history…</p></div>`;
 
         try {
-            const [caseSnap, gaitSnap, romSnap, assistSnap] = await Promise.all([
-                database.ref(`history/${currentUser.uid}/caseHistory`).once('value'),
-                database.ref(`history/${currentUser.uid}/gaitHistory`).once('value'),
-                database.ref(`history/${currentUser.uid}/analysisHistory`).once('value'),
-                database.ref(`history/${currentUser.uid}/assistiveHistory`).once('value')
-            ]);
-
-            const sourceDefs = [
-                { node: caseSnap.val() || {}, source: 'caseHistory', icon: 'bx-file', typeFn: e => e.documentType || 'Case Presentation', contentFn: e => e.resultsMarkdown || e.results || '' },
-                // Motion results carry a structured, method/confidence-stamped clinical note (Motion page → Confirm findings); prefer it over the raw text.
-                { node: gaitSnap.val() || {}, source: 'gaitHistory', icon: 'bx-walk', typeFn: () => 'Gait Analysis', contentFn: e => e.clinicalNote || e.results || '' },
-                { node: romSnap.val() || {}, source: 'analysisHistory', icon: 'bx-run', typeFn: () => 'ROM Analysis', contentFn: e => e.clinicalNote || e.results || '' },
-                { node: assistSnap.val() || {}, source: 'assistiveHistory', icon: 'bx-plus-medical', typeFn: () => 'Assistive Device Assessment', contentFn: e => e.clinicalNote || e.results || '' }
-            ];
-
-            const patient = currentPatientData;
-            let candidates = [];
-            sourceDefs.forEach(({ node, source, icon, typeFn, contentFn }) => {
-                Object.entries(node).forEach(([key, entry]) => {
-                    const match = computeRecordMatch(entry, patient);
-                    candidates.push({
-                        source, key, icon, type: typeFn(entry), date: entry.date || '',
-                        content: contentFn(entry), patientName: entry.patientName || null,
-                        motionStatus: entry.structured ? (entry.status === 'confirmed' ? 'confirmed' : 'draft') : null,
-                        // EMR AI UPGRADE (item 7): carry the compact measured-values
-                        // array Motion's confirm/save flow already saves, so linking
-                        // preserves actual measurements/dates, not just flattened prose.
-                        structuredSummary: (entry.measurements && entry.measurements.length) ? { measurements: entry.measurements } : null,
-                        score: match.score, reasons: match.reasons
-                    });
-                });
-            });
-
-            candidates.sort((a, b) => (b.score - a.score) || String(b.date).localeCompare(String(a.date)));
-            const strong = candidates.filter(c => c.score > 0);
-            const weak = candidates.filter(c => c.score === 0).slice(0, 5); // small "review manually" tail, not the whole database
-            const shown = [...strong, ...weak];
+            const sources = window.RehablixPatientReg.SEARCH_SOURCES.filter(s => LINKED_RECORDS_SOURCES.includes(s.path));
+            const results = await window.RehablixPatientReg.findByRegOrName(scopeUid, q, sources);
+            const shown = results.map(r => ({
+                source: r.source, key: r.id, icon: LINKED_RECORDS_ICON[r.source] || 'bx-file',
+                type: r.title, date: r.date, content: contentFromLinkResult(r), patientName: r.patientName || null,
+                motionStatus: r.raw.structured ? (r.raw.status === 'confirmed' ? 'confirmed' : 'draft') : null,
+                // EMR AI UPGRADE (item 7): carry the compact measured-values
+                // array Motion's confirm/save flow already saves, so linking
+                // preserves actual measurements/dates, not just flattened prose.
+                structuredSummary: (r.raw.measurements && r.raw.measurements.length) ? { measurements: r.raw.measurements } : null
+            }));
 
             if (shown.length === 0) {
-                container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-link"></i><p>No records found yet in Case Presentation/Report, Gait Analysis, or ROM Analysis history.</p></div>`;
+                container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-link"></i><p>No record found for "${escapeHtml(q)}" in Case Presentation/Report, Gait, ROM, or Assistive Device history.</p></div>`;
                 return;
             }
 
             const linked = patient.linkedRecords || [];
             container.innerHTML = shown.map(c => {
                 const isLinked = linked.some(r => r.source === c.source && r.key === c.key);
-                const reasonText = c.reasons.length > 0 ? c.reasons.join(' · ') : 'No strong match — review manually';
                 return `
                 <div class="linked-record-item">
                     <div class="linked-record-info">
                         <div><i class="bx ${c.icon}"></i> <strong>${escapeHtml(c.type)}</strong>${c.patientName ? ' — ' + escapeHtml(c.patientName) : ''}</div>
-                        <div class="linked-record-meta">${escapeHtml(c.date)} · ${escapeHtml(reasonText)}${c.motionStatus === 'confirmed' ? ' · <span style="color:#16a34a;">Clinician-confirmed</span>' : c.motionStatus === 'draft' ? ' · <span style="color:#b45309;">Unreviewed draft</span>' : ''}${isLinked ? ' · <span style="color:#16a34a;">Linked</span>' : ''}</div>
+                        <div class="linked-record-meta">${escapeHtml(c.date)}${c.motionStatus === 'confirmed' ? ' · <span style="color:#16a34a;">Clinician-confirmed</span>' : c.motionStatus === 'draft' ? ' · <span style="color:#b45309;">Unreviewed draft</span>' : ''}${isLinked ? ' · <span style="color:#16a34a;">Linked</span>' : ''}</div>
                     </div>
                     <div style="display:flex;gap:0.4rem;flex-shrink:0;">
                         <button class="btn btn-secondary linked-record-view-btn" data-source="${c.source}" data-key="${escapeHtml(c.key)}" style="font-size:0.7rem;padding:0.2rem 0.7rem;"><i class="bx bx-show"></i> View</button>
@@ -913,7 +888,13 @@
     }
 
     document.getElementById('refreshLinkedRecordsBtn')?.addEventListener('click', function() {
-        loadLinkedRecords();
+        loadLinkedRecords(document.getElementById('linkedRecordsSearchInput')?.value);
+    });
+    document.getElementById('linkedRecordsSearchBtn')?.addEventListener('click', function() {
+        loadLinkedRecords(document.getElementById('linkedRecordsSearchInput')?.value);
+    });
+    document.getElementById('linkedRecordsSearchInput')?.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); loadLinkedRecords(this.value); }
     });
 
     function calculateAge(dob) {
@@ -2279,10 +2260,36 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         const item = r.raw || {};
         return stripMarkdown(item.resultsMarkdown || item.clinicalNote || item.cleanedTranscript || item.results || item.rawTranscript || '');
     }
+    // EMR UPGRADE (item 3): the tool-picker + results list used to toggle
+    // display inline inside the Assessment card, where it rendered mostly
+    // hidden behind the card's other controls. Fix: relocate the SAME panel
+    // (no markup/handlers duplicated) into a real centered modal overlay,
+    // built once and reused, using the existing .hm-overlay chrome.
+    let linkFromToolOverlay = null;
+    function openLinkFromToolModal() {
+        const panel = document.getElementById('linkFromToolPanel');
+        if (!linkFromToolOverlay) {
+            linkFromToolOverlay = document.createElement('div');
+            linkFromToolOverlay.id = 'linkFromToolOverlay';
+            linkFromToolOverlay.className = 'hm-overlay';
+            const box = document.createElement('div');
+            box.className = 'hm-box link-modal-box';
+            box.innerHTML = `<button type="button" class="link-modal-close" aria-label="Close">&times;</button><h3 style="text-align:left;">Link from another tool</h3><div id="linkFromToolPanelHost"></div>`;
+            linkFromToolOverlay.appendChild(box);
+            document.body.appendChild(linkFromToolOverlay);
+            box.querySelector('.link-modal-close').addEventListener('click', closeLinkFromToolModal);
+            linkFromToolOverlay.addEventListener('click', (e) => { if (e.target === linkFromToolOverlay) closeLinkFromToolModal(); });
+        }
+        document.getElementById('linkFromToolPanelHost').appendChild(panel);
+        panel.style.display = 'block';
+        requestAnimationFrame(() => linkFromToolOverlay.classList.add('show'));
+    }
+    function closeLinkFromToolModal() {
+        if (linkFromToolOverlay) linkFromToolOverlay.classList.remove('show');
+    }
     document.getElementById('linkFromToolBtn')?.addEventListener('click', function() {
         if (!currentPatientId) { showToast('Open a patient first', 'warning'); return; }
-        const panel = document.getElementById('linkFromToolPanel');
-        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        openLinkFromToolModal();
     });
     document.querySelectorAll('.link-tool-choice').forEach(btn => {
         btn.addEventListener('click', async function() {
@@ -2309,7 +2316,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
                         const textarea = document.getElementById('intakeAssessment');
                         textarea.value += (textarea.value ? '\n\n--- Linked from ' + r.type + ' (' + r.date + ') ---\n' : '') + content;
                         showToast('Content added to Assessment', 'success');
-                        document.getElementById('linkFromToolPanel').style.display = 'none';
+                        closeLinkFromToolModal();
                     });
                 });
             } catch (err) {
@@ -2492,13 +2499,16 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         if (!data.name) { showToast('Please enter the patient name', 'warning'); return; } // EMR UPGRADE (item 1): diagnosis is now optional
         try {
             // EMR UPGRADE (item 4): every new patient gets a unique reference
-            // number (initials + sequence, e.g. "ED001") used across Motion,
-            // Presentation, Audio, and Smart EMR — see js/patient-reg.js.
+            // number (ACCOUNT OWNER's initials + sequence, e.g. "ED001" for
+            // clinician Emmanuel Deoye — NOT the patient's own initials) used
+            // across Motion, Presentation, Audio, and Smart EMR. See
+            // js/patient-reg.js.
             let regNumber = null;
             if (window.RehablixPatientReg) {
                 const existingSnap = await database.ref(`history/${scopeUid}/patients`).once('value');
                 const existing = Object.values(existingSnap.val() || {}).map(p => p.regNumber).filter(Boolean);
-                regNumber = window.RehablixPatientReg.generateRegNumber(data.name, existing);
+                const ownerName = await window.RehablixPatientReg.getOwnerName(scopeUid);
+                regNumber = window.RehablixPatientReg.generateRegNumber(ownerName, existing);
             }
             const ref = database.ref(`history/${scopeUid}/patients`).push();
             await ref.set({

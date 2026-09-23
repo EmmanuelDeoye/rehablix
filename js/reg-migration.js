@@ -20,25 +20,36 @@
     assistiveHistory: 'assistive-device records', audio: 'audio transcripts'
   };
 
-  async function findMissing(scopeUid, path) {
+  // Flags an item if it has no regNumber at all, OR has one that doesn't
+  // start with this account's correct prefix (Round 3 fix: reg numbers were
+  // originally generated from the PATIENT's initials instead of the
+  // ACCOUNT OWNER's — this catches both the never-numbered and the
+  // wrongly-numbered in one pass).
+  async function findNeedingFix(scopeUid, path, ownerInitials) {
     const snap = await db().ref(`history/${scopeUid}/${path}`).once('value');
     const data = snap.val() || {};
     const nameField = NAME_FIELD_FOR[path] || 'patientName';
+    const src = (window.RehablixPatientReg.SEARCH_SOURCES || []).find((s) => s.path === path);
+    const dateField = (src && src.dateField) || 'createdAt';
     return Object.entries(data)
-      .filter(([id, item]) => item && !item.regNumber && item[nameField])
-      .map(([id, item]) => ({ id, name: item[nameField] }));
+      .filter(([id, item]) => item && item[nameField])
+      .map(([id, item]) => ({ id, name: item[nameField], regNumber: item.regNumber || null, date: item[dateField] || 0 }))
+      .filter((item) => !item.regNumber || !item.regNumber.toUpperCase().startsWith(ownerInitials));
   }
 
-  // Reg numbers are seeded from EMR patients so a backfilled record's
-  // number never collides with a real patient's own.
-  async function existingRegNumbers(scopeUid) {
-    const snap = await db().ref(`history/${scopeUid}/patients`).once('value');
-    return Object.values(snap.val() || {}).map((p) => p.regNumber).filter(Boolean);
+  // Numbers already matching this account's prefix are left untouched and
+  // seed the sequence so a fix never collides with a correct number.
+  async function correctRegNumbers(scopeUid, path, ownerInitials) {
+    const snap = await db().ref(`history/${scopeUid}/${path}`).once('value');
+    const data = snap.val() || {};
+    return Object.values(data)
+      .map((item) => item && item.regNumber)
+      .filter((n) => n && n.toUpperCase().startsWith(ownerInitials));
   }
 
   function buildModal(groups) {
     if (document.getElementById('regMigrationModal')) return document.getElementById('regMigrationModal');
-    const totalCount = groups.reduce((sum, g) => sum + g.missing.length, 0);
+    const totalCount = groups.reduce((sum, g) => sum + g.needsFix.length, 0);
     const labels = groups.map((g) => LABEL_FOR[g.path] || g.path).join(', ');
     const overlay = document.createElement('div');
     overlay.id = 'regMigrationModal';
@@ -46,12 +57,12 @@
     overlay.innerHTML = `
       <div class="hm-box">
         <div class="hm-icon"><i class="fas fa-id-badge"></i></div>
-        <h3>Assign reference numbers</h3>
-        <p>Found ${totalCount} ${labels} without a reference number yet. Assign them now so they show up in
-        cross-tool search and linking — nothing else about these records changes.</p>
+        <h3>Update reference numbers</h3>
+        <p>Found ${totalCount} ${labels} that need a reference-number update (missing or not matching your
+        account's numbering). Fix them now so they show up correctly in cross-tool search and linking.</p>
         <div class="hm-actions">
           <button type="button" class="hm-btn hm-btn-secondary" id="regmLaterBtn">Remind Me Later</button>
-          <button type="button" class="hm-btn hm-btn-primary" id="regmAssignBtn"><i class="fas fa-id-badge"></i> Assign Now</button>
+          <button type="button" class="hm-btn hm-btn-primary" id="regmAssignBtn"><i class="fas fa-id-badge"></i> Fix Now</button>
         </div>
         <div class="hm-status" id="regmStatus" style="display:none;"></div>
       </div>
@@ -60,13 +71,15 @@
     return overlay;
   }
 
-  async function assignMissing(scopeUid, groups) {
+  async function fixRegNumbers(scopeUid, groups, ownerName) {
     if (!window.RehablixPatientReg) throw new Error('Reg-number generator not loaded');
-    let existing = await existingRegNumbers(scopeUid);
     for (const group of groups) {
       const updates = {};
-      for (const item of group.missing) {
-        const reg = window.RehablixPatientReg.generateRegNumber(item.name, existing);
+      // Oldest first, so the corrected sequence reads chronologically.
+      const ordered = [...group.needsFix].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      let existing = group.existing.slice();
+      for (const item of ordered) {
+        const reg = window.RehablixPatientReg.generateRegNumber(ownerName, existing);
         existing = existing.concat([reg]);
         updates[`${item.id}/regNumber`] = reg;
       }
@@ -77,22 +90,30 @@
   // Public entry point. `paths` — one path (string) or several (array) that
   // belong to the SAME page, checked together and offered as one prompt.
   async function checkAndPrompt(scopeUid, paths) {
-    if (!scopeUid || !paths) return;
+    if (!scopeUid || !paths || !window.RehablixPatientReg) return;
     const list = Array.isArray(paths) ? paths : [paths];
     let groups;
     try {
-      groups = (await Promise.all(list.map(async (path) => ({ path, missing: await findMissing(scopeUid, path) }))))
-        .filter((g) => g.missing.length > 0);
-    } catch (e) { return; }
-    if (!groups.length) return;
+      const ownerName = await window.RehablixPatientReg.getOwnerName(scopeUid);
+      const ownerInitials = window.RehablixPatientReg.initialsOf(ownerName);
+      groups = (await Promise.all(list.map(async (path) => ({
+        path,
+        needsFix: await findNeedingFix(scopeUid, path, ownerInitials),
+        existing: await correctRegNumbers(scopeUid, path, ownerInitials)
+      })))).filter((g) => g.needsFix.length > 0);
+      if (!groups.length) return;
+      showModal(scopeUid, groups, ownerName);
+    } catch (e) { /* silent — this is a best-effort background prompt */ }
+  }
 
+  function showModal(scopeUid, groups, ownerName) {
     const overlay = buildModal(groups);
     requestAnimationFrame(() => overlay.classList.add('show'));
 
     const laterBtn = document.getElementById('regmLaterBtn');
     const assignBtn = document.getElementById('regmAssignBtn');
     const statusEl = document.getElementById('regmStatus');
-    const totalCount = groups.reduce((sum, g) => sum + g.missing.length, 0);
+    const totalCount = groups.reduce((sum, g) => sum + g.needsFix.length, 0);
 
     function dismiss() {
       overlay.classList.remove('show');
@@ -103,13 +124,13 @@
     assignBtn.addEventListener('click', async () => {
       assignBtn.disabled = true; laterBtn.disabled = true;
       statusEl.style.display = 'block';
-      statusEl.textContent = 'Assigning reference numbers…';
+      statusEl.textContent = 'Updating reference numbers…';
       try {
-        await assignMissing(scopeUid, groups);
-        statusEl.textContent = `✅ Done! ${totalCount} reference number(s) assigned.`;
+        await fixRegNumbers(scopeUid, groups, ownerName);
+        statusEl.textContent = `✅ Done! ${totalCount} reference number(s) updated.`;
         setTimeout(dismiss, 1200);
       } catch (err) {
-        console.error('[reg-migration] assignment failed:', err);
+        console.error('[reg-migration] fix failed:', err);
         statusEl.textContent = "⚠️ Something went wrong. Nothing was changed — we'll try again next time.";
         assignBtn.disabled = false; laterBtn.disabled = false;
       }

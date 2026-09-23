@@ -516,6 +516,29 @@
     // =========================================================================
     // Load Document
     // =========================================================================
+    // EMR UPGRADE (item 5): shows the patient's reg number in the metadata
+    // bar (next to docDate/docType/docLastEdited) with a copy button, the
+    // same treatment js/result.js gives it on the generic Result page.
+    async function renderRegNumberMetadata() {
+        try {
+            const snap = await database.ref(`history/${scopeUid}/patients/${docId}/regNumber`).once('value');
+            const regNumber = snap.val();
+            const existing = document.getElementById('docRegNumberItem');
+            if (existing) existing.remove();
+            if (!regNumber || !docLastEditedSpan) return;
+            const metaRow = docLastEditedSpan.parentElement.parentElement;
+            const div = document.createElement('div');
+            div.className = 'metadata-item';
+            div.id = 'docRegNumberItem';
+            div.innerHTML = `<i class="fas fa-id-badge"></i><span id="docRegNumberText"></span> <button type="button" class="copy-reg-btn" title="Copy reference number" style="border:none;background:none;cursor:pointer;color:inherit;"><i class="fas fa-copy"></i></button>`;
+            div.querySelector('#docRegNumberText').textContent = `Reg #${regNumber}`;
+            div.querySelector('.copy-reg-btn').addEventListener('click', () => {
+                navigator.clipboard.writeText(regNumber).then(() => showToast('Reference number copied', 'success'));
+            });
+            metaRow.appendChild(div);
+        } catch (e) { /* non-critical display item */ }
+    }
+
     async function loadDocument() {
         // Show loading state immediately
         editor.innerHTML = '<div class="loading-editor"><i class="fas fa-spinner fa-spin"></i> Loading document...</div>';
@@ -662,6 +685,11 @@
             docDateSpan.textContent = data.date || new Date().toLocaleDateString();
             docTypeSpan.textContent = label;
             docLastEditedSpan.textContent = data.lastEdited || data.date || '-';
+
+            // EMR UPGRADE (item 5): this page only ever loads the specific
+            // sub-node (sessions/summaries/etc), not the parent patient
+            // record, so the reg number needs its own small read.
+            renderRegNumberMetadata();
 
             // Determine content field (varies by type)
             let content = '';

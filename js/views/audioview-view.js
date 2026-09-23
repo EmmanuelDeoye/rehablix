@@ -86,6 +86,26 @@
       }
     }
 
+    // EMR UPGRADE (item 5): a small reg-number chip with a copy button next
+    // to the title, matching the treatment js/result.js and js/docresult.js
+    // give it — this view has no metadata bar of its own to hook into.
+    function renderRegNumberChip(regNumber) {
+        const existing = document.getElementById('audioViewRegChip');
+        if (existing) existing.remove();
+        if (!regNumber || !titleEl) return;
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.id = 'audioViewRegChip';
+        chip.title = 'Copy reference number';
+        chip.style.cssText = 'margin-left:0.6rem;font-size:0.75rem;border:1px solid var(--border-light);background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:0.15rem 0.6rem;cursor:pointer;';
+        chip.innerHTML = `<i class="fas fa-id-badge"></i> <span></span> <i class="fas fa-copy"></i>`;
+        chip.querySelector('span').textContent = `Reg #${regNumber}`;
+        chip.addEventListener('click', () => {
+            navigator.clipboard.writeText(regNumber).then(() => showToast('Reference number copied', 'success'));
+        });
+        titleEl.insertAdjacentElement('afterend', chip);
+    }
+
     async function load() {
       editBtn.style.display = 'none'; // only shown once a record we own has actually loaded
 
@@ -120,6 +140,7 @@
         titleEl.textContent = record.title || 'Audio Transcript';
         bodyEl.innerHTML = record.resultsHtml || renderMarkdown(record.cleanedTranscript || record.rawTranscript || 'No content available');
         editBtn.style.display = isOwner ? '' : 'none';
+        renderRegNumberChip(record.regNumber); // EMR UPGRADE (item 5)
       } catch (err) {
         console.error('[audioview] load error:', err);
         titleEl.textContent = 'Error';

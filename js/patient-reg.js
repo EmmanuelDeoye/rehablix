@@ -29,6 +29,21 @@
     return initials + String(maxSeq + 1).padStart(3, '0');
   }
 
+  // The reg number's prefix is the ACCOUNT OWNER's initials (whoever
+  // history/{scopeUid}/... belongs to — the clinician themself, or the
+  // center owner for a shared scope), not the patient's. All patients under
+  // one scopeUid share the same prefix and just increment the sequence.
+  async function getOwnerName(scopeUid) {
+    if (!scopeUid) return 'Clinician';
+    try {
+      const snap = await firebase.database().ref(`users/${scopeUid}`).once('value');
+      const user = snap.val() || {};
+      if (user.name) return user.name;
+      if (user.email) return String(user.email).split('@')[0];
+    } catch (e) { /* fall through to default below */ }
+    return 'Clinician';
+  }
+
   // Every place a patient reference number can show up across the app.
   // `dateField` may hold a number (timestamp) or a string date — both are
   // normalized to a locale date string for display.
@@ -88,5 +103,5 @@
     return results;
   }
 
-  window.RehablixPatientReg = { initialsOf, generateRegNumber, findByRegOrName, SEARCH_SOURCES };
+  window.RehablixPatientReg = { initialsOf, generateRegNumber, getOwnerName, findByRegOrName, SEARCH_SOURCES };
 })();

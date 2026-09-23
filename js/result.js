@@ -173,6 +173,18 @@
       div.innerHTML = `<i class="fas ${item.icon}"></i><span>${escapeHtml(item.text)}</span>`;
       metadataContainer.appendChild(div);
     });
+    // EMR UPGRADE (item 5): show the patient reg number (when this record
+    // carries one) with a one-click copy button, same as Smart EMR already
+    // does — this is the only other place a reg number was visible before.
+    if (data.regNumber) {
+      const div = document.createElement('div');
+      div.className = 'metadata-item metadata-regnumber';
+      div.innerHTML = `<i class="fas fa-id-badge"></i><span>Reg #${escapeHtml(data.regNumber)}</span> <button type="button" class="copy-reg-btn" title="Copy reference number" style="border:none;background:none;cursor:pointer;color:inherit;"><i class="fas fa-copy"></i></button>`;
+      div.querySelector('.copy-reg-btn').addEventListener('click', () => {
+        navigator.clipboard.writeText(data.regNumber).then(() => showToast('Reference number copied', 'success'));
+      });
+      metadataContainer.appendChild(div);
+    }
   }
 
   function updatePublicToggleVisibility() {
