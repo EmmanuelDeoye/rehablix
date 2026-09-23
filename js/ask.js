@@ -98,7 +98,7 @@
       : 'Shift+Enter for a new line · Enter to send';
   }
 
-  const TOOL_PAGES = ['doc.html', 'index.html#/motion', 'project.html', 'index.html#/exam', 'index.html#/workspace'];
+  const TOOL_PAGES = ['index.html#/emr', 'index.html#/motion', 'project.html', 'index.html#/exam', 'index.html#/workspace'];
 
   // =========================================================================
   // Helpers
@@ -269,7 +269,7 @@ Unlike a typical chatbot, you can also personally CREATE things for the user dir
 You can also export anything already in this conversation — something you just created, or your own last chat answer — as a real PDF, Word document, or PowerPoint file. That also happens automatically outside of you the moment the user phrases it as an export ("turn this into a PDF", "can I get this as a Word doc", "convert to PowerPoint", etc.), regardless of whether it matches one of the six tools above. Never tell the user to find an external converter or copy-paste elsewhere to make a PDF/Word doc/PowerPoint — you can hand them that file directly. If they ask to export something but there's genuinely nothing yet in the conversation to export, just say so plainly rather than pretending to produce a file.
 
 A few things genuinely still live on separate pages (in the "Workspace" tab, reachable via the bottom nav) because they're too complex for chat — only recommend these, and only when truly relevant:
-- [Smart EMR](doc.html) – AI-powered workspace for documentation, patient management, treatment planning, progress tracking.
+- [Smart EMR](index.html#/emr) – AI-powered workspace for documentation, patient management, treatment planning, progress tracking.
 - [Motion & Gait Analyzer](index.html#/motion) – a full-screen camera scanner that measures joint range of motion or analyzes gait via a voice-guided scan.
 - [Project Maker](project.html) – builds an academic project chapter by chapter (literature review, methodology, references, defense prep).
 - [Exam Simulator](index.html#/exam) – timed, AI-generated practice exams with performance analytics.
@@ -1353,28 +1353,43 @@ Given the user's latest message, return ONLY a compact JSON object (no markdown,
     return hasFiles ? ['Reading your files…', 'Analysing…', 'Thinking…'] : ['Thinking…', 'Processing…'];
   }
 
-  // Clinical context awareness (Lixa Intelligence Upgrade #6.3/#7) — a
-  // best-effort, read-only lookup of a Smart EMR patient the user's message
-  // names, so an answer can be grounded in what's actually recorded instead
-  // of invented. Returns null on any failure or no match; never throws.
+  // Clinical context awareness (Lixa Intelligence Upgrade #6.3/#7; deepened
+  // in the Smart EMR SPA Integration & AI Upgrade) — a best-effort,
+  // read-only lookup of a Smart EMR patient the user's message names, so an
+  // answer can be grounded in what's actually recorded instead of invented.
+  // Delegates to window.RehablixPatientContext (js/patient-context.js) —
+  // the SAME shared builder Smart EMR's own AI features use — instead of
+  // this file rolling its own thinner copy. Returns null on any failure or
+  // no match; never throws.
   async function findPatientContext(text) {
     if (!currentUser || !text) return null;
     try {
-      const snap = await database.ref(`history/${currentUser.uid}/patients`).once('value');
+      // Center members share their center owner's patients (same scoping
+      // Smart EMR itself uses) — reading only currentUser.uid's own node
+      // would silently miss every center-shared patient.
+      let scopeUid = currentUser.uid;
+      if (window.RehablixCenter && typeof window.RehablixCenter.getEffectiveScopeUid === 'function') {
+        try {
+          const resolved = await window.RehablixCenter.getEffectiveScopeUid('doc');
+          if (resolved) scopeUid = resolved;
+        } catch (e) { /* fall back to own account */ }
+      }
+      const snap = await database.ref(`history/${scopeUid}/patients`).once('value');
       const patients = snap.val();
       if (!patients) return null;
       const lower = text.toLowerCase();
-      let match = null;
-      Object.values(patients).forEach(p => {
+      let matchId = null, match = null;
+      Object.entries(patients).forEach(([id, p]) => {
         const name = (p && p.name || '').toLowerCase().trim();
-        if (name && name.length > 2 && lower.includes(name)) match = p;
+        if (name && name.length > 2 && lower.includes(name)) { match = p; matchId = id; }
       });
       if (!match) return null;
-      return {
-        name: match.name,
-        diagnosis: match.diagnosis || match.condition || '',
-        assessment: (match.assessment || '').slice(0, 2000)
-      };
+      if (window.RehablixPatientContext) {
+        const ctx = await window.RehablixPatientContext.build(scopeUid, matchId, match).catch(() => null);
+        if (ctx) return ctx;
+      }
+      // Defensive fallback if the shared module didn't load in time.
+      return { name: match.name, diagnosis: match.primaryDx || '', assessment: (match.assessment || '').slice(0, 2000) };
     } catch (e) {
       return null;
     }
@@ -1722,7 +1737,15 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     const plan = turnCtx && turnCtx.plan;
     const patientContext = turnCtx && turnCtx.patientContext;
     if (patientContext) {
-      systemPrompt += `\n\nRECORDED PATIENT CONTEXT (from Smart EMR — factual background only, may be incomplete; do not assume anything beyond it):\nName: ${patientContext.name}\nDiagnosis: ${patientContext.diagnosis || 'not recorded'}\nRecorded notes/history: ${patientContext.assessment || 'none recorded'}\n\nClearly separate, in your answer: (1) facts drawn from this recorded context, (2) any measured/clinician-entered results it contains, and (3) your own interpretation or suggestions. Never present your own interpretation as a confirmed clinical finding.`;
+      // toPromptText (js/patient-context.js) renders the FULL shared
+      // context — problems, latest treatment plan, progress trend, linked
+      // Motion/standardized results — when available, and degrades
+      // gracefully to just name/diagnosis/assessment if the shared module
+      // wasn't loaded in time (see findPatientContext's fallback).
+      const contextText = window.RehablixPatientContext
+        ? window.RehablixPatientContext.toPromptText(patientContext)
+        : `Name: ${patientContext.name}\nDiagnosis: ${patientContext.diagnosis || 'not recorded'}\nRecorded notes/history: ${patientContext.assessment || 'none recorded'}`;
+      systemPrompt += `\n\nRECORDED PATIENT CONTEXT (from Smart EMR — factual background only, may be incomplete; do not assume anything beyond it):\n${contextText}\n\nClearly separate, in your answer: (1) facts drawn from this recorded context, (2) any measured/clinician-entered results it contains, and (3) your own interpretation or suggestions. Never present your own interpretation as a confirmed clinical finding.`;
     }
     if (plan && plan.clinicalRequest) {
       systemPrompt += `\n\nThis appears to be a clinical reasoning request. Be evidence-aware: state clearly when something is a measured/recorded fact versus your own inference. If information needed to answer well is missing, say what's missing instead of guessing. You may connect findings to goals, intervention considerations, monitoring or reassessment points, but make clear these are suggestions for the clinician to confirm — never present them as confirmed clinical findings.`;

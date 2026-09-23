@@ -22,7 +22,7 @@
       { name: 'Workspace', url: 'index.html#/workspace', icon: '🧰' },
       { name: 'Format Generator', url: 'index.html#/format', icon: '📋' },
       { name: 'Standardized Tools', url: 'index.html#/standardized', icon: '⚖️' },
-      { name: 'Smart EMR', url: 'doc.html', icon: '🗂️' },
+      { name: 'Smart EMR', url: 'index.html#/emr', icon: '🗂️' },
       { name: 'Audio Transcription', url: 'index.html#/audio', icon: '🎧' },
       { name: 'Motion & Gait', url: 'index.html#/motion', icon: '🦵' },
       { name: 'Report & Presentation', url: 'index.html#/presentation', icon: '📑' },

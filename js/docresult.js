@@ -891,7 +891,11 @@
 
             showToast('Document deleted successfully', 'success');
             setTimeout(() => {
-                window.location.href = 'doc.html';
+                // SPA: was a hard navigation to doc.html — Smart EMR is now
+                // the "emr" SPA route (js/views/emr-view.js). A plain go()
+                // (not back()) since the document that was just deleted is
+                // exactly what a "back" would otherwise return to.
+                window.RehablixRouter.go('index.html#/emr');
             }, 500);
 
         } catch (error) {
@@ -1235,10 +1239,12 @@
         deleteBtn.addEventListener('click', deleteDocument);
     }
 
-    // Close
+    // Close — SPA: return to wherever the user actually came from (same
+    // context-aware pattern as FormatView/AudioView's back buttons),
+    // falling back to Smart EMR's dashboard only on a cold deep link.
     if (closeDocBtn) {
         closeDocBtn.addEventListener('click', () => {
-            window.location.href = 'doc.html';
+            window.RehablixRouter.back('index.html#/emr');
         });
     }
 

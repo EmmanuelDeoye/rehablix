@@ -47,10 +47,23 @@
     // — see js/views/formatview-view.js.
     formatview: { template: 'formatview', title: 'rehablix · Assessment Format' },
     // Audio transcripts have the same treatment — see js/views/audioview-view.js.
-    audioview: { template: 'audioview', title: 'rehablix · Audio Transcript' }
+    audioview: { template: 'audioview', title: 'rehablix · Audio Transcript' },
+    // Smart EMR — dashboard/intake/patient-list/patient-detail shell,
+    // migrated off the old standalone doc.html. See js/views/emr-view.js.
+    // Individual documents (summaries, treatment plans, sessions, progress
+    // notes, discharge summaries) are still edited via the separate
+    // "docresult" route above, unchanged.
+    emr: { template: 'emr', title: 'rehablix · Smart EMR' }
   };
 
-  const KEEP_ALIVE = new Set(['lixa', 'workspace']);
+  // Lixa/Workspace are kept alive because they're the two primary bottom-nav
+  // tabs. EMR joins them for a different reason: js/views/emr-view.js wraps
+  // doc.js's original one-time DOMContentLoaded logic (~150 addEventListener
+  // calls bound once, exactly like a real page load did) rather than
+  // rewriting every handler to be re-bind-safe — keep-alive means mount()
+  // truly only ever runs once per page load, and later visits just call
+  // onShow(), so those listeners are never double-bound.
+  const KEEP_ALIVE = new Set(['lixa', 'workspace', 'emr']);
 
   const keepAliveWrappers = {}; // routeName -> wrapper element, once mounted
   let currentView = null;
