@@ -1,0 +1,648 @@
+/* css/lixa.css — Lixa orchestration UI: @mention popup, tool banner, file
+   result cards, Chats/Files drawer switch, file filters, inline recorder. */
+
+/* ===== @mention popup ===== */
+.mention-popup {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 0;
+  right: auto;
+  min-width: 260px;
+  max-width: 320px;
+  background: var(--card-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-light);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-hover, 0 12px 30px rgba(0,0,0,0.18));
+  padding: 0.4rem;
+  z-index: 40;
+  max-height: 280px;
+  overflow-y: auto;
+  animation: popoverIn 0.15s ease;
+}
+
+.mention-popup[hidden] { display: none !important; }
+
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.7rem;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text-primary);
+}
+
+.mention-item .mention-icon {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.6rem;
+  background: var(--accent-soft);
+  font-size: 1rem;
+}
+
+.mention-item .mention-text { display: flex; flex-direction: column; min-width: 0; }
+.mention-item .mention-name { font-size: 0.85rem; font-weight: 600; }
+.mention-item .mention-desc { font-size: 0.72rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.mention-item:hover,
+.mention-item.highlighted {
+  background: var(--accent-soft);
+}
+
+.mention-empty {
+  padding: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* ===== Model picker (composer) ===== */
+.model-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: 2rem;
+  padding: 0 0.7rem;
+  height: 36px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  max-width: 140px;
+}
+.model-picker-btn:hover,
+.model-picker-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.model-picker-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-picker-btn .model-picker-caret {
+  font-size: 0.65rem;
+  margin-left: -0.1rem;
+}
+
+.model-picker-popup {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 0;
+  min-width: 280px;
+  max-width: 340px;
+  background: var(--card-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-light);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-hover, 0 12px 30px rgba(0,0,0,0.18));
+  padding: 0.4rem;
+  z-index: 40;
+  max-height: 340px;
+  overflow-y: auto;
+  animation: popoverIn 0.15s ease;
+}
+.model-picker-popup[hidden] { display: none !important; }
+
+.model-option {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 0.6rem 0.65rem;
+  border-radius: 0.7rem;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text-primary);
+}
+.model-option:hover,
+.model-option.selected {
+  background: var(--accent-soft);
+}
+.model-option.locked {
+  opacity: 0.55;
+  cursor: pointer; /* still clickable — shows the upgrade toast */
+}
+.model-option .model-option-rank {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.6rem;
+  background: var(--accent-soft);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+.model-option.locked .model-option-rank {
+  background: var(--border-light);
+  color: var(--text-secondary);
+}
+.model-option-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.model-option-name { font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.35rem; }
+.model-option-desc { font-size: 0.72rem; color: var(--text-secondary); }
+.model-option-plan {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+}
+.model-option .fa-lock { font-size: 0.7rem; color: var(--text-secondary); }
+
+/* ===== Active tool banner (above composer) ===== */
+.lixa-tool-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.9rem;
+  margin: 0 0.25rem 0.5rem;
+  border-radius: 0.9rem;
+  background: var(--accent-soft);
+  border: 1px solid rgba(0, 150, 136, 0.25);
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.lixa-tool-banner[hidden] { display: none !important; }
+
+.lixa-tool-banner .lixa-tool-banner-icon { font-size: 1rem; flex-shrink: 0; }
+.lixa-tool-banner .lixa-tool-banner-text { flex: 1; min-width: 0; }
+.lixa-tool-banner .lixa-tool-banner-cancel {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.lixa-tool-banner .lixa-tool-banner-cancel:hover { background: rgba(0, 150, 136, 0.15); }
+
+/* ===== Status bubble while Lixa is generating ===== */
+.lixa-status-bubble {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 1rem;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+.lixa-status-bubble .lixa-status-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-light);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.lixa-status-text { display: inline-block; }
+.lixa-status-text-in { animation: lixaStatusFade 0.35s ease; }
+@keyframes lixaStatusFade {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== File result card (rendered inside an assistant message) =====
+   Compact single-row card: icon · title + one info line · actions. Small
+   enough to sit inline in a conversation and portable on narrow screens
+   (the actions drop under the text below 480px rather than squeezing it). */
+.lixa-file-card {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  background: var(--card-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-light);
+  border-radius: 0.85rem;
+  box-shadow: var(--shadow-sm);
+  max-width: 440px;
+}
+
+.lixa-file-card .lixa-file-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 0.65rem;
+  background: linear-gradient(135deg, var(--accent-soft), transparent);
+  border: 1px solid rgba(0, 150, 136, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+
+.lixa-file-card .lixa-file-body { flex: 1; min-width: 0; }
+.lixa-file-card .lixa-file-title {
+  font-weight: 700;
+  font-size: 0.84rem;
+  line-height: 1.25;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lixa-file-card .lixa-file-sub {
+  font-size: 0.7rem;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lixa-file-actions { display: flex; flex-wrap: nowrap; gap: 0.35rem; flex-shrink: 0; }
+.lixa-file-actions a,
+.lixa-file-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 0.5rem;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  border: 1px solid var(--border-light);
+  background: var(--surface);
+  color: var(--text-primary);
+  transition: all 0.15s ease;
+}
+.lixa-file-actions a i,
+.lixa-file-actions button i { font-size: 0.68rem; }
+.lixa-file-actions a:hover,
+.lixa-file-actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.lixa-file-actions .lixa-file-primary-action {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.lixa-file-actions .lixa-file-primary-action:hover {
+  filter: brightness(1.08);
+  color: #fff;
+}
+
+/* ===== Drawer header: History title + files-toggle + close ===== */
+.drawer-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.drawer-header-icon-btn {
+  background: transparent;
+  border: 1px solid var(--border-light);
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.15s ease;
+}
+.drawer-header-icon-btn:hover,
+.drawer-header-icon-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ===== File filter dropdown (replaces the old horizontally-scrolling chips) ===== */
+.file-filter-select {
+  margin: 0.75rem 1.2rem 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: 0.7rem;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+.file-filter-select[hidden] { display: none !important; }
+
+/* ===== Files list items — project-maker-resources style: icon + name only ===== */
+.history-file-item {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.history-file-item:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.history-file-item .file-icon {
+  font-size: 1.1rem;
+  color: var(--accent);
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+.history-file-item .file-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.history-file-item .file-name {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.history-file-item .file-tool-label {
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+}
+
+/* ===== Drawer loading skeleton ===== */
+.drawer-loading[hidden] { display: none !important; }
+.drawer-loading { display: flex; flex-direction: column; gap: 0.6rem; }
+.drawer-skeleton {
+  height: 46px;
+  border-radius: 0.75rem;
+  background: linear-gradient(90deg, var(--surface) 25%, var(--border-light) 50%, var(--surface) 75%);
+  background-size: 200% 100%;
+  animation: drawerSkeletonShimmer 1.3s ease-in-out infinite;
+}
+@keyframes drawerSkeletonShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ===== Auto-popup tool form modal (Lixa decides when it's needed —
+   2+ missing required fields — never a manual trigger) ===== */
+.lixa-form-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.lixa-form-modal.open { opacity: 1; }
+.lixa-form-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+}
+.lixa-form-card {
+  position: relative;
+  background: var(--surface);
+  border-radius: 1.5rem;
+  max-width: 440px;
+  width: 100%;
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 1.5rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+  transform: translateY(10px);
+  transition: transform 0.15s ease;
+}
+.lixa-form-modal.open .lixa-form-card { transform: translateY(0); }
+.lixa-form-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.lixa-form-sub {
+  margin: 0 0 1.1rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+.lixa-form-close {
+  position: absolute;
+  top: 1rem; right: 1rem;
+  background: none; border: none;
+  font-size: 1.4rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  line-height: 1;
+}
+.lixa-form-card .form-group { margin-bottom: 1rem; }
+.lixa-form-card label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0.35rem;
+}
+.lixa-form-card textarea {
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--border-light);
+  border-radius: 0.7rem;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+}
+.lixa-form-card .btn-primary {
+  width: 100%;
+  margin-top: 0.4rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 2rem;
+  padding: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* ===== Inline audio recorder widget ===== */
+.lixa-audio-recorder {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.75rem 1rem;
+  margin: 0 0.25rem 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: 1rem;
+}
+.lixa-audio-recorder .lixa-record-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.lixa-audio-recorder .lixa-record-btn.recording { animation: micPulse 1.2s infinite; }
+.lixa-audio-recorder .lixa-record-timer { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-primary); }
+.lixa-audio-recorder .lixa-record-hint { font-size: 0.78rem; color: var(--text-secondary); flex: 1; }
+
+/* ===== Dark mode ===== */
+[data-theme="dark"] .lixa-file-card .lixa-file-icon { background: linear-gradient(135deg, rgba(20,184,166,0.2), transparent); border-color: rgba(20,184,166,0.3); }
+[data-theme="dark"] .lixa-tool-banner { background: rgba(20,184,166,0.1); border-color: rgba(20,184,166,0.25); }
+
+/* ===== Responsive ===== */
+@media (max-width: 480px) {
+  .lixa-file-card { max-width: 100%; flex-wrap: wrap; }
+  .lixa-file-card .lixa-file-body { flex-basis: calc(100% - 44px); }
+  .lixa-file-card .lixa-file-actions { flex-basis: 100%; flex-wrap: wrap; padding-left: 40px; }
+  .mention-popup { max-width: calc(100vw - 2rem); }
+}
+
+/* ============================================================================
+   GLOBAL HISTORY DRAWER (js/history-drawer.js) — one drawer in the shell.
+   Geometry is pinned on #historyDrawer (ID specificity) because several
+   per-tool stylesheets used to define their own conflicting `.history-drawer`
+   rules (left vs right, .active vs .open) and every stylesheet loads at once.
+   Values below are exactly what the drawer has always rendered as.
+   ============================================================================ */
+#historyDrawer.history-drawer {
+  position: fixed;
+  top: 0;
+  right: auto;
+  bottom: auto;
+  left: -400px;
+  width: 400px;
+  max-width: 100vw;
+  height: 100vh;
+  transform: none;
+  z-index: 1000;
+  transition: left 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#historyDrawer.history-drawer.active { left: 0; }
+@media (max-width: 768px) {
+  #historyDrawer.history-drawer { width: 320px; left: -320px; }
+  #historyDrawer.history-drawer.active { left: 0; }
+}
+@media (max-width: 480px) {
+  #historyDrawer.history-drawer { width: 90%; left: -100%; }
+  #historyDrawer.history-drawer.active { left: 0; }
+}
+
+/* Row layout is pinned for the same reason: one single-line row — title,
+   inline delete icon, relative time — regardless of which tool stylesheet
+   also happens to define `.history-item`. */
+#historyDrawer .history-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 0.5rem;
+  border-radius: 0.75rem;
+  cursor: pointer;
+}
+#historyDrawer .history-item .history-title {
+  flex: 1;
+  min-width: 0;
+}
+/* Tool rows can carry a small second line (patient, assessment type…). */
+#historyDrawer .history-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+#historyDrawer .history-item-main .history-title { flex: 0 1 auto; }
+#historyDrawer .history-item-sub {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Tool mode: only the current tool's history shows. The Lixa parts are
+   hidden by CSS (not by the `hidden` attribute lixa.js manages), so leaving
+   the tool restores whichever of Chats/Files was last active, untouched. */
+#historyDrawer .tool-history-only { display: none; }
+#historyDrawer[data-mode="tool"] #filesToggleBtn,
+#historyDrawer[data-mode="tool"] #chatsSearchWrap,
+#historyDrawer[data-mode="tool"] #historyList,
+#historyDrawer[data-mode="tool"] #filesSearchWrap,
+#historyDrawer[data-mode="tool"] #fileFilterSelect,
+#historyDrawer[data-mode="tool"] #filesList { display: none !important; }
+#historyDrawer[data-mode="tool"] .history-search.tool-history-only { display: flex; }
+#historyDrawer[data-mode="tool"] .history-content.tool-history-only { display: block; }
+#historyDrawer[data-mode="tool"] .drawer-footer.tool-history-only { display: block; }
+#historyDrawer .drawer-footer[hidden] { display: none !important; }
+#historyDrawer .drawer-footer {
+  flex-shrink: 0;
+  padding: 0.75rem 1.2rem;
+  border-top: 1px solid var(--border-light);
+}
+#historyDrawer .drawer-clear-btn {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: 0.7rem;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+#historyDrawer .drawer-clear-btn:hover {
+  background: #fee2e2;
+  border-color: #dc2626;
+  color: #dc2626;
+}
