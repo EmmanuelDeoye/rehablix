@@ -460,9 +460,22 @@ Requirements:
     spinner.style.display = 'inline-block';
 
     try {
+      // EMR UPGRADE (item 9): quota check — Standardized had no cap enforcement at all before this.
+      if (currentUser && window.RehabPlanTiers) {
+        const quota = window.RehablixQuotaModal
+          ? await window.RehablixQuotaModal.checkAndWarn(currentUser.uid, currentPlan)
+          : await window.RehabPlanTiers.hasQuota(currentUser.uid, currentPlan);
+        if (!quota.allowed) {
+          const resetMins = Math.max(1, Math.ceil((quota.resetAt - Date.now()) / 60000));
+          throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
+        }
+      }
       if (!githubToken || !apiEndpoint) throw new Error('API credentials not loaded');
       const prompt = buildPrompt(toolName, includeGuides);
       const content = await callAIWithValidation(prompt, toolName, 1);
+      if (currentUser && window.RehabPlanTiers) { // EMR UPGRADE (item 9)
+        window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlan, window.RehabPlanTiers.estimateTokens(prompt + content), 1).catch(() => {});
+      }
 
       generatedContent = content;
       generatedToolName = toolName;

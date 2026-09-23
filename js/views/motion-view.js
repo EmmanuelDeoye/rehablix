@@ -283,6 +283,7 @@
       prefs.autoGuided = autoGuidedCheckbox.checked;
       const emr = emrPatients.find(p => p.name.toLowerCase() === prefs.patientName.toLowerCase());
       prefs.emrPatientId = emr ? emr.id : null;
+      prefs.regNumber = emr ? emr.regNumber : null; // EMR UPGRADE (item 4)
       if (emr && !prefs.heightCm && emr.heightCm) prefs.heightCm = emr.heightCm;
 
       if (analysisType === 'rom' && !prefs.movementKey) { showToast('Please choose a movement or joint region', 'error'); return; }
@@ -306,7 +307,10 @@
     function refreshPatientHint() {
       const name = patientNameInput.value.trim().toLowerCase();
       const emr = name && emrPatients.find(p => p.name.toLowerCase() === name);
-      patientHint.textContent = emr ? '✓ Linked to Smart EMR — confirmed results will be filed in this patient’s record.' : (emrPatients.length ? 'Choose a Smart EMR patient to file confirmed results in their record, or type a name.' : 'Type a name (Smart EMR patients appear here when available).');
+      // EMR UPGRADE (item 4): surface the patient's reference number once linked.
+      patientHint.textContent = emr
+        ? `✓ Linked to Smart EMR${emr.regNumber ? ' — ' + emr.regNumber : ''} — confirmed results will be filed in this patient’s record.`
+        : (emrPatients.length ? 'Choose a Smart EMR patient to file confirmed results in their record, or type a name.' : 'Type a name (Smart EMR patients appear here when available).');
       if (emr && !heightInput.value && emr.heightCm) heightInput.value = emr.heightCm;
     }
     patientNameInput.addEventListener('input', refreshPatientHint);
@@ -320,8 +324,11 @@
         }
         emrScopeUid = uid;
         const snap = await firebase.database().ref(`history/${uid}/patients`).once('value');
-        emrPatients = Object.entries(snap.val() || {}).map(([id, p]) => ({ id, name: (p && p.name) || '', heightCm: p && (p.heightCm || p.height) ? Number(p.heightCm || p.height) || null : null })).filter(p => p.name);
-        patientList.innerHTML = emrPatients.map(p => `<option value="${escapeHtml(p.name)}"></option>`).join('');
+        emrPatients = Object.entries(snap.val() || {}).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null, heightCm: p && (p.heightCm || p.height) ? Number(p.heightCm || p.height) || null : null })).filter(p => p.name);
+        // EMR UPGRADE (item 4): `label` shows the reg number alongside the
+        // name in the browser's autocomplete list; `value` stays just the
+        // name so selecting an option still fills the input the same way.
+        patientList.innerHTML = emrPatients.map(p => `<option value="${escapeHtml(p.name)}" label="${escapeHtml(p.name)}${p.regNumber ? ' (' + escapeHtml(p.regNumber) + ')' : ''}"></option>`).join('');
       } catch (err) { console.warn('[motion] could not load Smart EMR patients', err); }
     }
 
@@ -664,8 +671,24 @@
     // AI reads the measured data; if it is unavailable the measured report still ships.
     async function aiInterpretation(structured, frames) {
       try {
+        // EMR UPGRADE (item 9): quota check — this call is already designed
+        // to be non-fatal on any failure (the measured report ships either
+        // way), so an exhausted budget just skips the AI interpretation
+        // step rather than throwing.
+        if (currentUser && window.RehabPlanTiers) {
+          const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free';
+          const quota = window.RehablixQuotaModal
+            ? await window.RehablixQuotaModal.checkAndWarn(currentUser.uid, plan)
+            : await window.RehabPlanTiers.hasQuota(currentUser.uid, plan);
+          if (!quota.allowed) return null;
+        }
         const cfg = await core.fetchOpenAiToken();
-        return await core.interpretMotion({ aiConfig: cfg, structured, frames });
+        const text = await core.interpretMotion({ aiConfig: cfg, structured, frames });
+        if (text && currentUser && window.RehabPlanTiers) {
+          const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free';
+          window.RehabPlanTiers.consumeQuota(currentUser.uid, plan, window.RehabPlanTiers.estimateTokens(text), 1).catch(() => {});
+        }
+        return text;
       } catch (err) { console.warn('[motion] AI interpretation skipped:', err && err.message); return null; }
     }
 
@@ -708,7 +731,7 @@
         });
         if (token !== sessionToken) return;
         const title = queue.length > 1 ? `Full ${core.JOINT_GROUP_LABELS.find(g => g.value === prefs.movementKey)?.label || ''} Assessment` : core.movementPrompts[queue[0]].name;
-        const structured = MR.build({ kind: 'rom', title, patient: { name: prefs.patientName, emrPatientId: prefs.emrPatientId }, prefs: { assessmentMode: prefs.assessmentMode, side: prefs.side, notes: prefs.gaitNotes, autoGuided: prefs.autoGuided }, quality, analyses, poseModel: model ? `MediaPipe BlazePose ${model}` : undefined });
+        const structured = MR.build({ kind: 'rom', title, patient: { name: prefs.patientName, emrPatientId: prefs.emrPatientId, regNumber: prefs.regNumber }, prefs: { assessmentMode: prefs.assessmentMode, side: prefs.side, notes: prefs.gaitNotes, autoGuided: prefs.autoGuided }, quality, analyses, poseModel: model ? `MediaPipe BlazePose ${model}` : undefined });
         await finalizeResult(token, structured, allImgs.slice(0, 6), 'rom', title);
       } catch (err) { console.error('ROM analysis error:', err); failAnalysis(token, 'Analysis failed: ' + err.message); }
     }
@@ -722,7 +745,7 @@
         const gait = ME.analyzeGait(samples, { view: prefs.gaitView, heightCm: prefs.heightCm });
         if (token !== sessionToken) return;
         const title = `Gait Analysis${prefs.patientName ? ' — ' + prefs.patientName : ''}`;
-        const structured = MR.build({ kind: 'gait', title, patient: { name: prefs.patientName, emrPatientId: prefs.emrPatientId, heightCm: prefs.heightCm }, prefs: { view: prefs.gaitView, notes: prefs.gaitNotes }, quality, gait, poseModel: model ? `MediaPipe BlazePose ${model}` : undefined });
+        const structured = MR.build({ kind: 'gait', title, patient: { name: prefs.patientName, emrPatientId: prefs.emrPatientId, regNumber: prefs.regNumber, heightCm: prefs.heightCm }, prefs: { view: prefs.gaitView, notes: prefs.gaitNotes }, quality, gait, poseModel: model ? `MediaPipe BlazePose ${model}` : undefined });
         structured.capture.view = gait.view;
         await finalizeResult(token, structured, imgs, 'gait', title);
       } catch (err) { console.error('Gait analysis error:', err); failAnalysis(token, 'Analysis failed: ' + err.message); }
@@ -738,7 +761,7 @@
         const assistive = ME.assessAssistive(samples, { view: prefs.gaitView, heightCm: prefs.heightCm, wbStatus: prefs.wbStatus, wbSide: prefs.wbSide, ueFunction: prefs.ueFunction });
         if (token !== sessionToken) return;
         const title = `Assistive Device Assessment${prefs.patientName ? ' — ' + prefs.patientName : ''}`;
-        const structured = MR.build({ kind: 'assistive', title, patient: { name: prefs.patientName, emrPatientId: prefs.emrPatientId, heightCm: prefs.heightCm }, prefs: { view: prefs.gaitView, notes: prefs.gaitNotes }, clinicalInputs, quality, assistive, poseModel: model ? `MediaPipe BlazePose ${model}` : undefined });
+        const structured = MR.build({ kind: 'assistive', title, patient: { name: prefs.patientName, emrPatientId: prefs.emrPatientId, regNumber: prefs.regNumber, heightCm: prefs.heightCm }, prefs: { view: prefs.gaitView, notes: prefs.gaitNotes }, clinicalInputs, quality, assistive, poseModel: model ? `MediaPipe BlazePose ${model}` : undefined });
         await finalizeResult(token, structured, imgs, 'assistive', title);
       } catch (err) { console.error('Assistive analysis error:', err); failAnalysis(token, 'Analysis failed: ' + err.message); }
     }
@@ -994,7 +1017,11 @@
       } else { scopeUid = user.uid; }
       if (scopeUid === null) showToast('Your access to the Motion Analyzer has been turned off by your center admin.', 'error', 6000);
       else if (scopeUid !== user.uid) showToast("Working on your center's shared records", 'info', 3000);
-      if (scopeUid) { openResultFromLink(user); loadEmrPatients(user); }
+      if (scopeUid) {
+        openResultFromLink(user);
+        loadEmrPatients(user);
+        if (window.RehablixRegMigration) window.RehablixRegMigration.checkAndPrompt(scopeUid, ['analysisHistory', 'gaitHistory', 'assistiveHistory']); // EMR UPGRADE (item 5)
+      }
       syncReviewUI();
     });
     cleanupFns.push(unsubAuth);

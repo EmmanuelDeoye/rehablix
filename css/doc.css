@@ -197,9 +197,12 @@
 }
 
 /* ===== DASHBOARD GRID ===== */
+/* EMR UPGRADE (item 10): stacked vertically on desktop too now — was side
+   by side (1fr 1fr) before. The responsive overrides below already forced
+   a single column at narrower widths, so this alone makes desktop match. */
 .emr-grid-2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 1.2rem;
   margin-bottom: 1.2rem;
 }
@@ -1208,7 +1211,7 @@
     grid-template-columns: repeat(2, 1fr);
   }
   .emr-grid-2 {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 }
 

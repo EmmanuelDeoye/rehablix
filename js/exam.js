@@ -210,6 +210,17 @@
 
     showLoading('Building your exam…');
     try {
+      // EMR UPGRADE (item 9): quota check — Exam had no token-cap enforcement at all before this.
+      if (currentUser && window.RehabPlanTiers) {
+        const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free';
+        const quota = window.RehablixQuotaModal
+          ? await window.RehablixQuotaModal.checkAndWarn(currentUser.uid, plan)
+          : await window.RehabPlanTiers.hasQuota(currentUser.uid, plan);
+        if (!quota.allowed) {
+          const resetMins = Math.max(1, Math.ceil((quota.resetAt - Date.now()) / 60000));
+          throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
+        }
+      }
       const subjectId = await getOrCreateSubject(subjectName);
       activeSubjectId = subjectId;
       const weak = focusWeak ? weakTopics(subjectId) : [];
@@ -232,6 +243,10 @@ Generate exactly ${questionCount} multiple-choice questions at "${difficulty}" d
       if (notes) userPrompt += `\nBase questions on this material where relevant:\n${notes.slice(0, 8000)}\n`;
 
       const response = await callAI(systemPrompt, userPrompt, 4500);
+      if (currentUser && window.RehabPlanTiers) { // EMR UPGRADE (item 9)
+        const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free';
+        window.RehabPlanTiers.consumeQuota(currentUser.uid, plan, window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + response), 1).catch(() => {});
+      }
       const parsed = parseAIJson(response);
       if (!parsed.questions || parsed.questions.length === 0) throw new Error('AI response was missing questions');
 

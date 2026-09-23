@@ -1702,7 +1702,14 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   async function checkQuotaOrThrow() {
     if (currentUser && window.RehabPlanTiers && window.rehabPlans) {
       const plan = window.rehabPlans.getCurrentPlan() || 'free';
-      const quota = await window.RehabPlanTiers.hasQuota(currentUser.uid, plan);
+      // EMR UPGRADE (item 9): checkAndWarn also surfaces the shared
+      // low/exhausted-token modal (js/quota-modal.js) — same allowed/budget/
+      // used/resetAt shape hasQuota() always returned, so this stays a
+      // drop-in replacement.
+      const hasWarnModal = !!window.RehablixQuotaModal;
+      const quota = hasWarnModal
+        ? await window.RehablixQuotaModal.checkAndWarn(currentUser.uid, plan)
+        : await window.RehabPlanTiers.hasQuota(currentUser.uid, plan);
       if (!quota.allowed) {
         const resetMins = Math.max(1, Math.ceil((quota.resetAt - Date.now()) / 60000));
         throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);

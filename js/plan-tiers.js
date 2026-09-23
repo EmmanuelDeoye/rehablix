@@ -9,9 +9,12 @@
   const PLAN_ORDER = ['free', 'student', 'pro', 'max'];
 
   // Token budget per 4-hour window. null = unlimited (Max plan only).
+  // EMR UPGRADE (item 9): free lowered 20000 -> 15000 per your request
+  // ("tokens are fast spent") — student/pro/max left unchanged since no
+  // specific numbers were given for those.
   const PLAN_TOKEN_BUDGET = {
-    free: 20000,
-    student: 200000,     // 10x Free
+    free: 15000,
+    student: 200000,     // ~13x Free
     pro: 20000000,       // 100x Basic (per spec — effectively unlimited in practice)
     max: null
   };

@@ -95,6 +95,8 @@
   <link rel="stylesheet" href="css/result.css">
   <link rel="stylesheet" href="css/docresult.css">
   <link rel="stylesheet" href="css/doc.css">
+  <!-- Reused by js/reg-migration.js's confirmation modal (.hm-* classes). -->
+  <link rel="stylesheet" href="css/history-migration.css">
 
   <script>
     if ('serviceWorker' in navigator) {
@@ -176,6 +178,10 @@
     <div class="history-search" id="filesSearchWrap" hidden>
       <i class="fas fa-search"></i>
       <input type="text" id="filesSearchInput" placeholder="Search files...">
+      <!-- LIXA PERF FIX: Files now load once and are cached across drawer
+           opens (js/lixa.js) instead of refetching every time — this button
+           is the manual "actually go refetch" escape hatch. -->
+      <button type="button" class="icon-btn-sm" id="filesRefreshBtn" title="Refresh files" aria-label="Refresh files"><i class="fas fa-rotate"></i></button>
     </div>
     <select class="file-filter-select" id="fileFilterSelect" hidden>
       <option value="all">All files</option>
@@ -221,12 +227,21 @@
   <script src="js/auth.js" defer></script>
   <script src="js/theme.js" defer></script>
   <script src="js/plan-tiers.js" defer></script>
+  <!-- Shared low/exhausted-token warning modal — every AI call site across
+       the app shows this same modal instead of inventing its own. -->
+  <script src="js/quota-modal.js" defer></script>
   <script src="js/plan.js" defer></script>
   <script src="js/handoff.js" defer></script>
   <!-- Shared clinical-context builder for a Smart EMR patient — used by
        both js/views/emr-view.js's own AI features and js/ask.js's Lixa
        patient-context lookup. -->
   <script src="js/patient-context.js" defer></script>
+  <!-- Shared patient reference-number generator + cross-tool lookup —
+       used by Smart EMR, Motion, Presentation, and Audio. -->
+  <script src="js/patient-reg.js" defer></script>
+  <!-- Backfills missing reference numbers on records saved before the
+       system above existed — each view calls this with its own scope/paths. -->
+  <script src="js/reg-migration.js" defer></script>
 
   <!-- The one global History drawer — must load before any view registers a provider -->
   <script src="js/history-drawer.js" defer></script>

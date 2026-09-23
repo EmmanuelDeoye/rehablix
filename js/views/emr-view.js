@@ -101,6 +101,7 @@
 
             loadDashboardData();
             loadPatientsList();
+            if (window.RehablixRegMigration) window.RehablixRegMigration.checkAndPrompt(scopeUid, 'patients'); // EMR UPGRADE (item 5)
         } else {
             console.log('[EMR] User logged out');
             showToast('Please log in to use the EMR', 'info', 3000);
@@ -308,6 +309,23 @@
     // =========================================================================
     // Screen Navigation
     // =========================================================================
+    // EMR UPGRADE (item 6): a small internal screen-history stack so a
+    // single Back button can retrace actual navigation (e.g. patient detail
+    // -> patients list, or wherever intake was opened from) instead of
+    // always jumping to one hardcoded screen. Internal to this view only —
+    // it doesn't touch the SPA router's own back/forward.
+    // 'dashboard' is already the active screen in the markup at mount time
+    // (init() below never calls switchScreen('dashboard')), so the stack
+    // has to start with it seeded in or the very first navigation away
+    // from the dashboard would leave the Back button with nothing to pop to.
+    let screenHistory = ['dashboard'];
+    let suppressHistoryPush = false;
+
+    function updateBackButtonVisibility() {
+        const btn = document.getElementById('emrBackBtn');
+        if (btn) btn.style.display = screenHistory.length > 1 ? '' : 'none';
+    }
+
     function switchScreen(screenName) {
         Object.values(screens).forEach(s => s?.classList.remove('active'));
         if (screens[screenName]) screens[screenName].classList.add('active');
@@ -316,9 +334,24 @@
             item.classList.toggle('active', item.dataset.screen === screenName);
         });
 
+        if (!suppressHistoryPush && screenHistory[screenHistory.length - 1] !== screenName) {
+            screenHistory.push(screenName);
+        }
+        updateBackButtonVisibility();
+
         if (screenName === 'dashboard') loadDashboardData();
         if (screenName === 'patients') loadPatientsList();
     }
+
+    document.getElementById('emrBackBtn')?.addEventListener('click', function() {
+        if (screenHistory.length <= 1) return;
+        screenHistory.pop(); // discard the current screen — the stack's new top is where we're going
+        const prev = screenHistory[screenHistory.length - 1];
+        suppressHistoryPush = true; // going back shouldn't push a new entry back onto the stack
+        switchScreen(prev);
+        suppressHistoryPush = false;
+        updateBackButtonVisibility();
+    });
 
     sidebarItems.forEach(item => {
         item.addEventListener('click', () => {
@@ -388,11 +421,15 @@
                 day: 'numeric'
             });
 
+            // EMR AI UPGRADE (item 11): counts AI-drafted notes awaiting
+            // sign-off specifically — was every unsigned session, including
+            // ones the clinician is still writing themselves (never "AI
+            // pending" in the first place).
             let pendingNotes = 0;
             for (const [patientId, patient] of Object.entries(patients)) {
                 if (patient.sessions) {
                     for (const [sessionId, session] of Object.entries(patient.sessions)) {
-                        if (!session.signed) pendingNotes++;
+                        if (session.aiGenerated && !session.signed) pendingNotes++;
                     }
                 }
             }
@@ -435,40 +472,70 @@
         `).join('');
     }
 
+    // EMR AI UPGRADE (item 11): only lists AI-generated content the
+    // clinician hasn't reviewed yet — was every unsigned session
+    // regardless of whether it was AI-drafted or just a human note still
+    // in progress. Uses the same aiGenerated/reviewed convention already
+    // added to problems/treatment plans (Round 1) and sessions'
+    // aiGenerated/signed fields. Clicking an item goes straight to the
+    // actual section that needs attention instead of always a session editor.
     function renderPendingDocs(patients) {
         const pending = [];
         for (const [patientId, patient] of Object.entries(patients)) {
             if (patient.sessions) {
                 for (const [sessionId, session] of Object.entries(patient.sessions)) {
-                    if (!session.signed) {
+                    // A session's "signed" flag is its review marker — an
+                    // AI-drafted session that hasn't been signed off yet
+                    // still needs the clinician's attention.
+                    if (session.aiGenerated && !session.signed) {
                         pending.push({
-                            patientName: patient.name || 'Unknown',
-                            patientId,
-                            sessionId: session.id || sessionId,
-                            sessionType: session.type || 'Session',
-                            date: session.date || 'Unknown',
-                            hasContent: !!(session.notes || session.content || '').trim()
+                            kind: 'session', patientId, patientName: patient.name || 'Unknown',
+                            label: `${session.type || 'Session'} note`,
+                            date: session.date || '', sessionId: session.id || sessionId
                         });
                     }
                 }
             }
+            (patient.problemList || []).forEach(p => {
+                if (p.aiGenerated && !p.reviewed) {
+                    pending.push({ kind: 'problems', patientId, patientName: patient.name || 'Unknown', label: `Problem: ${p.title}`, date: '' });
+                }
+            });
+            (patient.treatmentPlans || []).forEach(plan => {
+                if (plan.aiGenerated && !plan.reviewed) {
+                    pending.push({ kind: 'treatment', patientId, patientName: patient.name || 'Unknown', label: plan.title || 'Treatment Plan', date: plan.date || '' });
+                }
+            });
         }
+
         if (pending.length === 0) {
-            dashPendingDocs.innerHTML = `<div class="emr-empty-state"><i class="bx bx-check-circle"></i><p>All notes signed off!</p></div>`;
+            dashPendingDocs.innerHTML = `<div class="emr-empty-state"><i class="bx bx-check-circle"></i><p>All AI-generated content has been reviewed!</p></div>`;
             return;
         }
-        dashPendingDocs.innerHTML = pending.map(doc => `
-            <div style="display:flex;align-items:center;gap:0.8rem;padding:0.4rem 0;border-bottom:1px solid var(--border-light);">
-                <i class="bx bx-file" style="color:var(--accent);"></i>
+
+        dashPendingDocs.innerHTML = pending.map((item, i) => `
+            <div class="pending-doc-item" data-index="${i}" style="display:flex;align-items:center;gap:0.8rem;padding:0.4rem 0;border-bottom:1px solid var(--border-light);cursor:pointer;">
+                <i class="bx bx-magic" style="color:var(--accent);"></i>
                 <div style="flex:1;">
-                    <div style="font-weight:600;font-size:0.85rem;">${escapeHtml(doc.patientName)} — ${escapeHtml(doc.sessionType)}</div>
-                    <div style="font-size:0.75rem;color:var(--text-secondary);">${escapeHtml(doc.date)}${doc.hasContent ? '' : ' · No notes yet'}</div>
+                    <div style="font-weight:600;font-size:0.85rem;">${escapeHtml(item.patientName)} — ${escapeHtml(item.label)}</div>
+                    <div style="font-size:0.75rem;color:var(--text-secondary);">${item.date ? escapeHtml(item.date) + ' · ' : ''}<span class="tag tag-amber" style="font-size:0.65rem;">AI · Unreviewed</span></div>
                 </div>
-                <a href="index.html?id=${encodeURIComponent(doc.patientId)}&type=session&sessionId=${encodeURIComponent(doc.sessionId)}#/docresult" target="_blank" class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.8rem;text-decoration:none;">
-                    <i class="bx bx-edit"></i> Complete
-                </a>
+                <i class="bx bx-chevron-right"></i>
             </div>
         `).join('');
+
+        dashPendingDocs.querySelectorAll('.pending-doc-item').forEach(el => {
+            el.addEventListener('click', async () => {
+                const item = pending[parseInt(el.dataset.index, 10)];
+                if (item.kind === 'session') {
+                    window.RehablixRouter.go(`index.html?id=${encodeURIComponent(item.patientId)}&type=session&sessionId=${encodeURIComponent(item.sessionId)}#/docresult`);
+                    return;
+                }
+                await openPatient(item.patientId);
+                switchScreen('patient');
+                switchPatientTab(item.kind === 'problems' ? 'problems' : 'treatment');
+            });
+        });
     }
 
     // =========================================================================
@@ -595,7 +662,8 @@
         document.getElementById('patientHeroDx').textContent = currentPatientData.primaryDx || 'No diagnosis';
         const initials = currentPatientData.name?.split(' ').map(n => n[0]).join('') || '??';
         document.getElementById('patientAvatar').textContent = initials.toUpperCase();
-        document.getElementById('patientHeroAge').textContent = currentPatientData.dob ? calculateAge(currentPatientData.dob) : '—';
+        document.getElementById('patientHeroRegNumber').textContent = currentPatientData.regNumber || '—'; // EMR UPGRADE (item 4)
+        document.getElementById('patientHeroAge').textContent = currentPatientData.dob ? calculateAge(currentPatientData.dob) : (currentPatientData.age || '—'); // EMR UPGRADE (item 1): fall back to typed age when DOB isn't recorded
         document.getElementById('patientHeroCategory').textContent = currentPatientData.category || '—';
         document.getElementById('patientHeroProfession').textContent = currentPatientData.profession || currentPatientData.department || '—';
         document.getElementById('patientHeroState').textContent = currentPatientData.state || '—';
@@ -1154,7 +1222,7 @@
             }
 
             updateLoadingProgress(50, 'Generating summary…');
-            const response = await callDeepSeek(systemPrompt, userPrompt, 1500);
+            const response = await callTieredAI(systemPrompt, userPrompt, 1500); // EMR AI UPGRADE (item 7)
 
             updateLoadingProgress(80, 'Saving summary…');
 
@@ -2054,7 +2122,7 @@
 Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTEGRITY_CLAUSE}`;
 
             updateLoadingProgress(30, 'Compiling patient history…');
-            const response = await callDeepSeek(systemPrompt, fullHistory, 3000);
+            const response = await callTieredAI(systemPrompt, fullHistory, 3000); // EMR AI UPGRADE (item 7)
 
             updateLoadingProgress(80, 'Saving discharge summary…');
             const summaries = currentPatientData?.dischargeSummaries || [];
@@ -2177,7 +2245,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
                 : `Patient: ${currentPatientData.name}\nDiagnosis: ${currentPatientData.primaryDx || ''}`;
 
             const systemPrompt = 'You are a rehabilitation clinician reviewing a patient\'s longitudinal record. Using ONLY the recorded information given — never invent examination findings, measurements, interventions, or history not present in it — identify: (1) patterns across sessions/problems, (2) how current findings compare to previous ones where the data allows, (3) progress toward the stated goals, (4) any missing or contradictory information that would materially affect care, (5) a brief longitudinal summary. Clearly separate what is recorded fact from your own interpretation. Do not use markdown formatting. This output is AI interpretation for clinician review — do not phrase it as a confirmed clinical finding.';
-            const response = await callDeepSeek(systemPrompt, contextText, 1400);
+            const response = await callTieredAI(systemPrompt, contextText, 1400); // EMR AI UPGRADE (item 7)
             if (body) {
                 body.innerHTML = `
                     <div class="ai-strip" style="align-items:flex-start;">
@@ -2195,6 +2263,60 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
     }
 
     document.getElementById('generateInsightsBtn')?.addEventListener('click', generateClinicalInsights);
+
+    // =========================================================================
+    // EMR AI UPGRADE: Link from tool (item 3) — pick a tool, see ITS history
+    // filtered to this patient (by reg number, falling back to name), click
+    // an entry to insert its content into the Assessment textarea. Reuses
+    // js/patient-reg.js's search rather than adding new Firebase reads.
+    // =========================================================================
+    const LINK_TOOL_SOURCES = {
+        presentation: ['caseHistory'],
+        motion: ['analysisHistory', 'gaitHistory', 'assistiveHistory'],
+        audio: ['audio']
+    };
+    function contentFromLinkResult(r) {
+        const item = r.raw || {};
+        return stripMarkdown(item.resultsMarkdown || item.clinicalNote || item.cleanedTranscript || item.results || item.rawTranscript || '');
+    }
+    document.getElementById('linkFromToolBtn')?.addEventListener('click', function() {
+        if (!currentPatientId) { showToast('Open a patient first', 'warning'); return; }
+        const panel = document.getElementById('linkFromToolPanel');
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    });
+    document.querySelectorAll('.link-tool-choice').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const toolKey = btn.dataset.tool;
+            const resultsEl = document.getElementById('linkToolResults');
+            if (!window.RehablixPatientReg || !currentPatientData) { resultsEl.innerHTML = '<em>Not available right now.</em>'; return; }
+            const query = currentPatientData.regNumber || currentPatientData.name;
+            if (!query) { resultsEl.innerHTML = '<em>This patient has no name or reg number to search by.</em>'; return; }
+            resultsEl.innerHTML = '<em>Searching…</em>';
+            const paths = LINK_TOOL_SOURCES[toolKey] || [];
+            const sources = window.RehablixPatientReg.SEARCH_SOURCES.filter(s => paths.includes(s.path));
+            try {
+                const results = await window.RehablixPatientReg.findByRegOrName(scopeUid, query, sources);
+                if (!results.length) { resultsEl.innerHTML = '<em>No record found.</em>'; return; }
+                resultsEl.innerHTML = results.map((r, i) => `
+                    <div class="link-tool-result-item" data-index="${i}" style="padding:0.4rem 0;border-bottom:1px solid var(--border-light);cursor:pointer;">
+                        <strong>${escapeHtml(r.title)}</strong> <span style="color:var(--text-secondary);">· ${escapeHtml(r.date || '')}</span>
+                    </div>
+                `).join('');
+                resultsEl.querySelectorAll('.link-tool-result-item').forEach(el => {
+                    el.addEventListener('click', () => {
+                        const r = results[parseInt(el.dataset.index, 10)];
+                        const content = contentFromLinkResult(r);
+                        const textarea = document.getElementById('intakeAssessment');
+                        textarea.value += (textarea.value ? '\n\n--- Linked from ' + r.type + ' (' + r.date + ') ---\n' : '') + content;
+                        showToast('Content added to Assessment', 'success');
+                        document.getElementById('linkFromToolPanel').style.display = 'none';
+                    });
+                });
+            } catch (err) {
+                resultsEl.innerHTML = '<em>Search failed — please try again.</em>';
+            }
+        });
+    });
 
     // =========================================================================
     // File Upload with Extraction
@@ -2316,10 +2438,38 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
     // =========================================================================
     // Intake – Create/Update
     // =========================================================================
+    // EMR UPGRADE (item 1): a curated DSM-5 (mental health) + ICD-11
+    // (physical/rehab) diagnosis list for the Primary Diagnosis datalist —
+    // a starting point to search/select from; the field stays free text so
+    // anything not listed can still be typed in directly.
+    const DIAGNOSIS_SUGGESTIONS = [
+        // Common ICD-11 rehab/ortho/neuro diagnoses
+        'Stroke (Cerebrovascular Accident)', 'Traumatic Brain Injury', 'Spinal Cord Injury',
+        'Rotator Cuff Syndrome', 'Adhesive Capsulitis (Frozen Shoulder)', 'Osteoarthritis of the Knee',
+        'Osteoarthritis of the Hip', 'Total Knee Replacement', 'Total Hip Replacement',
+        'Low Back Pain', 'Cervical Spondylosis', 'Fracture of the Femur', 'Fracture of the Radius/Ulna',
+        'Carpal Tunnel Syndrome', "Parkinson's Disease", 'Multiple Sclerosis', 'Cerebral Palsy',
+        'Guillain-Barré Syndrome', 'Peripheral Neuropathy', 'Lower Limb Amputation',
+        'Upper Limb Amputation', 'Chronic Obstructive Pulmonary Disease', 'Developmental Coordination Disorder',
+        'Vestibular Dysfunction', 'Complex Regional Pain Syndrome', 'Anterior Cruciate Ligament Injury',
+        // Common DSM-5 diagnoses
+        'Major Depressive Disorder', 'Generalized Anxiety Disorder', 'Post-Traumatic Stress Disorder',
+        'Attention-Deficit/Hyperactivity Disorder', 'Autism Spectrum Disorder', 'Bipolar Disorder',
+        'Schizophrenia', 'Obsessive-Compulsive Disorder', 'Adjustment Disorder', 'Intellectual Disability'
+    ];
+
+    function populateDiagnosisSuggestions() {
+        const list = document.getElementById('intakeDxList');
+        if (!list || list.children.length) return; // static — populate once
+        list.innerHTML = DIAGNOSIS_SUGGESTIONS.map(d => `<option value="${escapeHtml(d)}"></option>`).join('');
+    }
+
     function collectIntakeData() {
         return {
             name: document.getElementById('intakeName').value.trim() || 'Unknown',
             dob: document.getElementById('intakeDOB').value || '',
+            // EMR UPGRADE (item 1): typed age, used when DOB isn't known.
+            age: document.getElementById('intakeAge').value ? parseInt(document.getElementById('intakeAge').value, 10) : null,
             gender: document.getElementById('intakeGender').value || '',
             phone: document.getElementById('intakePhone').value || '',
             primaryDx: document.getElementById('intakePrimaryDx').value || '',
@@ -2339,11 +2489,21 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
     async function createPatient(isDraft) {
         if (!currentUser) { showToast('Please log in first', 'error'); return; }
         const data = collectIntakeData();
-        if (!data.name || !data.primaryDx) { showToast('Please enter patient name and primary diagnosis', 'warning'); return; }
+        if (!data.name) { showToast('Please enter the patient name', 'warning'); return; } // EMR UPGRADE (item 1): diagnosis is now optional
         try {
+            // EMR UPGRADE (item 4): every new patient gets a unique reference
+            // number (initials + sequence, e.g. "ED001") used across Motion,
+            // Presentation, Audio, and Smart EMR — see js/patient-reg.js.
+            let regNumber = null;
+            if (window.RehablixPatientReg) {
+                const existingSnap = await database.ref(`history/${scopeUid}/patients`).once('value');
+                const existing = Object.values(existingSnap.val() || {}).map(p => p.regNumber).filter(Boolean);
+                regNumber = window.RehablixPatientReg.generateRegNumber(data.name, existing);
+            }
             const ref = database.ref(`history/${scopeUid}/patients`).push();
             await ref.set({
                 ...data,
+                regNumber,
                 status: isDraft ? 'draft' : 'active',
                 active: true,
                 sessionCount: 0,
@@ -2445,6 +2605,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         document.getElementById('intakeSubtitle').textContent = 'Update patient details – progress and sessions are preserved.';
         document.getElementById('intakeName').value = currentPatientData.name || '';
         document.getElementById('intakeDOB').value = currentPatientData.dob || '';
+        document.getElementById('intakeAge').value = currentPatientData.age || ''; // EMR UPGRADE (item 1)
         document.getElementById('intakeGender').value = currentPatientData.gender || '';
         document.getElementById('intakePhone').value = currentPatientData.phone || '';
         document.getElementById('intakePrimaryDx').value = currentPatientData.primaryDx || '';
@@ -2593,11 +2754,95 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
     // same shared, never-unmounted button would double-fire on every click.
 
     // =========================================================================
+    // EMR AI UPGRADE (item 7): tiered AI routing for Smart EMR's heaviest
+    // generations (Clinical Insights, Discharge Summary, Summary Report) —
+    // reuses the SAME 4-tier model system Lixa already uses (js/plan-tiers.js:
+    // Blix 360/OpenAI > Medulla 200 > Corpus 101 > Basal 100/DeepSeek), so a
+    // Pro/Max clinician's deepest EMR outputs actually use the strongest
+    // unlocked model instead of Smart EMR always hardcoding DeepSeek. Quick,
+    // frequent generations (problem list, treatment plan, next session,
+    // progress notes) intentionally keep using the plain callDeepSeek() call
+    // below — no reason to spend a heavier model on those.
+    // =========================================================================
+    async function resolveHeavyModelConfig() {
+        if (!window.RehabPlanTiers) return null;
+        const tiers = window.RehabPlanTiers;
+        const model = [...tiers.MODELS].sort((a, b) => a.rank - b.rank).find(m => tiers.isModelUnlocked(m.id, currentPlan));
+        if (!model) return null;
+        try {
+            if (model.provider === 'openai') {
+                const snap = await database.ref('tokens/open_ai').once('value');
+                const key = snap.val() && snap.val().api_key;
+                if (!key) return null;
+                return { token: key, endpoint: model.endpoint, model: model.apiModel, maxTokens: model.maxTokens, temperature: model.temperature, top_p: model.top_p, weight: model.weight };
+            }
+            if (!aiConfig.token) { const ok = await fetchTokens(); if (!ok) return null; }
+            return { token: aiConfig.token, endpoint: model.endpoint, model: model.apiModel, maxTokens: model.maxTokens, temperature: model.temperature, top_p: model.top_p, weight: model.weight };
+        } catch (e) { return null; }
+    }
+
+    // Same call shape as callDeepSeek() but uses the resolved tiered model;
+    // falls back to the plain DeepSeek call on any failure so a heavy
+    // generation never just breaks outright.
+    async function callTieredAI(systemPrompt, userPrompt, maxTokens) {
+        // EMR AI UPGRADE (item 9): checked here too since a successful
+        // tiered call below returns without ever going through
+        // callDeepSeek()'s own guard.
+        if (currentUser && window.RehabPlanTiers) {
+            const quota = window.RehablixQuotaModal
+                ? await window.RehablixQuotaModal.checkAndWarn(currentUser.uid, currentPlan)
+                : await window.RehabPlanTiers.hasQuota(currentUser.uid, currentPlan);
+            if (!quota.allowed) {
+                const resetMins = Math.max(1, Math.ceil((quota.resetAt - Date.now()) / 60000));
+                throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
+            }
+        }
+        const config = await resolveHeavyModelConfig();
+        if (!config) return callDeepSeek(systemPrompt, userPrompt, maxTokens);
+        try {
+            const response = await fetch(`${config.endpoint}/chat/completions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+                body: JSON.stringify({
+                    model: config.model,
+                    messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                    max_tokens: Math.min(maxTokens || 2000, config.maxTokens || 20000),
+                    temperature: config.temperature ?? 0.4,
+                    top_p: config.top_p ?? 0.9
+                })
+            });
+            if (!response.ok) return callDeepSeek(systemPrompt, userPrompt, maxTokens);
+            const data = await response.json();
+            const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+            if (!content) return callDeepSeek(systemPrompt, userPrompt, maxTokens);
+            if (currentUser && window.RehabPlanTiers) { // EMR AI UPGRADE (item 9) — weight 4 matches Blix's own weight in js/plan-tiers.js so a heavy model genuinely costs more against the same shared budget
+                window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlan, window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + content), config.weight || 1).catch(() => {});
+            }
+            return content;
+        } catch (e) {
+            return callDeepSeek(systemPrompt, userPrompt, maxTokens);
+        }
+    }
+
+    // =========================================================================
     // DeepSeek API Call
     // =========================================================================
     async function callDeepSeek(systemPrompt, userPrompt, maxTokens = 2000) {
         if (!aiConfig.token) {
             throw new Error('AI is not configured yet (no API key loaded). Try again in a moment, or reload the page.');
+        }
+        // EMR AI UPGRADE (item 9): one quota check here covers every Smart
+        // EMR AI call (problem list, treatment plans, next session,
+        // progress notes, summaries, discharge, insights, dashCompleteAllAI)
+        // — Smart EMR had no token-cap enforcement at all before this.
+        if (currentUser && window.RehabPlanTiers) {
+            const quota = window.RehablixQuotaModal
+                ? await window.RehablixQuotaModal.checkAndWarn(currentUser.uid, currentPlan)
+                : await window.RehabPlanTiers.hasQuota(currentUser.uid, currentPlan);
+            if (!quota.allowed) {
+                const resetMins = Math.max(1, Math.ceil((quota.resetAt - Date.now()) / 60000));
+                throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
+            }
         }
         const url = `${aiConfig.endpoint}/chat/completions`;
         let response;
@@ -2636,7 +2881,11 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
             console.error('[EMR] AI response missing expected content:', data);
             throw new Error('AI service returned an unexpected response format.');
         }
-        return data.choices[0].message.content;
+        const content = data.choices[0].message.content;
+        if (currentUser && window.RehabPlanTiers) { // EMR AI UPGRADE (item 9)
+            window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlan, window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + content), 1).catch(() => {});
+        }
+        return content;
     }
 
     // =========================================================================
@@ -2658,6 +2907,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         if (typeof pdfjsLib !== 'undefined') {
             pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
         }
+        populateDiagnosisSuggestions(); // EMR UPGRADE (item 1)
         await fetchTokens();
         applyHandoff();
         const hour = new Date().getHours();

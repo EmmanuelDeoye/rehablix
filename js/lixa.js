@@ -219,6 +219,7 @@
     const historyList = document.getElementById('historyList');
     const filesSearchWrap = document.getElementById('filesSearchWrap');
     const filesSearchInput = document.getElementById('filesSearchInput');
+    const filesRefreshBtn = document.getElementById('filesRefreshBtn');
     const fileFilterSelect = document.getElementById('fileFilterSelect');
     const filesList = document.getElementById('filesList');
     const filesLoading = document.getElementById('filesLoading');
@@ -875,7 +876,12 @@
         const icon = filesToggleBtn.querySelector('i');
         if (icon) icon.className = isChats ? 'fas fa-folder' : 'fas fa-comment-dots';
       }
-      if (!isChats) loadFilesList();
+      // LIXA PERF FIX (item 8): only fetch on the FIRST switch to Files —
+      // this used to unconditionally re-fetch all 9 sources every single
+      // time the drawer was opened/switched to Files, even seconds after
+      // the last load. Same "cache until something actually changes"
+      // pattern onHistoryOpen() already uses for Chats.
+      if (!isChats && allFiles.length === 0) loadFilesList();
     }
 
     if (filesToggleBtn) {
@@ -1001,6 +1007,9 @@
     }
 
     if (filesSearchInput) filesSearchInput.addEventListener('input', renderFilesList);
+    // LIXA PERF FIX (item 8): manual escape hatch for the new "only load
+    // once, then cache" behavior above.
+    if (filesRefreshBtn) filesRefreshBtn.addEventListener('click', () => { allFiles = []; loadFilesList(); });
 
     // Deliberately no "reset to Chats on open" here — the drawer keeps
     // whichever of Chats/Files (and its search text) was last active, same

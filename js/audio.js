@@ -84,6 +84,11 @@ function mount() {
   const downloadAudioBtn = $('downloadAudioBtn');
   const saveTranscriptBtn = $('saveTranscriptBtn');
 
+  // EMR UPGRADE (item 4): optional link to a Smart EMR patient.
+  const audioPatientName = $('audioPatientName');
+  const audioPatientList = $('audioPatientList');
+  const audioPatientHint = $('audioPatientHint');
+
   // History lives in the shell's single global drawer (js/history-drawer.js) —
   // this view registers its data source as a provider (see the History section).
 
@@ -92,6 +97,8 @@ function mount() {
   // =========================================================================
   let currentUser = null;
   let scopeUid = null;
+  let emrPatientsForLink = []; // EMR UPGRADE (item 4)
+  let matchedEmrPatient = null;
   let aiConfig = { token: null, endpoint: null, model: 'openai/gpt-4.1' };
   let idb = null;
 
@@ -764,11 +771,17 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     await idbPutSession(sessionMeta);
 
     showProcessing('Saving…', 'Almost done.', 95);
+    refreshAudioPatientMatch(); // EMR UPGRADE (item 4): make sure the match reflects whatever's currently typed
     try {
       const payload = {
         title: sessionMeta.title, sessionType: sessionMeta.sessionType, professional: professionalKey,
         sourceType: sessionMeta.sourceType, createdAt: sessionMeta.startedAt, updatedAt: new Date().toISOString(),
-        durationSeconds: sessionMeta.elapsedSeconds || 0, rawTranscript: rawText, cleanedTranscript, isPublic: false
+        durationSeconds: sessionMeta.elapsedSeconds || 0, rawTranscript: rawText, cleanedTranscript, isPublic: false,
+        // EMR UPGRADE (item 4): optional patient link, read fresh at save
+        // time so it reflects whatever's currently in the field.
+        patientName: (audioPatientName && audioPatientName.value.trim()) || null,
+        regNumber: (matchedEmrPatient && matchedEmrPatient.regNumber) || null,
+        emrPatientId: (matchedEmrPatient && matchedEmrPatient.id) || null
       };
       const ref = await database.ref(`history/${scopeUid}/audio`).push(payload);
       firebaseAudioId = ref.key;
@@ -1020,6 +1033,36 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     return div.innerHTML;
   }
 
+  // EMR UPGRADE (item 4): loads Smart EMR patients for the optional
+  // name/reg-number link on the setup screen — a separate scope lookup
+  // from `scopeUid` above ('audio' vs 'doc'), same as Motion/Presentation.
+  async function loadEmrPatientsForLink(user) {
+    if (!user || !audioPatientList) return;
+    try {
+      let uid = user.uid;
+      if (window.RehablixCenter && typeof window.RehablixCenter.getEffectiveScopeUid === 'function') {
+        try { uid = (await window.RehablixCenter.getEffectiveScopeUid('doc')) || user.uid; } catch (e) { uid = user.uid; }
+      }
+      const snap = await firebase.database().ref(`history/${uid}/patients`).once('value');
+      emrPatientsForLink = Object.entries(snap.val() || {}).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null })).filter(p => p.name);
+      audioPatientList.innerHTML = emrPatientsForLink.map(p => `<option value="${escapeHtml(p.name)}" label="${escapeHtml(p.name)}${p.regNumber ? ' (' + escapeHtml(p.regNumber) + ')' : ''}"></option>`).join('');
+    } catch (err) { console.warn('[audio] could not load Smart EMR patients', err); }
+  }
+  function refreshAudioPatientMatch() {
+    if (!audioPatientName) return;
+    const name = audioPatientName.value.trim().toLowerCase();
+    matchedEmrPatient = name ? emrPatientsForLink.find(p => p.name.toLowerCase() === name) || null : null;
+    if (audioPatientHint) {
+      audioPatientHint.textContent = matchedEmrPatient
+        ? `✓ Linked to Smart EMR${matchedEmrPatient.regNumber ? ' — ' + matchedEmrPatient.regNumber : ''}`
+        : '';
+    }
+  }
+  if (audioPatientName) {
+    audioPatientName.addEventListener('input', refreshAudioPatientMatch);
+    audioPatientName.addEventListener('change', refreshAudioPatientMatch);
+  }
+
   const unsubAuth = firebase.auth().onAuthStateChanged(async (user) => {
     currentUser = user;
     if (!user) return;
@@ -1039,6 +1082,8 @@ Output ONLY the narrative text, as flowing paragraphs.`;
 
     await loadAiConfig();
     loadHistory();
+    loadEmrPatientsForLink(user); // EMR UPGRADE (item 4)
+    if (window.RehablixRegMigration && scopeUid) window.RehablixRegMigration.checkAndPrompt(scopeUid, 'audio'); // EMR UPGRADE (item 5)
   });
   cleanupFns.push(unsubAuth);
 

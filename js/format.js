@@ -704,8 +704,21 @@ Return ONLY the HTML.`;
     spinner.style.display = 'inline-block';
 
     try {
+      // EMR UPGRADE (item 9): quota check — Format had no cap enforcement at all before this.
+      if (currentUser && window.RehabPlanTiers) {
+        const quota = window.RehablixQuotaModal
+          ? await window.RehablixQuotaModal.checkAndWarn(currentUser.uid, currentPlan)
+          : await window.RehabPlanTiers.hasQuota(currentUser.uid, currentPlan);
+        if (!quota.allowed) {
+          const resetMins = Math.max(1, Math.ceil((quota.resetAt - Date.now()) / 60000));
+          throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
+        }
+      }
       const prompt = buildPrompt(formData);
       const html = await callAIWithValidation(prompt, 1);
+      if (currentUser && window.RehabPlanTiers) { // EMR UPGRADE (item 9)
+        window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlan, window.RehabPlanTiers.estimateTokens(prompt + html), 1).catch(() => {});
+      }
 
       window.currentGeneratedText = html;
       window.currentFormData = formData;

@@ -626,6 +626,21 @@ The final text must read like a specific, thoughtful student wrote it for this s
       return;
     }
 
+    // EMR UPGRADE (item 9): quota check — Assignment had no token-cap
+    // enforcement at all before this (its monthly generation-count limit
+    // above is separate).
+    if (currentUser && window.RehabPlanTiers) {
+      const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free';
+      const quota = window.RehablixQuotaModal
+        ? await window.RehablixQuotaModal.checkAndWarn(currentUser.uid, plan)
+        : await window.RehabPlanTiers.hasQuota(currentUser.uid, plan);
+      if (!quota.allowed) {
+        const resetMins = Math.max(1, Math.ceil((quota.resetAt - Date.now()) / 60000));
+        showToast(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`, 'error', 6000);
+        return;
+      }
+    }
+
     if (hasOutlineCheckbox.checked && !outlineInput.value.trim()) {
       showToast('Please paste your outline or uncheck the outline option', 'error');
       outlineInput.focus();
@@ -737,6 +752,10 @@ Return ONLY the polished HTML. No markdown fences.`;
       content = cleanAIResponse(pass3Res.choices[0].message.content);
 
       generatedHtml = content;
+      if (currentUser && window.RehabPlanTiers) { // EMR UPGRADE (item 9) — approximates the 3-pass pipeline's cost from the final output length
+        const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free';
+        window.RehabPlanTiers.consumeQuota(currentUser.uid, plan, window.RehabPlanTiers.estimateTokens(generatedHtml) * 3, 1).catch(() => {});
+      }
 
       // Score the output
       const score = calculateHumanizationScore(generatedHtml);

@@ -42,6 +42,19 @@ if (typeof marked !== 'undefined') {
     const patientDiagnosis = document.getElementById('patientDiagnosis');
     const professionSelect = document.getElementById('professionSelect');
 
+    // EMR UPGRADE (item 4): optional link to a Smart EMR patient — matched
+    // by name against the datalist below; when matched, the patient's reg
+    // number auto-fills the existing MRN field (only if it's still empty,
+    // so a manually-typed MRN is never overwritten).
+    const presentationPatientList = document.getElementById('presentationPatientList');
+    const findPatientHistoryBtn = document.getElementById('findPatientHistoryBtn');
+    const regSearchPanel = document.getElementById('regSearchPanel');
+    const regSearchInput = document.getElementById('regSearchInput');
+    const regSearchSubmitBtn = document.getElementById('regSearchSubmitBtn');
+    const regSearchResults = document.getElementById('regSearchResults');
+    let emrPatientsForLink = [];
+    let matchedEmrPatient = null;
+
     // Mode tabs
     const modeTabs = document.querySelectorAll('.mode-tab');
     
@@ -172,7 +185,10 @@ if (typeof marked !== 'undefined') {
 
     async function checkQuotaOrThrow() {
         if (!currentUser || !window.RehabPlanTiers) return;
-        const quota = await window.RehabPlanTiers.hasQuota(currentUser.uid, currentPlan);
+        // EMR UPGRADE (item 9): surfaces the shared low/exhausted-token modal.
+        const quota = window.RehablixQuotaModal
+            ? await window.RehablixQuotaModal.checkAndWarn(currentUser.uid, currentPlan)
+            : await window.RehabPlanTiers.hasQuota(currentUser.uid, currentPlan);
         if (!quota.allowed) {
             const resetMins = Math.max(1, Math.ceil((quota.resetAt - Date.now()) / 60000));
             throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
@@ -1338,6 +1354,8 @@ ${combinedText || 'No notes provided.'}`;
                 patientAge: patientAge.value,
                 patientGender: patientGender.value,
                 patientMRN: patientMRN.value.trim(),
+                regNumber: (matchedEmrPatient && matchedEmrPatient.regNumber) || null, // EMR UPGRADE (item 4)
+                emrPatientId: (matchedEmrPatient && matchedEmrPatient.id) || null,
                 diagnosis: patientDiagnosis.value.trim(),
                 profession: professionSelect.value,
                 results: rawMarkdown,
@@ -1561,6 +1579,67 @@ ${combinedText || 'No notes provided.'}`;
         cleanupFns.push(() => window.RehablixHistoryDrawer.unregister('presentation'));
     }
 
+    // EMR UPGRADE (item 4): loads Smart EMR patients for the optional
+    // name/reg-number link — a separate scope lookup from `scopeUid` above
+    // ('presentation' vs 'doc'), same as js/views/motion-view.js already does.
+    let emrLinkScopeUid = null;
+    async function loadEmrPatientsForLink(user) {
+        if (!user || !presentationPatientList) return;
+        try {
+            let uid = user.uid;
+            if (window.RehablixCenter && typeof window.RehablixCenter.getEffectiveScopeUid === 'function') {
+                try { uid = (await window.RehablixCenter.getEffectiveScopeUid('doc')) || user.uid; } catch (e) { uid = user.uid; }
+            }
+            emrLinkScopeUid = uid;
+            const snap = await firebase.database().ref(`history/${uid}/patients`).once('value');
+            emrPatientsForLink = Object.entries(snap.val() || {}).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null })).filter(p => p.name);
+            presentationPatientList.innerHTML = emrPatientsForLink.map(p => `<option value="${escapeHtml(p.name)}" label="${escapeHtml(p.name)}${p.regNumber ? ' (' + escapeHtml(p.regNumber) + ')' : ''}"></option>`).join('');
+        } catch (err) { console.warn('[presentation] could not load Smart EMR patients', err); }
+    }
+
+    function refreshPatientLinkMatch() {
+        const name = patientName.value.trim().toLowerCase();
+        matchedEmrPatient = name ? emrPatientsForLink.find(p => p.name.toLowerCase() === name) || null : null;
+        if (matchedEmrPatient && matchedEmrPatient.regNumber && !patientMRN.value.trim()) {
+            patientMRN.value = matchedEmrPatient.regNumber;
+        }
+    }
+    if (patientName) {
+        patientName.addEventListener('change', refreshPatientLinkMatch);
+        patientName.addEventListener('blur', refreshPatientLinkMatch);
+    }
+
+    // EMR UPGRADE (item 4): "Find patient history" — searches Motion/Smart
+    // EMR/Audio/Presentation for a matching reg number or patient name.
+    if (findPatientHistoryBtn && regSearchPanel) {
+        findPatientHistoryBtn.addEventListener('click', () => {
+            regSearchPanel.style.display = regSearchPanel.style.display === 'none' ? 'block' : 'none';
+            if (regSearchPanel.style.display === 'block' && regSearchInput) regSearchInput.focus();
+        });
+    }
+    async function runRegSearch() {
+        const query = (regSearchInput && regSearchInput.value.trim()) || '';
+        if (!regSearchResults) return;
+        if (!query) { regSearchResults.innerHTML = '<em>Enter a reg. number or name first.</em>'; return; }
+        if (!window.RehablixPatientReg || !emrLinkScopeUid) { regSearchResults.innerHTML = '<em>Search is not available right now.</em>'; return; }
+        regSearchResults.innerHTML = '<em>Searching…</em>';
+        try {
+            const results = await window.RehablixPatientReg.findByRegOrName(emrLinkScopeUid, query);
+            if (!results.length) { regSearchResults.innerHTML = '<em>No record found.</em>'; return; }
+            regSearchResults.innerHTML = results.map(r => `
+                <div style="padding:0.4rem 0;border-bottom:1px solid rgba(0,0,0,0.08);">
+                    <strong>${escapeHtml(r.type)}</strong>${r.regNumber ? ' · ' + escapeHtml(r.regNumber) : ''}<br>
+                    <span>${escapeHtml(r.title)}${r.patientName ? ' — ' + escapeHtml(r.patientName) : ''}</span>
+                    <span style="color:var(--text-secondary,#888);"> · ${escapeHtml(r.date || '')}</span>
+                </div>
+            `).join('');
+        } catch (err) {
+            regSearchResults.innerHTML = '<em>Search failed — please try again.</em>';
+        }
+    }
+    if (regSearchSubmitBtn) regSearchSubmitBtn.addEventListener('click', runRegSearch);
+    if (regSearchInput) regSearchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); runRegSearch(); } });
+
     // =========================================================================
     // Auth & init
     // =========================================================================
@@ -1579,6 +1658,8 @@ ${combinedText || 'No notes provided.'}`;
             } else if (scopeUid !== user.uid) {
                 showToast('Working on your center\'s shared documents', 'info', 3000);
             }
+            loadEmrPatientsForLink(user); // EMR UPGRADE (item 4)
+            if (window.RehablixRegMigration && scopeUid) window.RehablixRegMigration.checkAndPrompt(scopeUid, 'caseHistory'); // EMR UPGRADE (item 5)
         } else {
             console.log('[AUTH] Logged out');
         }

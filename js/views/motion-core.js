@@ -362,6 +362,7 @@ Write in concise clinical language with these headings (##): "Interpretation of 
       timestamp: firebase.database.ServerValue.TIMESTAMP,
       date: new Date().toLocaleDateString(),
       patientName, emrPatientId: (structured.patient && structured.patient.emrPatientId) || null,
+      regNumber: (structured.patient && structured.patient.regNumber) || null, // EMR UPGRADE (item 4)
       status: structured.status,
       view: (structured.prefs && structured.prefs.view) || '',
       notes: (structured.prefs && structured.prefs.notes) || '',
@@ -396,6 +397,7 @@ Write in concise clinical language with these headings (##): "Interpretation of 
     const published = {
       schema: 'rehablix.clinicalMeasurements.v1', sourceSchema: structured.schema, kind, kindLabel: structured.kindLabel, recordId: id, sourceNode: KIND_PATH[kind],
       patientName: (structured.patient && structured.patient.name) || null, emrPatientId: (structured.patient && structured.patient.emrPatientId) || null,
+      regNumber: (structured.patient && structured.patient.regNumber) || null, // EMR UPGRADE (item 4)
       confirmedAt: structured.confirmedAt, confirmedBy: structured.confirmedBy, method: structured.capture && structured.capture.method,
       measurements: inc.map(m => ({ id: m.id, name: m.name, value: m.value, unit: m.unit, side: m.side, plane: m.plane, method: m.method, source: m.source, reference: m.reference, confidence: m.confidence, confidenceLabel: m.confidenceLabel })),
       findings: (structured.findings || []).filter(f => f.include).map(f => ({ text: f.text, source: f.source })),

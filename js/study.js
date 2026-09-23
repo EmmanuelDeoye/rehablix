@@ -326,6 +326,17 @@
 
     showLoading('Analyzing your material…');
     try {
+      // EMR UPGRADE (item 9): quota check — Study had no token-cap enforcement at all before this (its monthly generation-count limit is separate).
+      if (currentUser && window.RehabPlanTiers) {
+        const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free';
+        const quota = window.RehablixQuotaModal
+          ? await window.RehablixQuotaModal.checkAndWarn(currentUser.uid, plan)
+          : await window.RehabPlanTiers.hasQuota(currentUser.uid, plan);
+        if (!quota.allowed) {
+          const resetMins = Math.max(1, Math.ceil((quota.resetAt - Date.now()) / 60000));
+          throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
+        }
+      }
       const systemPrompt = `You are an expert study coach for rehabilitation/healthcare students. From the material given, produce a JSON object with EXACTLY these keys and nothing else (no markdown, no code fences, no commentary):
 {
   "summary": "a well-structured markdown summary (headings, bullet points) of the key concepts, 200-400 words",
@@ -337,6 +348,10 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
       const userPrompt = `Subject: ${subjectName}\n\nMaterial:\n${notes.slice(0, 12000)}`;
 
       const response = await callAI(systemPrompt, userPrompt, 4000);
+      if (currentUser && window.RehabPlanTiers) { // EMR UPGRADE (item 9)
+        const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free';
+        window.RehabPlanTiers.consumeQuota(currentUser.uid, plan, window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + response), 1).catch(() => {});
+      }
       const parsed = parseAIJson(response);
 
       if (!parsed.flashcards || !parsed.quiz || !parsed.topics) throw new Error('AI response was missing required fields');
