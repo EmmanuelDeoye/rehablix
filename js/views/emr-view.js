@@ -247,16 +247,51 @@
         const start = cleaned.indexOf('[');
         const end = cleaned.lastIndexOf(']');
         if (start !== -1 && end !== -1) cleaned = cleaned.slice(start, end + 1);
+
         try {
             const arr = JSON.parse(cleaned);
-            return Array.isArray(arr) ? arr : [];
-        } catch (e) {
-            console.warn('[EMR] Could not parse AI JSON, falling back to line split', e);
-            return cleaned.split('\n')
-                .map(l => l.replace(/^[-*\d.]+\s*/, '').trim())
-                .filter(l => l)
-                .map(l => ({ title: l, detail: '' }));
+            if (Array.isArray(arr)) return arr;
+        } catch (e) { /* try the repairs below before giving up */ }
+
+        // A trailing comma before a closing bracket/brace is the single most
+        // common way the AI's JSON fails to parse — strip those and retry
+        // once before falling further back.
+        try {
+            const repaired = cleaned.replace(/,(\s*[\]}])/g, '$1');
+            const arr = JSON.parse(repaired);
+            if (Array.isArray(arr)) return arr;
+        } catch (e) { /* fall through */ }
+
+        // Pull out individual {...} objects even if the surrounding array
+        // structure itself is broken, and parse each one on its own.
+        const objectMatches = cleaned.match(/\{[^{}]*\}/g);
+        if (objectMatches) {
+            const objs = objectMatches
+                .map(m => { try { return JSON.parse(m); } catch (e) { return null; } })
+                .filter(Boolean);
+            if (objs.length > 0) return objs;
         }
+
+        // Last resort: the response isn't valid JSON at all. Line-splitting
+        // the raw (still JSON-shaped) text used to dump literal JSON syntax
+        // — a lone "}" line, a bare "title": "..." line — straight into the
+        // UI as if it were real list content. Instead, drop lines that are
+        // pure JSON punctuation and unwrap the quoted value from lines that
+        // carry a "key": "value" or bare "value" pair.
+        console.warn('[EMR] Could not parse AI JSON, falling back to line extraction');
+        const isPureJsonPunctuation = (l) => /^[{}\[\],]*$/.test(l);
+        return cleaned.split('\n')
+            .map(l => l.trim())
+            .filter(l => l && !isPureJsonPunctuation(l))
+            .map(l => {
+                const keyValue = l.match(/^"[^"]*"\s*:\s*"([^"]*)"\s*,?$/);
+                if (keyValue) return keyValue[1];
+                const quotedOnly = l.match(/^"([^"]*)"\s*,?$/);
+                if (quotedOnly) return quotedOnly[1];
+                return l.replace(/^[-*\d.]+\s*/, '').replace(/,$/, '').trim();
+            })
+            .filter(l => l && !isPureJsonPunctuation(l))
+            .map(l => ({ title: l, detail: '' }));
     }
 
     // =========================================================================

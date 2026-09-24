@@ -86,7 +86,12 @@
   transform: translateY(-2px);
 }
 
-.card-header {
+/* Scoped to .settings-card: an unscoped .card-header here used to leak onto
+   every other page that also has a (differently-styled) .card-header —
+   since every page's CSS loads globally on every page, this settings-only
+   teal tint was showing up as an unwanted background behind section labels
+   elsewhere (e.g. Smart EMR's card titles). */
+.settings-card .card-header {
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -95,19 +100,19 @@
   border-bottom: 1px solid var(--settings-border);
 }
 
-.card-header i {
+.settings-card .card-header i {
   font-size: 1.25rem;
   color: var(--settings-accent);
 }
 
-.card-header h3 {
+.settings-card .card-header h3 {
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--settings-text);
   margin: 0;
 }
 
-.card-body {
+.settings-card .card-body {
   padding: 1.5rem;
 }
 
