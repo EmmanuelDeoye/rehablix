@@ -1,0 +1,8 @@
+{
+  "name": "rehablix-admin-scripts",
+  "private": true,
+  "description": "One-off Firebase Admin maintenance scripts. Not part of the deployed web app.",
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  }
+}

@@ -686,6 +686,11 @@
   color: #831843;
 }
 
+.badge-plan.max {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
 .badge-provider {
   display: inline-block;
   padding: 0.1rem 0.5rem;
@@ -1617,6 +1622,11 @@
 [data-theme="dark"] .badge-plan.pro {
   background: #3b0a24;
   color: #f472b6;
+}
+
+[data-theme="dark"] .badge-plan.max {
+  background: #2e1065;
+  color: #c4b5fd;
 }
 
 [data-theme="dark"] .badge-provider.google {

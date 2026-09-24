@@ -59,6 +59,15 @@
     }
 
     function applyOrder(cards, order) {
+      // Skip entirely if this is already the on-screen order. appendChild()
+      // detaches+reattaches a node even when "moving" it to the same spot,
+      // which is what caused the tool grid to visibly flicker/"reload" on
+      // every workspace revisit — onShow() calls this on every visit, but
+      // the cached order is normally unchanged within the same 24h window.
+      const currentOrder = cards.map(c => c.dataset.tool);
+      const unchanged = currentOrder.length === order.length && currentOrder.every((tool, i) => tool === order[i]);
+      if (unchanged) return;
+
       const byTool = new Map(cards.map(c => [c.dataset.tool, c]));
       order.forEach((tool, i) => {
         const card = byTool.get(tool);
@@ -143,8 +152,9 @@
       const plan = window.rehabPlans ? window.rehabPlans.getCurrentPlan() : 'free';
       const config = {
         free: { icon: '🚀', name: 'Free Plan', desc: 'Basic access with monthly usage limits', badgeClass: 'free', btnText: 'Upgrade Plan' },
-        student: { icon: '🎓', name: 'Student Plan', desc: 'Full access for healthcare students', badgeClass: 'student', btnText: 'Upgrade to Pro' },
-        pro: { icon: '💎', name: 'Pro Plan', desc: 'Unlimited everything for professionals', badgeClass: 'pro', btnText: 'Manage Plan' }
+        student: { icon: '🎓', name: 'Basic Plan', desc: 'Full access for healthcare students', badgeClass: 'student', btnText: 'Upgrade to Pro' },
+        pro: { icon: '💎', name: 'Pro Plan', desc: 'Unlimited everything for professionals', badgeClass: 'pro', btnText: 'Manage Plan' },
+        max: { icon: '♾️', name: 'Max Plan', desc: 'Everything in Pro, with the highest usage ceiling', badgeClass: 'max', btnText: 'Manage Plan' }
       };
       const planConfig = config[plan] || config.free;
 

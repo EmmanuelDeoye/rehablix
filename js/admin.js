@@ -40,6 +40,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const planFreeCount = document.getElementById('planFreeCount');
   const planStudentCount = document.getElementById('planStudentCount');
   const planProCount = document.getElementById('planProCount');
+  const planMaxCount = document.getElementById('planMaxCount');
   const userCountBadge = document.getElementById('userCountBadge');
 
   // Stats cards
@@ -507,7 +508,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
       let free = 0,
         student = 0,
-        pro = 0;
+        pro = 0,
+        max = 0;
       let visits = [];
       let anonymousVisits = [];
 
@@ -516,6 +518,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (user.subscription && user.subscription.plan) {
           if (user.subscription.plan === 'student') student++;
           else if (user.subscription.plan === 'pro') pro++;
+          else if (user.subscription.plan === 'max') max++;
           else free++;
         } else {
           free++;
@@ -550,6 +553,7 @@ document.addEventListener('DOMContentLoaded', function() {
       if (planFreeCount) planFreeCount.textContent = free;
       if (planStudentCount) planStudentCount.textContent = student;
       if (planProCount) planProCount.textContent = pro;
+      if (planMaxCount) planMaxCount.textContent = max;
       if (userCountBadge) userCountBadge.textContent = totalUsers;
       updateReviewBadge();
       updatePartnerBadge();
@@ -1877,7 +1881,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     title.textContent = user.name;
 
-    const planBadge = user.plan === 'student' ? 'Student' : user.plan === 'pro' ? 'Pro' : 'Free';
+    const PLAN_BADGE_LABELS = { free: 'Free', student: 'Basic', pro: 'Pro', max: 'Max' };
+    const planBadge = PLAN_BADGE_LABELS[user.plan] || 'Free';
 
     body.innerHTML = `
       <div class="detail-row"><span class="label">UID</span><span class="value">${user.uid}</span></div>

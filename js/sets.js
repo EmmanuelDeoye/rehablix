@@ -275,7 +275,8 @@
         if (noSubscriptionMsg) noSubscriptionMsg.style.display = 'none';
         
         if (subPlan) {
-          subPlan.textContent = sub.plan === 'student' ? '🎓 Student' : '💎 Pro';
+          const SUB_PLAN_LABELS = { student: '🎓 Basic', pro: '💎 Pro', max: '♾️ Max' };
+          subPlan.textContent = SUB_PLAN_LABELS[sub.plan] || '💎 Pro';
         }
         
         if (subBilling) {
