@@ -635,34 +635,24 @@
             container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-search"></i><p>No patients match your search/filter</p></div>`;
             return;
         }
-        container.innerHTML = `
-            <div style="overflow-x:auto;">
-                <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
-                    <thead>
-                        <tr style="border-bottom:2px solid var(--border-light);">
-                            <th style="text-align:left;padding:0.6rem 0.4rem;font-weight:700;color:var(--text-secondary);font-size:0.7rem;text-transform:uppercase;">Name</th>
-                            <th style="text-align:left;padding:0.6rem 0.4rem;font-weight:700;color:var(--text-secondary);font-size:0.7rem;text-transform:uppercase;">Diagnosis</th>
-                            <th style="text-align:left;padding:0.6rem 0.4rem;font-weight:700;color:var(--text-secondary);font-size:0.7rem;text-transform:uppercase;">State</th>
-                            <th style="text-align:right;padding:0.6rem 0.4rem;font-weight:700;color:var(--text-secondary);font-size:0.7rem;text-transform:uppercase;">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${patients.map(p => `
-                            <tr style="border-bottom:1px solid var(--border-light);">
-                                <td style="padding:0.6rem 0.4rem;font-weight:600;">${escapeHtml(p.name) || 'Unknown'} ${p.status === 'draft' ? '<span class="tag tag-amber" style="margin-left:0.4rem;">Draft</span>' : ''}</td>
-                                <td style="padding:0.6rem 0.4rem;color:var(--text-secondary);">${escapeHtml(p.primaryDx) || '—'}</td>
-                                <td style="padding:0.6rem 0.4rem;color:var(--text-secondary);">${escapeHtml(p.state) || '—'}</td>
-                                <td style="padding:0.6rem 0.4rem;text-align:right;">
-                                    <button class="btn btn-primary" style="font-size:0.7rem;padding:0.2rem 0.8rem;" onclick="openPatient('${escapeHtml(p.id)}')">
-                                        <i class="bx bx-folder-open"></i> Open
-                                    </button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-        `;
+        // EMR UPGRADE (item 3): a clickable card per patient instead of a
+        // table + separate "Open" button — the whole card opens the chart,
+        // matching the same clickable-card pattern already used elsewhere
+        // in EMR (.linked-record-item, Pending Documentation's cards).
+        container.innerHTML = patients.map(p => {
+            const initials = (p.name || '').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || '??';
+            const metaParts = [escapeHtml(p.primaryDx) || 'No diagnosis', escapeHtml(p.state) || null, p.regNumber ? `Reg # ${escapeHtml(p.regNumber)}` : null].filter(Boolean);
+            return `
+                <div class="patient-list-card" onclick="openPatient('${escapeHtml(p.id)}')">
+                    <div class="patient-list-avatar">${initials}</div>
+                    <div class="patient-list-info">
+                        <div class="patient-list-name">${escapeHtml(p.name) || 'Unknown'} ${p.status === 'draft' ? '<span class="tag tag-amber">Draft</span>' : ''}</div>
+                        <div class="patient-list-meta">${metaParts.join(' · ')}</div>
+                    </div>
+                    <i class="bx bx-chevron-right"></i>
+                </div>
+            `;
+        }).join('');
     }
 
     // =========================================================================

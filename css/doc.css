@@ -1814,6 +1814,45 @@
 [data-theme="dark"] .linked-record-item { background: rgba(30, 42, 50, 0.3); }
 
 /* =========================================================================
+   Patients list (item 3) — a clickable card per patient instead of a table
+   row + separate Open button; the whole card is the click target.
+   ========================================================================= */
+.patient-list-card {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border-light);
+  border-radius: 0.75rem;
+  margin-bottom: 0.6rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.patient-list-card:hover {
+  border-color: var(--accent);
+  transform: translateX(2px);
+}
+.patient-list-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.patient-list-info { flex: 1; min-width: 0; }
+.patient-list-name { font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; }
+.patient-list-meta { font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.patient-list-card > i.bx-chevron-right { color: var(--text-secondary); flex-shrink: 0; }
+
+[data-theme="dark"] .patient-list-card { background: rgba(30, 42, 50, 0.3); }
+
+/* =========================================================================
    Link-from-tool modal (item 3) — reuses css/history-migration.css's
    .hm-overlay backdrop/show chrome; this just widens/left-aligns the box.
    ========================================================================= */

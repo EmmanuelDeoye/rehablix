@@ -369,6 +369,14 @@ function mount() {
       showToast('This browser doesn\'t support microphone recording. Please try an up-to-date Chrome, Safari, or Firefox.', 'error', 6000);
       return;
     }
+    // AUDIO FIX (mobile): some mobile browsers/webviews expose getUserMedia
+    // but not MediaRecorder at all — calling .isTypeSupported on it further
+    // below used to throw an unhandled, uncaught ReferenceError that killed
+    // recording AND the Whisper fallback with zero user-facing signal.
+    if (!window.MediaRecorder) {
+      showToast('This browser can\'t record audio (no MediaRecorder support). Please try an up-to-date Chrome or Safari.', 'error', 7000);
+      return;
+    }
 
     localSessionId = newSessionId();
     chunkIndex = 0;
@@ -376,13 +384,6 @@ function mount() {
     isPaused = false;
     interimEl = null;
     hasReceivedAnyResult = false;
-
-    if (SpeechRecognitionAPI) {
-      startLiveTranscription();
-      await new Promise(resolve => setTimeout(resolve, 250));
-    } else {
-      showToast('Live captions aren\'t supported in this browser — your words will be transcribed once you tap Stop.', 'info', 6000);
-    }
 
     try {
       // AUDIO UPGRADE: browser-native noise suppression/echo cancellation/
@@ -419,7 +420,6 @@ function mount() {
         SecurityError: 'Microphone access was blocked for security reasons on this page.'
       };
       showToast(messages[err.name] || `Couldn't access the microphone (${err.name || 'unknown error'}). Please check your browser's site permissions.`, 'error', 7000);
-      stopLiveTranscription();
       return;
     }
 
@@ -427,6 +427,17 @@ function mount() {
       : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
       : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4'
       : '';
+
+    // AUDIO FIX (mobile): live captions now start only AFTER the actual
+    // recording stream above is confirmed working, instead of concurrently
+    // with it — many mobile browsers don't multiplex two simultaneous
+    // capture sessions cleanly, and starting the Web Speech API's own
+    // internal mic capture first used to risk starving/killing this one.
+    if (SpeechRecognitionAPI) {
+      startLiveTranscription();
+    } else {
+      showToast('Live captions aren\'t supported in this browser — your words will be transcribed once you tap Stop.', 'info', 6000);
+    }
 
     sessionMeta = {
       id: localSessionId,
@@ -471,11 +482,10 @@ function mount() {
     requestWakeLock();
     setupWaveform();
     startTimer();
-    // AUDIO FIX: startLiveTranscription() was already called (and awaited
-    // 250ms) in startNewRecording() before mic permission was even
-    // requested — calling it again here was a redundant duplicate that only
-    // "worked" because its own try/catch silently swallows the resulting
-    // "already started" exception.
+    // Live transcription is already running by this point — started in
+    // startNewRecording() right after the recording stream itself was
+    // confirmed (see the mobile-ordering fix there); no need to start it
+    // again here.
 
     recIndicator.classList.remove('paused');
     recStatusText.textContent = 'Recording';
@@ -702,6 +712,13 @@ function mount() {
   const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
   let recognitionShouldRun = false;
+  // AUDIO FIX (mobile live captions): mobile browsers commonly fire
+  // audio-capture/network/aborted errors and keep failing in a loop that
+  // used to retry forever silently (only console.warn'd). Give up quietly
+  // after a few in a row — the Whisper-on-stop fallback runs independently
+  // off the actual MediaRecorder stream either way, so nothing is lost.
+  let consecutiveRecognitionErrors = 0;
+  const MAX_CONSECUTIVE_RECOGNITION_ERRORS = 3;
 
   if (SpeechRecognitionAPI) {
     recognition = new SpeechRecognitionAPI();
@@ -711,6 +728,7 @@ function mount() {
 
     recognition.onresult = (event) => {
       hasReceivedAnyResult = true;
+      consecutiveRecognitionErrors = 0;
       clearTimeout(noResultWatchdog);
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -732,9 +750,15 @@ function mount() {
 
     recognition.onerror = (event) => {
       console.warn('Speech recognition error:', event.error);
+      if (!recognitionShouldRun) return; // an intentional stop — nothing to react to
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         recognitionShouldRun = false;
         showToast('Microphone permission is needed for live captions.', 'error', 5000);
+        return;
+      }
+      consecutiveRecognitionErrors++;
+      if (consecutiveRecognitionErrors >= MAX_CONSECUTIVE_RECOGNITION_ERRORS) {
+        recognitionShouldRun = false; // stop the onend retry loop — rely on the Whisper fallback instead
       }
     };
 
@@ -748,6 +772,7 @@ function mount() {
   function startLiveTranscription() {
     if (!recognition) return;
     recognitionShouldRun = true;
+    consecutiveRecognitionErrors = 0;
     try { recognition.start(); } catch (e) { /* already started */ }
 
     clearTimeout(noResultWatchdog);

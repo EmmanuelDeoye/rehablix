@@ -820,8 +820,36 @@
   }
 
   // ===== Payment Success Handler =====
+  const PENDING_SUBSCRIPTION_KEY = 'rehablix_pending_subscription';
+
+  // PAYMENT FIX (item 5): finishes a subscription write that was reported
+  // successful by the gateway but didn't make it to Firebase last time
+  // (network blip, tab closed mid-write, etc.) — called once auth is ready.
+  async function retryPendingSubscriptionIfAny() {
+    let pending;
+    try { pending = JSON.parse(localStorage.getItem(PENDING_SUBSCRIPTION_KEY) || 'null'); } catch (e) { pending = null; }
+    if (!pending || !pending.uid || !pending.payload) return;
+    if (!currentUser || currentUser.uid !== pending.uid) return; // only ever retry for the account that actually paid
+
+    try {
+      await database.ref(`users/${pending.uid}/subscription`).set(pending.payload);
+      localStorage.removeItem(PENDING_SUBSCRIPTION_KEY);
+      document.dispatchEvent(new CustomEvent('planUpdated', { detail: { plan: pending.payload.plan } }));
+      showToast('Your previous payment has now been applied to your account.', 'success', 6000);
+    } catch (e) {
+      console.error('Retrying pending subscription write failed, will try again next load:', e);
+    }
+  }
+
   async function handlePaymentSuccess(gateway, response, amount) {
     if (!currentUser || !selectedPlan) return;
+    // PAYMENT FIX (item 5): captured up front because
+    // closePaymentModalHandler() below resets the module-level
+    // `selectedPlan` to null — every use after that point used to read
+    // `selectedPlan` directly and silently get null, which showed "Welcome
+    // to null!" in the success modal and sent a broken (plan: null)
+    // 'planUpdated' event to every listener elsewhere in the app.
+    const purchasedPlan = selectedPlan;
 
     // Minimal sanity check on the transaction reference before we grant
     // access. This does NOT replace real server-side verification (see
@@ -847,27 +875,39 @@
     } else {
       endDate.setMonth(endDate.getMonth() + 1);
     }
-    
+
+    const subscriptionPayload = {
+      plan: purchasedPlan,
+      billing: isYearly ? 'yearly' : 'monthly',
+      starts: new Date().toISOString(),
+      ends: endDate.toISOString(),
+      gateway: gateway,
+      transactionRef: transactionRef,
+      country: userCountry,
+      currency: userCurrency,
+      amount: amount
+    };
+
+    // PAYMENT FIX (item 5): the gateway HAS already reported success at this
+    // point — a genuinely successful payment must never be lost to a
+    // transient Firebase write failure. Persist it locally first, so
+    // retryPendingSubscriptionIfAny() (called on next load) can finish the
+    // job even if the write below fails right now.
+    try {
+      localStorage.setItem(PENDING_SUBSCRIPTION_KEY, JSON.stringify({ uid: currentUser.uid, payload: subscriptionPayload }));
+    } catch (e) { /* localStorage unavailable — the write below is still attempted */ }
+
     try {
       // Update subscription in Firebase
-      await database.ref(`users/${currentUser.uid}/subscription`).set({
-        plan: selectedPlan,
-        billing: isYearly ? 'yearly' : 'monthly',
-        starts: new Date().toISOString(),
-        ends: endDate.toISOString(),
-        gateway: gateway,
-        transactionRef: transactionRef,
-        country: userCountry,
-        currency: userCurrency,
-        amount: amount
-      });
-      
-      closePaymentModalHandler();
-      
-      // Force plan.js to reload the subscription by dispatching event
-      document.dispatchEvent(new CustomEvent('planUpdated', { detail: { plan: selectedPlan } }));
+      await database.ref(`users/${currentUser.uid}/subscription`).set(subscriptionPayload);
+      try { localStorage.removeItem(PENDING_SUBSCRIPTION_KEY); } catch (e) {}
 
-      showSuccessCelebration(selectedPlan, endDate);
+      closePaymentModalHandler();
+
+      // Force plan.js to reload the subscription by dispatching event
+      document.dispatchEvent(new CustomEvent('planUpdated', { detail: { plan: purchasedPlan } }));
+
+      showSuccessCelebration(purchasedPlan, endDate);
 
       // Rehablix Partners: credit the referring partner's 20% commission,
       // if this user was referred by one. Never let this block/undo the
@@ -876,10 +916,13 @@
       creditPartnerCommission(gateway, transactionRef, amount).catch(err => {
         console.error('Partner commission crediting failed:', err);
       });
-      
+
     } catch (error) {
       console.error('Subscription update failed:', error);
-      showToast('Payment successful but subscription update failed. Please contact support.', 'error', 5000);
+      // The pending record stays in localStorage — retried automatically
+      // next time this page loads for the same account, so the payment
+      // isn't silently lost even though this write failed right now.
+      showToast('Payment successful — we\'re finishing up your plan update. It will apply automatically the next time you open rehablix; contact support if it hasn\'t within a few minutes.', 'error', 8000);
     }
   }
 
@@ -988,15 +1031,29 @@
 
     document.querySelectorAll('.plan-card').forEach(card => {
       const cardPlan = card.dataset.plan;
+
+      // SUBSCRIPTION UPGRADE (item 4): Free is never a real choice on this
+      // page regardless of the user's plan — always hidden.
+      if (cardPlan === 'free') { card.hidden = true; return; }
+
       const cardIdx = order.indexOf(cardPlan);
       const btn = card.querySelector('.plan-btn');
+      const isBelowCurrent = currentIdx > -1 && cardIdx > -1 && cardIdx < currentIdx;
 
-      // Hide every tier below the user's active plan — they're not a
-      // meaningful choice once you're already above them.
-      card.hidden = currentIdx > -1 && cardIdx > -1 && cardIdx < currentIdx;
-      if (card.hidden) return;
-
+      // Every paid tier stays visible now (previously hidden below the
+      // user's active plan) — a tier below current renders inactive
+      // instead, so the full lineup is always visible for context.
+      card.hidden = false;
+      card.classList.toggle('plan-card-inactive', isBelowCurrent);
       if (!btn) return;
+
+      if (isBelowCurrent) {
+        btn.textContent = 'Included in Your Plan';
+        btn.classList.remove('current-plan');
+        btn.disabled = true;
+        return;
+      }
+
       if (cardPlan === plan) {
         if (next) {
           btn.textContent = `Upgrade to ${nextLabel}`;
@@ -1056,6 +1113,7 @@
   const unsubscribeAuth = auth.onAuthStateChanged((user) => {
     currentUser = user;
     attachPlanButtonListeners();
+    retryPendingSubscriptionIfAny();
   });
   cleanupFns.push(unsubscribeAuth);
 

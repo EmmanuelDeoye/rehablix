@@ -40,29 +40,54 @@
       if (emptyMessage) emptyMessage.classList.toggle('hidden', visibleCount !== 0);
     }
 
-    // Workspace personalization (item 1c): rank every tool card by how
-    // often this clinician has actually used it (js/tool-usage.js), most
-    // used first, and redistribute the top 4 into the always-visible
-    // #toolGrid — moving the existing DOM nodes rather than rewriting them,
-    // so nothing about the cards themselves changes. Ties (including a
-    // first-time user with no usage data at all) keep today's curated
-    // order, since Array.prototype.sort is a stable sort.
+    // Workspace personalization (item 1c, refined): Smart EMR/Motion/
+    // Project Maker are core tools that must never leave the always-visible
+    // grid, so only the 4th slot is actually competitive — the single
+    // most-used tool among everything else, by the same per-user counts
+    // js/tool-usage.js tracks. Redistributes by moving the existing DOM
+    // nodes (not rewriting them), so nothing about the cards changes.
+    const PINNED_TOOLS = ['documentation', 'rom', 'project']; // Smart EMR, Motion, Project Maker
+    const RANKING_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // refined: re-rank at most once/day, not on every visit
+
+    function computeOrder(cards, usage) {
+      const nonPinned = cards.filter(c => !PINNED_TOOLS.includes(c.dataset.tool));
+      const ranked = nonPinned
+        .map((card, index) => ({ tool: card.dataset.tool, index, count: usage[card.dataset.tool] || 0 }))
+        .sort((a, b) => (b.count - a.count) || (a.index - b.index))
+        .map(r => r.tool);
+      return [...PINNED_TOOLS, ...ranked];
+    }
+
+    function applyOrder(cards, order) {
+      const byTool = new Map(cards.map(c => [c.dataset.tool, c]));
+      order.forEach((tool, i) => {
+        const card = byTool.get(tool);
+        if (card) (i < 4 ? toolGrid : moreToolsGridEl).appendChild(card);
+      });
+    }
+
     async function applyUsageRanking() {
       if (!window.RehablixToolUsage || !toolGrid || !moreToolsGridEl) return;
       const user = firebase.auth().currentUser;
       if (!user) return;
-      const usage = await window.RehablixToolUsage.getUsage(user.uid);
-      if (!usage || Object.keys(usage).length === 0) return; // nothing to rank by yet — leave the curated order alone
-
       const cards = Array.from(getToolCards());
-      const ranked = cards
-        .map((card, index) => ({ card, index, count: usage[card.dataset.tool] || 0 }))
-        .sort((a, b) => (b.count - a.count) || (a.index - b.index))
-        .map(r => r.card);
 
-      ranked.forEach((card, i) => {
-        (i < 4 ? toolGrid : moreToolsGridEl).appendChild(card);
-      });
+      try {
+        const cacheRef = firebase.database().ref(`users/${user.uid}/toolRankingCache`);
+        const cacheSnap = await cacheRef.once('value');
+        const cache = cacheSnap.val();
+        const now = Date.now();
+        if (cache && cache.computedAt && Array.isArray(cache.order) && (now - cache.computedAt) < RANKING_CACHE_TTL_MS) {
+          applyOrder(cards, cache.order);
+          return;
+        }
+        const usage = await window.RehablixToolUsage.getUsage(user.uid);
+        const order = computeOrder(cards, usage || {});
+        applyOrder(cards, order);
+        await cacheRef.set({ computedAt: now, order });
+      } catch (e) {
+        // Best-effort personalization — leave the curated order alone on any failure.
+      }
     }
 
     if (searchInput) {

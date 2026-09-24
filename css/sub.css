@@ -361,6 +361,27 @@ input:checked + .toggle-slider:before {
   color: var(--sub-text-secondary);
 }
 
+/* A tier below the user's current plan (item 4) — shown for context
+   instead of hidden, but visually stepped back and not a real choice. */
+.plan-card.plan-card-inactive {
+  opacity: 0.55;
+  filter: grayscale(0.3);
+}
+.plan-card.plan-card-inactive:hover {
+  transform: none;
+  box-shadow: none;
+}
+.plan-card.plan-card-inactive .plan-btn {
+  background: var(--sub-surface);
+  border: 1px solid var(--sub-border);
+  color: var(--sub-text-secondary);
+  cursor: not-allowed;
+}
+.plan-card.plan-card-inactive .plan-btn:hover {
+  transform: none;
+  box-shadow: none;
+}
+
 /* ===== Payment Modal ===== */
 .payment-modal-content {
   max-width: 480px !important;
