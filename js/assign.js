@@ -173,7 +173,7 @@ if (typeof marked !== 'undefined') {
     }
 
     notice.innerHTML = `
-      <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.3rem;">Free Plan</div>
+      <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.3rem;">No Active Plan</div>
       <div style="margin-bottom: 0.3rem;">
         ${remainingHTML} · <strong>${FREE_LIMIT}</strong> assignments/month
       </div>

@@ -1126,7 +1126,7 @@
 
   const onPlanExpired = (e) => {
     const label = (window.RehabPlanTiers && window.RehabPlanTiers.PLAN_LABELS[e.detail.previousPlan]) || e.detail.previousPlan;
-    showToast(`Your ${label} plan has expired and you've been moved to the Free plan.`, 'warning', 6000);
+    showToast(`Your ${label} plan has expired — you no longer have an active subscription.`, 'warning', 6000);
   };
   document.addEventListener('planExpired', onPlanExpired);
   cleanupFns.push(() => document.removeEventListener('planExpired', onPlanExpired));

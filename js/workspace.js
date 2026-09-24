@@ -151,7 +151,7 @@
 
       const plan = window.rehabPlans ? window.rehabPlans.getCurrentPlan() : 'free';
       const config = {
-        free: { icon: '🚀', name: 'Free Plan', desc: 'Basic access with monthly usage limits', badgeClass: 'free', btnText: 'Upgrade Plan' },
+        free: { icon: '🚀', name: 'No Active Plan', desc: 'Basic access with monthly usage limits — subscribe to unlock more', badgeClass: 'free', btnText: 'Upgrade Plan' },
         student: { icon: '🎓', name: 'Basic Plan', desc: 'Full access for healthcare students', badgeClass: 'student', btnText: 'Upgrade to Pro' },
         pro: { icon: '💎', name: 'Pro Plan', desc: 'Unlimited everything for professionals', badgeClass: 'pro', btnText: 'Manage Plan' },
         max: { icon: '♾️', name: 'Max Plan', desc: 'Everything in Pro, with the highest usage ceiling', badgeClass: 'max', btnText: 'Manage Plan' }

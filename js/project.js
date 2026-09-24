@@ -312,7 +312,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       notice.style.cssText = 'background: #fef3c7; border: 2px solid #fbbf24; border-radius: 1rem; padding: 0.8rem 1rem; margin: 0 0 0.75rem 0; text-align: center; font-size: 0.82rem; color: #92400e; animation: fadeIn 0.4s ease;';
 
-      notice.innerHTML = '<div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem;">Free Plan</div>' +
+      notice.innerHTML = '<div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem;">No Active Plan</div>' +
         '<div style="margin-bottom: 0.25rem; font-size: 0.78rem;"><strong>' + FREE_PROJECT_LIMIT + '</strong> project/month, Chapter 1 only, No AI Supervisor</div>' +
         (remaining <= 0 ? '<div style="color: #dc2626; font-size: 0.75rem; margin-bottom: 0.3rem;">Resets in <strong>' + daysLeft + '</strong> days</div>' : '') +
         '<button id="upgradeProjectBtn" style="margin-top: 0.3rem; padding: 0.4rem 1.2rem; border-radius: 2rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; cursor: pointer; font-weight: 600; font-size: 0.8rem; transition: all 0.2s ease; font-family: inherit;">Upgrade for Full Access</button>';
@@ -1219,7 +1219,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function createNewProject() {
     if (!canCreateProject()) {
       const daysLeft = getDaysUntilReset();
-      showToast('Free plan: 1 project/month. You have used yours. Resets in ' + daysLeft + ' days. Upgrade for unlimited.', 'error', 6000);
+      showToast('No active plan: 1 project/month. You have used yours. Resets in ' + daysLeft + ' days. Upgrade for unlimited.', 'error', 6000);
       goToSubscription();
       return;
     }
@@ -1999,7 +1999,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (!canGenerateChapter(currentChapter)) {
-      showToast('Free plan: Only Chapter 1 generation is available. Upgrade for full access.', 'error', 5000);
+      showToast('No active plan: Only Chapter 1 generation is available. Upgrade for full access.', 'error', 5000);
       goToSubscription();
       return;
     }

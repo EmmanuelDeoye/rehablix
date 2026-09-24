@@ -263,11 +263,25 @@
         } catch (e) { /* fall through */ }
 
         // Pull out individual {...} objects even if the surrounding array
-        // structure itself is broken, and parse each one on its own.
+        // structure itself is broken, and parse each one on its own. A
+        // multi-field activity (timeFrame/title/goal/details) is much more
+        // likely than a 2-field problem to have ONE field break JSON.parse
+        // — e.g. a stray unescaped " inside a prose "details" sentence — so
+        // a single bad field shouldn't sink the whole object and silently
+        // drop that entire activity. Fall back to pulling out whichever
+        // "key": "value" pairs are still recoverable from that one object
+        // instead of discarding it outright.
         const objectMatches = cleaned.match(/\{[^{}]*\}/g);
         if (objectMatches) {
             const objs = objectMatches
-                .map(m => { try { return JSON.parse(m); } catch (e) { return null; } })
+                .map(m => {
+                    try { return JSON.parse(m); } catch (e) { /* recover below */ }
+                    const obj = {};
+                    const fieldRe = /"(\w+)"\s*:\s*"([\s\S]*?)"\s*(?=,\s*"|\s*\})/g;
+                    let fm;
+                    while ((fm = fieldRe.exec(m)) !== null) obj[fm[1]] = fm[2];
+                    return Object.keys(obj).length > 0 ? obj : null;
+                })
                 .filter(Boolean);
             if (objs.length > 0) return objs;
         }
@@ -1121,7 +1135,7 @@
         showLoading('Analyzing patient data for problems…', 10);
         try {
             const d = currentPatientData;
-            const systemPrompt = `You are a rehabilitation clinician building a clinical problem list from intake information and the patient's recorded history. Return ONLY a JSON array (no markdown, no code fences, no commentary) of 3 to 6 objects, each with a "title" (short, under 10 words) and a "detail" (1-2 sentence clinical explanation). Base every problem strictly on the information provided — do not invent details that aren't supported by it.`;
+            const systemPrompt = `You are a rehabilitation clinician building a clinical problem list from intake information and the patient's recorded history. Return ONLY a JSON array (no markdown, no code fences, no commentary) of 3 to 6 objects, each with a "title" (short, under 10 words) and a "detail" (1-2 sentence clinical explanation). Base every problem strictly on the information provided — do not invent details that aren't supported by it. The output must be strictly valid JSON: never put a literal double-quote character inside a field's text, and do not add a trailing comma after the last item.`;
             // EMR AI UPGRADE (item 3/4): pulls the shared clinical context
             // (linked Motion/standardized results, prior progress trend) —
             // not just the bare intake fields — when it's available.
@@ -1595,7 +1609,7 @@
         showLoading('Generating next session plan…', 10);
         try {
             const d = currentPatientData;
-            const systemPrompt = `You are a rehabilitation clinician planning the next session. Base the plan strictly on the problems and treatment plan given below, and the most recent progress note if provided — do not invent clinical details that aren't supported by them. Return ONLY a JSON array (no markdown, no code fences, no commentary) of 3 to 6 activities, each an object with: "timeFrame" (short, e.g. "0-10 min"), "title" (short activity name), "goal" (short, one sentence), and "details" (2-3 sentences describing exercises/interventions, cues, sets/reps as relevant).`;
+            const systemPrompt = `You are a rehabilitation clinician planning the next session. Base the plan strictly on the problems and treatment plan given below, and the most recent progress note if provided — do not invent clinical details that aren't supported by them. Return ONLY a JSON array (no markdown, no code fences, no commentary) of 3 to 6 activities, each an object with: "timeFrame" (short, e.g. "0-10 min"), "title" (short activity name), "goal" (short, one sentence), and "details" (2-3 sentences describing exercises/interventions, cues, sets/reps as relevant). The output must be strictly valid JSON: never put a literal double-quote character inside a field's text (write inches as 2 in, not 2"), and do not add a trailing comma after the last item.`;
             let userPrompt = `Patient: ${d.name || 'Patient'}\nDiagnosis: ${d.primaryDx || 'Unknown'}\nSession Type: ${sessionType}\n`;
             if (problems.length > 0) {
                 userPrompt += `\nProblems to address:\n${problems.map(p => `- ${p.title}${p.detail ? ': ' + p.detail : ''}`).join('\n')}\n`;
@@ -1607,7 +1621,11 @@
             if (extraNotes) userPrompt += `\nAdditional notes from the clinician:\n${extraNotes}\n`;
 
             updateLoadingProgress(40, 'Drafting activities…');
-            const response = await callDeepSeek(systemPrompt, userPrompt, 1800);
+            // 2400, not 1800: 6 activities x 4 fields (one being 2-3 sentences
+            // of clinical detail) plus JSON overhead could run past 1800 and
+            // get truncated mid-response, silently dropping the later
+            // activities down to just whichever ones finished before the cutoff.
+            const response = await callDeepSeek(systemPrompt, userPrompt, 2400);
             const parsed = parseAIJsonArray(response);
 
             updateLoadingProgress(80, 'Saving plan…');

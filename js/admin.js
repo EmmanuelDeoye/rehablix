@@ -1881,8 +1881,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     title.textContent = user.name;
 
-    const PLAN_BADGE_LABELS = { free: 'Free', student: 'Basic', pro: 'Pro', max: 'Max' };
-    const planBadge = PLAN_BADGE_LABELS[user.plan] || 'Free';
+    const PLAN_BADGE_LABELS = { free: 'No Plan', student: 'Basic', pro: 'Pro', max: 'Max' };
+    const planBadge = PLAN_BADGE_LABELS[user.plan] || 'No Plan';
 
     body.innerHTML = `
       <div class="detail-row"><span class="label">UID</span><span class="value">${user.uid}</span></div>

@@ -1800,6 +1800,7 @@
    ========================================================================= */
 .linked-record-item {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 0.6rem;
@@ -1808,7 +1809,10 @@
   border-radius: 0.6rem;
   margin-bottom: 0.5rem;
 }
-.linked-record-info { font-size: 0.82rem; }
+/* min-width: 0 lets this flex item actually shrink/wrap its own text instead
+   of forcing its natural content width and pushing the action buttons
+   (flex-shrink:0) off the right edge on narrow screens. */
+.linked-record-info { font-size: 0.82rem; flex: 1 1 200px; min-width: 0; }
 .linked-record-meta { font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.1rem; }
 
 [data-theme="dark"] .linked-record-item { background: rgba(30, 42, 50, 0.3); }
