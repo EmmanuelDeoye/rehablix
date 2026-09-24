@@ -522,8 +522,20 @@ function initializeAuth() {
         
         const userRef = database.ref('users/' + user.uid);
         const snapshot = await userRef.once('value');
-        
-        if (!snapshot.exists()) {
+        const existingRecord = snapshot.val();
+
+        // A Google user is "new" if their profile fields were never written —
+        // NOT if the users/{uid} node merely exists. Other modules' own
+        // auth.onAuthStateChanged listeners (plan.js's subscription bootstrap,
+        // workspace.js's ranking cache, etc.) fire in parallel on the same
+        // sign-in and can write a sibling child (e.g. users/{uid}/subscription)
+        // before this handler's own read resolves. In Firebase RTDB, writing
+        // a child implicitly creates the parent, so snapshot.exists() could
+        // come back true for a brand-new user who has no profile data at all,
+        // skipping this block and leaving name/email/createdAt/userId missing.
+        const isNewProfile = !existingRecord || !existingRecord.email;
+
+        if (isNewProfile) {
           const userData = {
             name: user.displayName || user.email.split('@')[0],
             email: user.email,
@@ -543,7 +555,10 @@ function initializeAuth() {
             userData.referredBy = referrerUid;
           }
 
-          await userRef.set(userData);
+          // update(), not set() — a racing listener may have already written
+          // a sibling child (e.g. subscription); merge the profile fields in
+          // without wiping that out.
+          await userRef.update(userData);
 
           if (referrerUid && referrerUid !== user.uid) {
             database.ref(`partners/${referrerUid}/referrals/${user.uid}`).set({
