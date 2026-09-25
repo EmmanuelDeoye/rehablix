@@ -53,17 +53,21 @@
     // Individual documents (summaries, treatment plans, sessions, progress
     // notes, discharge summaries) are still edited via the separate
     // "docresult" route above, unchanged.
-    emr: { template: 'emr', title: 'rehablix · Smart EMR' }
+    emr: { template: 'emr', title: 'rehablix · Smart EMR' },
+    // Project Maker — migrated off the old standalone project.html, same
+    // recipe as EMR above. See js/views/project-view.js.
+    project: { template: 'project', title: 'rehablix · Project Maker' }
   };
 
   // Lixa/Workspace are kept alive because they're the two primary bottom-nav
-  // tabs. EMR joins them for a different reason: js/views/emr-view.js wraps
-  // doc.js's original one-time DOMContentLoaded logic (~150 addEventListener
-  // calls bound once, exactly like a real page load did) rather than
-  // rewriting every handler to be re-bind-safe — keep-alive means mount()
-  // truly only ever runs once per page load, and later visits just call
-  // onShow(), so those listeners are never double-bound.
-  const KEEP_ALIVE = new Set(['lixa', 'workspace', 'emr']);
+  // tabs. EMR (and now Project Maker) joins them for a different reason:
+  // js/views/emr-view.js and js/views/project-view.js wrap their original
+  // page's one-time DOMContentLoaded logic (many addEventListener calls
+  // bound once, exactly like a real page load did) rather than rewriting
+  // every handler to be re-bind-safe — keep-alive means mount() truly only
+  // ever runs once per page load, and later visits just call onShow(), so
+  // those listeners are never double-bound.
+  const KEEP_ALIVE = new Set(['lixa', 'workspace', 'emr', 'project']);
 
   const keepAliveWrappers = {}; // routeName -> wrapper element, once mounted
   let currentView = null;

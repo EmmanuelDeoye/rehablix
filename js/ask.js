@@ -98,7 +98,7 @@
       : 'Shift+Enter for a new line · Enter to send';
   }
 
-  const TOOL_PAGES = ['index.html#/emr', 'index.html#/motion', 'project.html', 'index.html#/exam', 'index.html#/workspace'];
+  const TOOL_PAGES = ['index.html#/emr', 'index.html#/motion', 'index.html#/project', 'index.html#/exam', 'index.html#/workspace'];
 
   // =========================================================================
   // Helpers
@@ -271,7 +271,7 @@ You can also export anything already in this conversation — something you just
 A few things genuinely still live on separate pages (in the "Workspace" tab, reachable via the bottom nav) because they're too complex for chat — only recommend these, and only when truly relevant:
 - [Smart EMR](index.html#/emr) – AI-powered workspace for documentation, patient management, treatment planning, progress tracking.
 - [Motion & Gait Analyzer](index.html#/motion) – a full-screen camera scanner that measures joint range of motion or analyzes gait via a voice-guided scan.
-- [Project Maker](project.html) – builds an academic project chapter by chapter (literature review, methodology, references, defense prep).
+- [Project Maker](index.html#/project) – a guided academic research workspace: dashboard, research setup, chapter-by-chapter writing with Project AI, review, and export.
 - [Exam Simulator](index.html#/exam) – timed, AI-generated practice exams with performance analytics.
 
 When a user's need clearly matches one of these four, say so directly and link to it. Don't link a page unless it's actually relevant.

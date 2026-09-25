@@ -97,6 +97,8 @@
   <link rel="stylesheet" href="css/doc.css">
   <!-- Reused by js/reg-migration.js's confirmation modal (.hm-* classes). -->
   <link rel="stylesheet" href="css/history-migration.css">
+  <!-- Project Maker (route "project", js/views/project-view.js) — migrated off the old standalone project.html. -->
+  <link rel="stylesheet" href="css/project.css">
 
   <script>
     if ('serviceWorker' in navigator) {
@@ -104,7 +106,7 @@
     }
   </script>
 </head>
-<body>
+<body data-migrate-types="projects">
   <nav class="navbar">
     <div class="nav-container">
       <div class="nav-left">
@@ -230,6 +232,13 @@
   <!-- Shared low/exhausted-token warning modal — every AI call site across
        the app shows this same modal instead of inventing its own. -->
   <script src="js/quota-modal.js" defer></script>
+  <!-- DOM-free tiered-AI model resolution + shared token-quota core —
+       js/ask.js's window.LixaCore wraps the equivalent logic for
+       Lixa-embedded generators, but those are only ever called from inside
+       Lixa's own chat (guaranteed mounted). js/views/project-view.js is a
+       standalone router view that can mount before Lixa ever has, so it
+       calls this shared module directly instead. -->
+  <script src="js/ai-quota-core.js" defer></script>
   <script src="js/plan.js" defer></script>
   <script src="js/handoff.js" defer></script>
   <!-- Shared clinical-context builder for a Smart EMR patient — used by
@@ -242,6 +251,12 @@
   <!-- Backfills missing reference numbers on records saved before the
        system above existed — each view calls this with its own scope/paths. -->
   <script src="js/reg-migration.js" defer></script>
+  <!-- Old-path -> new-path history migrations (see <body data-migrate-types>
+       above) — self-booting, gated per-type, idempotent. Previously only
+       loaded by the standalone pages that needed it (project.html, etc);
+       loading it app-wide here means it keeps working now that those pages
+       are being retired in favor of router views. -->
+  <script src="js/history-migration.js" defer></script>
 
   <!-- The one global History drawer — must load before any view registers a provider -->
   <script src="js/history-drawer.js" defer></script>
@@ -285,6 +300,8 @@
   <script src="js/views/audioview-view.js" defer></script>
   <!-- Smart EMR — migrated off the old standalone doc.html/js/doc.js. -->
   <script src="js/views/emr-view.js" defer></script>
+  <!-- Project Maker — migrated off the old standalone project.html/js/project.js. -->
+  <script src="js/views/project-view.js" defer></script>
 
   <!-- Shell chrome + router (router boots last, after every view has registered) -->
   <script src="js/tools.js" defer></script>

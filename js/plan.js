@@ -17,6 +17,18 @@
     project: 'student',
     study: 'student',
     exam: 'student',
+
+    // Project Maker sub-features (Project Maker redesign) — finer-grained
+    // than the umbrella 'project' key above, replacing what used to be a
+    // set of local can*() checks hardcoded inside project.js itself.
+    'project.aiSupervisor': 'student',
+    'project.generateBeyondCh1': 'student',
+    'project.regenerate': 'student',
+    'project.resources': 'student',
+    'project.deepScan': 'pro',
+    'project.customOutline': 'student',
+    'project.referenceManager': 'student',
+    'project.chapterReview': 'student',
   };
 
   // Numeric level for comparison — single source of truth in plan-tiers.js

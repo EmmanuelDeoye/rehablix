@@ -8,9 +8,10 @@
 // individually.
 (function () {
   // Route name (js/router.js's `routes` keys) -> the `data-tool` value the
-  // matching workspace card uses (js/view-templates.js). Project Maker is a
-  // standalone project.html page outside the router, so it can't be tracked
-  // this way — it simply keeps its default position in the grid.
+  // matching workspace card uses (js/view-templates.js). Project Maker used
+  // to be a standalone project.html page outside the router and couldn't be
+  // tracked this way; now that it's migrated to the router (js/views/
+  // project-view.js), it's trackable like every other tool.
   const ROUTE_TO_TOOL = {
     emr: 'documentation',
     motion: 'rom',
@@ -20,7 +21,8 @@
     presentation: 'presentation',
     assignment: 'assignment',
     study: 'study',
-    exam: 'exam'
+    exam: 'exam',
+    project: 'project'
   };
 
   document.addEventListener('rehablix:routechange', (e) => {
