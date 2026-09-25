@@ -169,12 +169,55 @@
   }
 }
 /* Collapsing hides the section title/progress row + editor-actions + the
-   formatting toolbar, leaving just the text itself scrollable — toggled
-   manually via the icon above, or automatically on scroll (JS). */
+   formatting toolbar, leaving just the text itself scrollable — manual-only
+   (Round 5 item 1 removed the old auto scroll-collapse behavior); discovered
+   via the one-time tutorial pulse/tooltip below instead. */
 .editor-header-collapsed .editor-header,
 .editor-header-collapsed .formatting-toolbar {
   display: none;
 }
+
+/* One-time tutorial (Round 5 item 1): a pulsing ring around the collapse
+   icon + a small tooltip bubble, shown once until dismissed (click, tap
+   elsewhere, or an 8s timeout — see maybeShowCollapseTutorial() in JS). */
+.workspace-topbar-btn-pulse {
+  position: relative;
+  z-index: 60;
+  box-shadow: 0 0 0 0 var(--project-accent);
+  animation: workspaceTutorialPulse 1.6s ease-out infinite;
+}
+@keyframes workspaceTutorialPulse {
+  0% { box-shadow: 0 0 0 0 rgba(0, 150, 136, 0.55); }
+  70% { box-shadow: 0 0 0 10px rgba(0, 150, 136, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 150, 136, 0); }
+}
+.workspace-collapse-tutorial {
+  position: absolute;
+  top: calc(100% + 0.6rem);
+  right: 0;
+  z-index: 60;
+  max-width: 200px;
+  background: var(--project-accent);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.35;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.6rem;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+  animation: fadeIn 0.2s ease;
+}
+.workspace-collapse-tutorial::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: 14px;
+  width: 10px;
+  height: 10px;
+  background: var(--project-accent);
+  transform: rotate(45deg);
+}
+.workspace-collapse-tutorial[hidden] { display: none; }
 
 /* ===== Independent Scrolling Workspace ===== */
 .project-workspace {
@@ -683,8 +726,15 @@
 .editor-actions {
   display: flex;
   gap: 0.4rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  padding-bottom: 2px; /* keeps the scrollbar from clipping button focus rings */
 }
+.editor-actions::-webkit-scrollbar { height: 4px; }
+.editor-actions::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 4px; }
+.editor-actions > * { flex-shrink: 0; }
 
 .action-btn {
   background: var(--surface);
@@ -712,6 +762,22 @@
 
 .action-btn:active {
   transform: translateY(0);
+}
+
+/* Round 5 item 2: the "Generate" trigger is a filled accent button, not the
+   default bordered/transparent action-btn — the two-class selector below
+   beats plain .action-btn(:hover) on specificity regardless of source order. */
+.action-btn.action-btn-accent {
+  background: var(--project-accent);
+  border-color: var(--project-accent);
+  color: #fff;
+}
+.action-btn.action-btn-accent:hover {
+  background: var(--project-accent);
+  filter: brightness(1.08);
+  color: #fff;
+  border-color: var(--project-accent);
+  transform: translateY(-1px);
 }
 
 /* ----- Tools icon dropdown (REDESIGN Round 3) ----- */
@@ -2215,17 +2281,37 @@
 .reference-status i { color: var(--project-accent); }
 .ref-format-btn { background: none; border: none; color: var(--project-accent); font-size: 0.72rem; cursor: pointer; padding: 0; text-decoration: underline; font-family: inherit; }
 
-/* ----- Review (REDESIGN Round 3: single-panel toggle, like Lixa) -----
-   Project AI fills the whole screen by default; .review-toggle-btn swaps
-   it for Consistency Check + Chapter Review (full width) and back — only
-   one of #aiPanel / #reviewFindingsPanel is visible at a time (toggled via
-   inline style.display in JS, not a CSS state class). */
-#projScreenReview { max-width: 1100px; }
+/* ----- Review (REDESIGN Round 3: single-panel toggle, like Lixa; Round 5
+   item 5: the AI panel now fills the whole screen height — not just its
+   width — so the prompt input stays pinned at the base of the page instead
+   of requiring a page-level scroll to reach it. #projScreenReview is a
+   fixed-height flex column (viewport height minus the navbar); the header
+   bar is fixed-size and whichever of the AI panel / findings panel is
+   visible takes the rest via flex:1, scrolling its OWN content internally
+   rather than growing the page. */
+#projScreenReview {
+  max-width: 1100px;
+}
+/* BUG FIX: an ID selector like #projScreenReview{display:flex} would always
+   beat .proj-screen{display:none} on specificity (ID > any number of
+   classes) regardless of whether .active is present — silently un-hiding
+   this screen even while another screen is the one meant to be showing.
+   Scoping the layout rules to #projScreenReview.active keeps the same
+   override power ONLY while this screen is genuinely the active one. */
+#projScreenReview.active {
+  height: calc(100vh - 56px);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 1.2rem 1.5rem 1rem;
+  overflow: hidden;
+}
 
 /* Persistent header bar (title + toggle) above both panels — kept outside
    #aiPanel/#reviewFindingsPanel specifically so it never disappears when
    one of those two is hidden by the toggle. */
 .review-header-bar {
+  flex-shrink: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -2251,28 +2337,36 @@
 .review-findings-panel {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
+  flex: 1;
+  min-height: 0;
 }
 .review-findings-panel {
   border: 1px solid var(--border-light, #e2e8f0);
   border-top: none;
   border-radius: 0 0 1rem 1rem;
   padding: 1rem;
+  overflow-y: auto;
 }
 
 .review-ai-panel.ai-panel {
   /* .ai-panel's base rule is written for Workspace's fixed-height 3-column
-     shell (width:var(--ai-panel-width), height:100%, overflow:hidden) —
-     override for its new context: a full-width, normal-flowing screen. */
+     shell (width:var(--ai-panel-width), height:100%) — override width for
+     this full-width context; height now comes from flex:1 (above) with
+     internal scrolling (overflow:hidden here + the chat-messages region's
+     own overflow-y:auto, both from .ai-chat-area/.ai-chat-messages' base
+     rules) so the composer at the bottom never scrolls off-screen. */
   width: 100%;
   min-width: 0;
-  height: auto;
   max-height: none;
-  overflow: visible;
+  overflow: hidden;
   border: 1px solid var(--border-light, #e2e8f0);
   border-radius: 1rem;
 }
-.review-ai-panel .ai-chat-area { min-height: 50vh; }
-.review-ai-panel .ai-chat-messages { max-height: 55vh; }
+.review-ai-panel .proj-ai-context,
+.review-ai-panel .proj-ai-actions,
+.review-ai-panel .supervisor-personality { flex-shrink: 0; }
+.review-ai-panel .ai-chat-area { min-height: 0; }
+.review-ai-panel .ai-chat-messages { max-height: none; }
 
 .review-toggle-btn {
   display: flex;
@@ -2306,10 +2400,13 @@
     position: static;
     width: 100%;
     max-width: none;
-    height: auto;
     right: auto;
     box-shadow: none;
   }
+}
+
+@media (max-width: 640px) {
+  #projScreenReview { padding: 0.8rem 0.8rem 0.6rem; }
 }
 
 

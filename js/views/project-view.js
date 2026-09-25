@@ -420,6 +420,7 @@
 
       if (name === 'projects') { if (projectsLoaded) renderProjectsListScreen(); else renderProjectsShimmer(); }
       if (name === 'dashboard') renderDashboard();
+      if (name === 'workspace' && typeof maybeShowCollapseTutorial === 'function') maybeShowCollapseTutorial();
       if (name === 'setup') renderSetupScreen();
       if (name === 'review') renderReviewScreen();
       if (name === 'export') renderExportScreen();
@@ -2042,6 +2043,10 @@
           currentChapter = ch; currentSection = 0;
           loadSectionContent(); renderChapters(); updateModificationArea(); updateVersionList(); updateChapterGenButton();
           persistLastOpened();
+          // REDESIGN (item 4): section clicks already closed the drawer on
+          // mobile — chapter clicks silently didn't, leaving the drawer
+          // covering the very chapter/section just navigated to.
+          if (window.innerWidth < 992) chaptersSidebar.classList.remove('open');
         });
       });
       document.querySelectorAll('.section-item:not(.add-section-item)').forEach(function (el) {
@@ -2157,7 +2162,13 @@
         currentSectionTitle.textContent = ch.title;
         sectionEditor.innerHTML = (currentProject.chapters && currentProject.chapters[currentChapter]) ? (currentProject.chapters[currentChapter].content || '') : '';
       }
-      sectionEditor.focus();
+      // REDESIGN (item 3): auto-focusing the contenteditable on every section
+      // switch (chapter/section click, Prev/Next) used to pop the on-screen
+      // keyboard open on touch devices even when the user only meant to
+      // navigate — skip it there; desktop keeps the convenience since focus
+      // never summons a keyboard.
+      const isTouchDevice = window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+      if (!isTouchDevice) sectionEditor.focus();
       updateModificationArea(); updateVersionList(); updateSectionNav();
       setTimeout(displayHumanizationScore, 300);
       if (writingProfileSelect && currentProject && currentProject.writingProfile) writingProfileSelect.value = currentProject.writingProfile;
@@ -2315,6 +2326,7 @@
     });
 
     aiGenerateSectionBtn.addEventListener('click', async function () {
+      document.getElementById('genDropdownWrap')?.classList.remove('open');
       if (!currentProject || !currentChapter) { showToast('Select a chapter and section first', 'error'); return; }
       if (!canGenerateChapter(currentChapter)) { showToast('No active plan: Only Chapter 1 generation is available. Upgrade for full access.', 'error', 5000); goToSubscription(); return; }
       const ch = getChaptersStructure()[currentChapter];
@@ -2349,6 +2361,7 @@
 
     if (aiGenerateChapterBtn) {
       aiGenerateChapterBtn.addEventListener('click', async function () {
+        document.getElementById('genDropdownWrap')?.classList.remove('open');
         if (!canAccessResources()) { showToast('Chapter generation requires Student plan or higher.', 'error'); goToSubscription(); return; }
         if (!currentProject || !currentChapter) return;
         const useCustom = confirm('Would you like to provide a custom outline for this chapter?\n\nClick OK to enter a custom outline, or Cancel to use the default sections.');
@@ -2548,17 +2561,40 @@
       switchScreen('export');
     });
 
+    // REDESIGN (Round 5 item 2): .editor-actions is now horizontally
+    // scrollable (overflow-x:auto), which per spec forces overflow-y to
+    // 'auto' too — an absolutely-positioned dropdown menu popping below a
+    // scrolling ancestor would get clipped by that ancestor's own box. Both
+    // dropdown menus below switch to position:fixed (escapes ANY ancestor's
+    // overflow clipping) with their top/left computed from the trigger
+    // button's live position the moment they open.
+    function positionDropdownMenu(btn, menu) {
+      const rect = btn.getBoundingClientRect();
+      menu.style.position = 'fixed';
+      menu.style.top = (rect.bottom + 6) + 'px';
+      menu.style.bottom = 'auto';
+      const menuWidth = menu.offsetWidth || 180;
+      let left = rect.right - menuWidth;
+      if (left < 8) left = 8;
+      const maxLeft = window.innerWidth - menuWidth - 8;
+      if (left > maxLeft) left = Math.max(8, maxLeft);
+      menu.style.left = left + 'px';
+      menu.style.right = 'auto';
+    }
+
     // Tools icon (REDESIGN Round 3): rolls down a small dropdown with a
     // Reference shortcut (opens the Add Reference modal directly) and a
     // "More" shortcut (navigates to the full Project Tools screen) instead
     // of navigating straight to Tools like it used to.
     const toolsDropdownWrap = document.getElementById('toolsDropdownWrap');
     const toolsDropdownBtn = document.getElementById('toolsDropdownBtn');
+    const toolsDropdownMenu = document.getElementById('toolsDropdownMenu');
     if (toolsDropdownBtn && toolsDropdownWrap) {
       toolsDropdownBtn.addEventListener('click', function (e) {
         e.stopPropagation();
         const open = toolsDropdownWrap.classList.toggle('open');
         toolsDropdownBtn.setAttribute('aria-expanded', String(open));
+        if (open && toolsDropdownMenu) positionDropdownMenu(toolsDropdownBtn, toolsDropdownMenu);
       });
       document.addEventListener('click', function () {
         toolsDropdownWrap.classList.remove('open');
@@ -2579,10 +2615,32 @@
       switchScreen('tools');
     });
 
-    // REDESIGN (Round 4 item 2): mobile-only icon that collapses the section
-    // title/progress row + editor-actions + formatting toolbar, freeing up
-    // scroll space for the text itself — also auto-collapses on scroll-down
-    // and auto-expands on scroll-up, mirroring a mobile browser's URL bar.
+    // REDESIGN (Round 5 item 2): the "Generate" dropdown reuses the exact
+    // same open/close pattern as the Tools dropdown above — click toggles it
+    // open, any outside click closes it.
+    const genDropdownWrap = document.getElementById('genDropdownWrap');
+    const genDropdownBtn = document.getElementById('genDropdownBtn');
+    const genDropdownMenu = document.getElementById('genDropdownMenu');
+    if (genDropdownBtn && genDropdownWrap) {
+      genDropdownBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        const open = genDropdownWrap.classList.toggle('open');
+        genDropdownBtn.setAttribute('aria-expanded', String(open));
+        if (open && genDropdownMenu) positionDropdownMenu(genDropdownBtn, genDropdownMenu);
+      });
+      document.addEventListener('click', function () {
+        genDropdownWrap.classList.remove('open');
+        genDropdownBtn.setAttribute('aria-expanded', 'false');
+      });
+    }
+
+    // REDESIGN (Round 4 item 2, revised Round 5 item 1): mobile-only icon
+    // that collapses the section title/progress row + editor-actions +
+    // formatting toolbar, freeing up scroll space for the text itself.
+    // Round 5: the auto scroll-collapse behavior was removed (it surprised
+    // users mid-scroll) — collapsing is now manual-only, discovered via a
+    // one-time highlighted tutorial the first time a student opens Workspace
+    // on a narrow screen.
     const toggleHeaderCollapseBtn = document.getElementById('toggleHeaderCollapseBtn');
     const editorAreaEl = document.getElementById('editorArea');
     function setHeaderCollapsed(collapsed) {
@@ -2593,21 +2651,37 @@
         toggleHeaderCollapseBtn.setAttribute('aria-expanded', String(!collapsed));
       }
     }
+    const COLLAPSE_TUTORIAL_KEY = 'rehab_project_collapse_tutorial_seen';
+    let collapseTutorialShown = false;
+    function maybeShowCollapseTutorial() {
+      if (collapseTutorialShown || !toggleHeaderCollapseBtn) return;
+      if (window.innerWidth > 768) return; // only relevant where the icon itself is visible
+      let seen = false;
+      try { seen = localStorage.getItem(COLLAPSE_TUTORIAL_KEY) === '1'; } catch (e) {}
+      if (seen) return;
+      collapseTutorialShown = true;
+      const tip = document.getElementById('workspaceCollapseTutorial');
+      toggleHeaderCollapseBtn.classList.add('workspace-topbar-btn-pulse');
+      if (tip) tip.hidden = false;
+      function dismiss() {
+        toggleHeaderCollapseBtn.classList.remove('workspace-topbar-btn-pulse');
+        if (tip) tip.hidden = true;
+        try { localStorage.setItem(COLLAPSE_TUTORIAL_KEY, '1'); } catch (e) {}
+        toggleHeaderCollapseBtn.removeEventListener('click', dismiss);
+        document.removeEventListener('click', onOutsideTutorialClick, true);
+      }
+      function onOutsideTutorialClick(e) {
+        if (e.target === toggleHeaderCollapseBtn || toggleHeaderCollapseBtn.contains(e.target)) return;
+        dismiss();
+      }
+      toggleHeaderCollapseBtn.addEventListener('click', dismiss);
+      document.addEventListener('click', onOutsideTutorialClick, true);
+      setTimeout(dismiss, 8000);
+    }
     if (toggleHeaderCollapseBtn) {
       toggleHeaderCollapseBtn.addEventListener('click', function () {
         setHeaderCollapsed(!editorAreaEl.classList.contains('editor-header-collapsed'));
       });
-    }
-    const editorWrapperEl = document.querySelector('.editor-wrapper');
-    let lastEditorScrollTop = 0;
-    if (editorWrapperEl) {
-      editorWrapperEl.addEventListener('scroll', function () {
-        if (window.innerWidth > 768) return; // desktop never auto-collapses — no icon there either
-        const st = editorWrapperEl.scrollTop;
-        if (st > lastEditorScrollTop && st > 40) setHeaderCollapsed(true);
-        else if (st < lastEditorScrollTop) setHeaderCollapsed(false);
-        lastEditorScrollTop = st;
-      }, { passive: true });
     }
     // REDESIGN (item 4): toggleAIPanelBtn/closeAIPanelBtn's slide-in-overlay
     // behavior no longer applies now that Project AI lives on the Review
