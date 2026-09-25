@@ -59,7 +59,8 @@ DIAGNOSIS: ${diagnosis}
 CLINICIAN: ${profession}
 
 SOURCE NOTES / CONTENT:
-${data.content}`;
+${data.content}
+${data.additionalInstructions ? `\nADDITIONAL INSTRUCTIONS FROM THE CLINICIAN:\n${data.additionalInstructions}` : ''}`;
 
     await window.LixaCore.checkToolQuota();
     const config = await window.LixaCore.resolveToolModelConfig();

@@ -3,14 +3,14 @@
 // + the PDF-viewer blob-window pattern used for viewing a generated tool).
 
 (function () {
-  function buildPrompt(toolName, includeGuides) {
+  function buildPrompt(toolName, includeGuides, additionalInstructions) {
     const guides = includeGuides
       ? 'Include detailed administration instructions and interpretation guidelines in separate sections.'
       : 'Provide only the assessment items and scoring criteria.';
     return `You are an expert in standardized clinical assessments.
 
 Generate the complete content for the **${toolName}** assessment tool as a **self-contained HTML document**.
-
+${additionalInstructions ? `\nAdditional instructions from the clinician: ${additionalInstructions}\n` : ''}
 Requirements:
 - Use proper HTML structure with <h2>, <h3>, <p>, <ul>, <ol>.
 - Present any tables as proper HTML <table> with borders and alternating row colors for readability.
@@ -105,7 +105,7 @@ Requirements:
       await window.LixaCore.checkToolQuota();
       const config = await window.LixaCore.resolveToolModelConfig();
       if (!config) throw new Error('AI service is not configured.');
-      const prompt = buildPrompt(toolName, includeGuides);
+      const prompt = buildPrompt(toolName, includeGuides, data.additionalInstructions);
       content = await callAIWithValidation(prompt, config, 1);
       window.LixaCore.reportToolTokenUsage(prompt + content, config.weight);
       const historyItem = {

@@ -15,7 +15,7 @@ CONTEXT:
 - Assessment Type: ${data.assessmentType}
 - Department: ${data.department}
 - Clinical Notes: ${data.notes || 'None'}
-
+${data.additionalInstructions ? `- Additional instructions from the clinician: ${data.additionalInstructions}\n` : ''}
 REQUIREMENTS:
 1. Return ONLY pure HTML. No markdown, no code fences.
 2. The form MUST be PRINT-FRIENDLY (A4 layout).
@@ -78,7 +78,8 @@ Return ONLY the HTML.`;
       assessmentType: data.assessmentType || 'Initial Assessment',
       department: data.department || 'General',
       category: data.category || 'General',
-      notes: data.notes || ''
+      notes: data.notes || '',
+      additionalInstructions: data.additionalInstructions || ''
     };
 
     await window.LixaCore.checkToolQuota();

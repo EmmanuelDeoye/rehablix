@@ -35,15 +35,42 @@
       export: document.getElementById('projScreenExport'),
       tools: document.getElementById('projScreenTools')
     };
+    // REDESIGN (Round 4 item 1): the breadcrumb ("All Projects" back-link +
+    // truncated title) was removed from the template — the shared navbar
+    // back button (js/bottom-nav.js) already provides back-navigation, and
+    // the title is already shown in Dashboard/Workspace. setProjectActive()
+    // is kept as a no-op call site (harmless — every element it touches is
+    // now null) rather than stripping every call site across this file.
     const projNavBar = document.getElementById('projNavBar');
     const projBreadcrumb = document.getElementById('projBreadcrumb');
     const projBreadcrumbTitle = document.getElementById('projBreadcrumbTitle');
-    // REDESIGN (item 3): the tab layout (nav bar) + breadcrumb only appear
-    // once a project is actually open — the "All Projects" list is chrome-free.
     function setProjectActive(active) {
       if (projNavBar) projNavBar.style.display = active ? '' : 'none';
       if (projBreadcrumb) projBreadcrumb.style.display = active ? 'flex' : 'none';
       if (projBreadcrumbTitle) projBreadcrumbTitle.textContent = active && currentProject ? currentProject.title : '';
+    }
+
+    // REDESIGN (Round 4 item 3): persist which project/screen is open so a
+    // sudden browser reload lands back where the student was instead of
+    // always restarting at the "All Projects" list. Chapter/section within
+    // a project is already restored via Firebase's dashboard.lastOpenedChapter/
+    // lastOpenedSection (persistLastOpened(), below) — this only adds the
+    // missing piece: which project, and which of its screens, was open.
+    const ACTIVE_STATE_KEY = 'rehab_project_active_state';
+    function saveActiveState(screenName) {
+      try {
+        if (currentProjectId && screenName && screenName !== 'projects') {
+          localStorage.setItem(ACTIVE_STATE_KEY, JSON.stringify({ projectId: currentProjectId, screen: screenName }));
+        } else if (screenName === 'projects') {
+          localStorage.removeItem(ACTIVE_STATE_KEY);
+        }
+      } catch (e) { /* localStorage unavailable — restoration simply won't happen */ }
+    }
+    function loadActiveState() {
+      try { return JSON.parse(localStorage.getItem(ACTIVE_STATE_KEY) || 'null'); } catch (e) { return null; }
+    }
+    function clearActiveState() {
+      try { localStorage.removeItem(ACTIVE_STATE_KEY); } catch (e) {}
     }
     // REDESIGN (item 3): 'projects' (the "All Projects" list) is the true
     // root screen now — was still 'dashboard' here from before that screen
@@ -397,6 +424,7 @@
       if (name === 'review') renderReviewScreen();
       if (name === 'export') renderExportScreen();
       if (name === 'tools') renderToolsScreen();
+      saveActiveState(name);
 
       window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
     }
@@ -469,6 +497,7 @@
             if (currentProjectId === id) {
               currentProjectId = null; currentProject = null;
               setProjectActive(false);
+              clearActiveState();
               switchScreen('projects');
             }
             renderProjectsListScreen();
@@ -1678,6 +1707,17 @@
     });
     document.getElementById('genInstructionsSaveVersionBtn')?.addEventListener('click', function () { saveVersion(); showToast('Version saved', 'success'); });
 
+    // REDESIGN (Round 4 item 4c): Version History moved off the base of
+    // Workspace entirely into its own modal, opened via the new icon after
+    // Tools in editor-actions.
+    const versionHistoryModal = document.getElementById('versionHistoryModal');
+    document.getElementById('versionHistoryIconBtn')?.addEventListener('click', function () {
+      if (!currentProject || !currentChapter) { showToast('Select a chapter and section first', 'error'); return; }
+      updateVersionList();
+      versionHistoryModal?.classList.add('active');
+    });
+    document.getElementById('closeVersionHistoryModal')?.addEventListener('click', function () { versionHistoryModal?.classList.remove('active'); });
+
     if (supervisorStrictness) supervisorStrictness.addEventListener('change', function (e) { supervisorPersonality.strictness = e.target.value; if (currentProject) { currentProject._supervisorPersonality = supervisorPersonality; saveToFirebase(); } });
     if (supervisorProfession) supervisorProfession.addEventListener('input', function (e) { supervisorPersonality.profession = e.target.value || 'Academic Supervisor'; if (currentProject) { currentProject._supervisorPersonality = supervisorPersonality; saveToFirebase(); } });
 
@@ -1749,7 +1789,8 @@
       currentProjectSelect.innerHTML = ids.map(function (id) { return '<option value="' + id + '"' + (id === currentProjectId ? ' selected' : '') + '>' + escapeHtml(projects[id].title || 'Untitled') + '</option>'; }).join('');
     }
 
-    async function switchToProject(id) {
+    async function switchToProject(id, opts) {
+      opts = opts || {};
       if (!projects[id]) { showToast('Project not found', 'error'); return; }
       if (currentProjectId && currentProject) { saveCurrentSection(); await saveToFirebase(); }
       currentProjectId = id;
@@ -1784,7 +1825,7 @@
 
       setProjectActive(true); // REDESIGN (item 3): reveal the tab layout now that a project is open
       switchScreen('dashboard');
-      showToast('Switched to "' + currentProject.title + '"', 'info');
+      if (!opts.silent) showToast('Switched to "' + currentProject.title + '"', 'info');
     }
 
     async function createNewProject() {
@@ -2537,6 +2578,37 @@
       saveCurrentSection(); saveToFirebase();
       switchScreen('tools');
     });
+
+    // REDESIGN (Round 4 item 2): mobile-only icon that collapses the section
+    // title/progress row + editor-actions + formatting toolbar, freeing up
+    // scroll space for the text itself — also auto-collapses on scroll-down
+    // and auto-expands on scroll-up, mirroring a mobile browser's URL bar.
+    const toggleHeaderCollapseBtn = document.getElementById('toggleHeaderCollapseBtn');
+    const editorAreaEl = document.getElementById('editorArea');
+    function setHeaderCollapsed(collapsed) {
+      if (!editorAreaEl) return;
+      editorAreaEl.classList.toggle('editor-header-collapsed', collapsed);
+      if (toggleHeaderCollapseBtn) {
+        toggleHeaderCollapseBtn.innerHTML = collapsed ? '<i class="fas fa-chevron-down"></i>' : '<i class="fas fa-chevron-up"></i>';
+        toggleHeaderCollapseBtn.setAttribute('aria-expanded', String(!collapsed));
+      }
+    }
+    if (toggleHeaderCollapseBtn) {
+      toggleHeaderCollapseBtn.addEventListener('click', function () {
+        setHeaderCollapsed(!editorAreaEl.classList.contains('editor-header-collapsed'));
+      });
+    }
+    const editorWrapperEl = document.querySelector('.editor-wrapper');
+    let lastEditorScrollTop = 0;
+    if (editorWrapperEl) {
+      editorWrapperEl.addEventListener('scroll', function () {
+        if (window.innerWidth > 768) return; // desktop never auto-collapses — no icon there either
+        const st = editorWrapperEl.scrollTop;
+        if (st > lastEditorScrollTop && st > 40) setHeaderCollapsed(true);
+        else if (st < lastEditorScrollTop) setHeaderCollapsed(false);
+        lastEditorScrollTop = st;
+      }, { passive: true });
+    }
     // REDESIGN (item 4): toggleAIPanelBtn/closeAIPanelBtn's slide-in-overlay
     // behavior no longer applies now that Project AI lives on the Review
     // screen (a normal-flowing sticky column, not a Workspace overlay).
@@ -2568,6 +2640,7 @@
     // =========================================================================
     let lastAuthUid = null;
     const unsubAuth = firebase.auth().onAuthStateChanged(async function (user) {
+      const wasLoggedIn = lastAuthUid !== null;
       const uidChanged = lastAuthUid !== null && (!user || user.uid !== lastAuthUid);
       if (uidChanged) { currentProjectId = null; currentProject = null; setProjectActive(false); switchScreen('projects'); }
       lastAuthUid = user ? user.uid : null;
@@ -2584,15 +2657,26 @@
         await loadProjects();
         projectsLoaded = true;
 
-        // REDESIGN (item 3): land on the "All Projects" list rather than
-        // auto-opening the most recently edited project — the student picks
-        // which project to continue from the card grid (or resumes the one
-        // already open, if any, via the breadcrumb/nav still being visible).
-        if (!currentProjectId) {
+        // REDESIGN (Round 4 item 3): restore whichever project/screen was
+        // open before a sudden reload, instead of always landing on "All
+        // Projects" — the student's place in their work survives a crash
+        // or an accidental refresh.
+        const savedState = loadActiveState();
+        if (!currentProjectId && savedState && savedState.projectId && projects[savedState.projectId]) {
+          await switchToProject(savedState.projectId, { silent: true });
+          switchScreen(savedState.screen || 'dashboard', { suppressHistory: true });
+        } else if (!currentProjectId) {
           setProjectActive(false);
           switchScreen('projects', { suppressHistory: true });
         }
       } else {
+        // Only a genuine sign-out (we previously knew a real uid) should
+        // wipe the restore-on-reload state — the very first callback this
+        // view ever receives also arrives with user===null while real auth
+        // is still resolving the persisted session, and must not be
+        // mistaken for a sign-out (same distinction uidChanged already
+        // makes, above).
+        if (wasLoggedIn) clearActiveState();
         currentProjectId = null; currentProject = null;
         if (chaptersList) chaptersList.innerHTML = '';
         if (sectionEditor) sectionEditor.innerHTML = '';

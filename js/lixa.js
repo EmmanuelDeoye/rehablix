@@ -435,15 +435,22 @@
         return true;
       }
 
-      // 2+ still-missing fields is exactly the "compulsory need" case a
-      // form beats several chat round-trips for — Lixa decides this on its
-      // own, no manual trigger. A single missing field stays a quick
-      // inline chat question instead (less friction than a whole modal).
-      if (missing.length >= 2) {
+      // 2+ still-missing REQUIRED fields is exactly the "compulsory need"
+      // case a form beats several chat round-trips for. A tool with a rich
+      // Task Setup schema (TASK_SETUP_SCHEMAS, below) also gets the modal
+      // even for just 1 missing field — most of these tools (format,
+      // standardized, presentation) only declare ONE truly required field,
+      // but still have several useful optional ones (assessment type,
+      // department, tone, document type…) worth surfacing as structured
+      // inputs rather than silently defaulting. A tool with NO schema entry
+      // keeps the original behavior exactly: 2+ missing -> modal, exactly
+      // 1 missing -> a quick inline chat question (less friction than a
+      // whole modal for a single field with nothing else to offer).
+      if (missing.length >= 2 || (missing.length >= 1 && TASK_SETUP_SCHEMAS[toolId])) {
         showBanner(toolId);
         pending = { toolId, collected, missingQueue: [] };
-        pushAssistantText(`Just need a few details for your **${tool.meta.name}** — I've opened a quick form for it.`);
-        showToolFormModal(tool, missing, collected, async (data) => {
+        pushAssistantText(`Just need a few details for your **${tool.meta.name}** — I've opened Task Setup for it.`);
+        showTaskSetupModal(tool, missing, collected, async (data) => {
           pending = null;
           hideBanner();
           await runGeneration(toolId, data);
@@ -490,12 +497,67 @@
     }
 
     // =====================================================================
-    // Auto-popup form modal — when a tool still needs 2+ pieces of info
-    // Lixa couldn't pull from the message itself, a single form beats
-    // several back-and-forth chat turns. Lixa decides this itself (no
-    // manual trigger): one missing field stays a quick inline chat
-    // question (continueSlotFilling), since a whole modal for one field is
-    // more friction than it saves.
+    // TASK SETUP — when a tool still needs 2+ pieces of info Lixa couldn't
+    // pull from the message itself, a structured form beats several
+    // back-and-forth chat turns. Lixa decides this itself (no manual
+    // trigger): one missing field stays a quick inline chat question
+    // (continueSlotFilling), since a whole modal for one field is more
+    // friction than it saves.
+    //
+    // TASK_SETUP_SCHEMAS gives each tool a richer field set (types,
+    // required/optional, dropdown options) than its own `requiredFields`
+    // (which only exists to decide WHEN to prompt at all, via
+    // missingFieldsFor). Fields already picked up by extractFromText() are
+    // pre-filled so the user only has to confirm or fill in the gaps — not
+    // just the currently-missing ones, so they can adjust anything Lixa
+    // guessed too. A tool with no schema entry here safely falls back to
+    // the older plain textarea-per-missing-field form (buildLegacyFormFields)
+    // so adding a new generator without a Task Setup schema never breaks.
+    const TASK_SETUP_SCHEMAS = {
+      format: [
+        { key: 'diagnosis', label: 'Diagnosis / chief complaint', type: 'text', required: true, placeholder: 'e.g. Post-stroke hemiparesis' },
+        { key: 'name', label: 'Patient name', type: 'text', required: false, placeholder: 'e.g. John Doe' },
+        { key: 'age', label: 'Age', type: 'number', required: false, placeholder: 'e.g. 64' },
+        { key: 'gender', label: 'Gender', type: 'select', required: false, options: ['Male', 'Female', 'Other'] },
+        { key: 'assessmentType', label: 'Assessment type', type: 'select', required: false, options: ['Initial Assessment', 'Re-assessment', 'Discharge', 'Progress Review'] },
+        { key: 'department', label: 'Department', type: 'select', required: false, options: ['Physiotherapy', 'Occupational Therapy', 'Nursing', 'Speech Therapy', 'General'] },
+        { key: 'category', label: 'Category', type: 'text', required: false, placeholder: 'e.g. Neuro, Ortho, Cardio' },
+        { key: 'notes', label: 'Clinical notes / observations', type: 'textarea', required: false, placeholder: 'Anything else relevant…' }
+      ],
+      standardized: [
+        { key: 'toolName', label: 'Standardized tool name', type: 'text', required: true, placeholder: 'e.g. Berg Balance Scale' },
+        { key: 'includeGuides', label: 'Include administration & interpretation guides', type: 'toggle', required: false, default: true }
+      ],
+      presentation: [
+        { key: 'content', label: 'Case notes / topic', type: 'textarea', required: true, placeholder: 'Paste your notes, or describe the case/topic…' },
+        { key: 'mode', label: 'Document type', type: 'select', required: false, options: [
+          { value: 'presentation', label: 'Case Presentation' },
+          { value: 'report', label: 'Clinical Report' },
+          { value: 'documentation', label: 'Documentation' }
+        ] },
+        { key: 'patientName', label: 'Patient name', type: 'text', required: false },
+        { key: 'diagnosis', label: 'Diagnosis', type: 'text', required: false },
+        { key: 'profession', label: 'Your profession/role', type: 'text', required: false, placeholder: 'e.g. Physiotherapist' }
+      ],
+      study: [
+        { key: 'subject', label: 'Subject / topic', type: 'text', required: true, placeholder: 'e.g. Cardiac Rehabilitation' },
+        { key: 'notes', label: 'Notes / material', type: 'textarea', required: false, placeholder: 'Paste your notes — or leave blank to let Lixa generate from the subject alone' },
+        { key: 'flashcardCount', label: 'Number of flashcards', type: 'number', required: false, placeholder: '15' },
+        { key: 'quizCount', label: 'Number of quiz questions', type: 'number', required: false, placeholder: '8' }
+      ],
+      assignment: [
+        { key: 'topic', label: 'Assignment topic', type: 'text', required: true, placeholder: 'e.g. Role of physiotherapy in stroke recovery' },
+        { key: 'course', label: 'Course / subject', type: 'text', required: true, placeholder: 'e.g. Neurological Rehabilitation' },
+        { key: 'tone', label: 'Tone', type: 'select', required: false, options: ['professional', 'academic', 'casual', 'conversational'] },
+        { key: 'volumeCount', label: 'Length', type: 'number', required: false, placeholder: '3' },
+        { key: 'volumeUnit', label: 'Unit', type: 'select', required: false, options: ['pages', 'words'] }
+      ]
+    };
+
+    function buildLegacyFormFields(missingFields) {
+      return missingFields.map(f => ({ key: f.key, label: f.prompt, type: 'textarea', required: true }));
+    }
+
     let activeFormModal = null;
 
     function closeToolFormModal() {
@@ -513,27 +575,170 @@
     cleanupFns.push(() => document.removeEventListener('keydown', onFormModalEscape));
     cleanupFns.push(() => closeToolFormModal());
 
-    function showToolFormModal(tool, missingFields, collected, onSubmit) {
+    function fieldInputHtml(field, value) {
+      const id = `lixaField_${core.escapeHtml(field.key)}`;
+      const val = value === undefined || value === null ? '' : String(value);
+      if (field.type === 'textarea') {
+        return `<textarea id="${id}" name="${core.escapeHtml(field.key)}" rows="3" placeholder="${core.escapeHtml(field.placeholder || '')}">${core.escapeHtml(val)}</textarea>`;
+      }
+      if (field.type === 'number') {
+        return `<input type="number" id="${id}" name="${core.escapeHtml(field.key)}" value="${core.escapeHtml(val)}" placeholder="${core.escapeHtml(field.placeholder || '')}">`;
+      }
+      if (field.type === 'select') {
+        const opts = (field.options || []).map(o => {
+          const optVal = typeof o === 'string' ? o : o.value;
+          const optLabel = typeof o === 'string' ? o : o.label;
+          const selected = val && val === optVal ? ' selected' : '';
+          return `<option value="${core.escapeHtml(optVal)}"${selected}>${core.escapeHtml(optLabel)}</option>`;
+        }).join('');
+        const skipOpt = field.required ? '' : `<option value=""${val ? '' : ' selected'}>Let Lixa decide</option>`;
+        return `<select id="${id}" name="${core.escapeHtml(field.key)}">${skipOpt}${opts}</select>`;
+      }
+      if (field.type === 'toggle' || field.type === 'checkbox') {
+        const checked = value === undefined ? !!field.default : !!value;
+        return `
+          <label class="lixa-toggle-row" for="${id}">
+            <span class="lixa-toggle-label">${core.escapeHtml(field.label)}</span>
+            <span class="lixa-toggle-switch"><input type="checkbox" id="${id}" name="${core.escapeHtml(field.key)}"${checked ? ' checked' : ''}><span class="lixa-toggle-track"></span></span>
+          </label>`;
+      }
+      // text (default)
+      return `<input type="text" id="${id}" name="${core.escapeHtml(field.key)}" value="${core.escapeHtml(val)}" placeholder="${core.escapeHtml(field.placeholder || '')}">`;
+    }
+
+    function fieldGroupHtml(field, value) {
+      if (field.type === 'toggle' || field.type === 'checkbox') {
+        // Toggle/checkbox fields carry their own label inline (a switch row),
+        // not a separate <label> above an input.
+        return `<div class="form-group lixa-field-toggle">${fieldInputHtml(field, value)}</div>`;
+      }
+      const reqBadge = field.required ? '<span class="lixa-field-required">Required</span>' : '<span class="lixa-field-optional">Optional</span>';
+      const id = `lixaField_${core.escapeHtml(field.key)}`;
+      return `
+        <div class="form-group">
+          <label for="${id}">${core.escapeHtml(field.label)} ${reqBadge}</label>
+          ${fieldInputHtml(field, value)}
+        </div>`;
+    }
+
+    function readFieldValue(formEl, field) {
+      const el = formEl.querySelector(`[name="${field.key}"]`);
+      if (!el) return undefined;
+      if (field.type === 'toggle' || field.type === 'checkbox') return el.checked;
+      const v = (el.value || '').trim();
+      return v ? v : undefined; // empty = "let Lixa decide" / skipped
+    }
+
+    function fieldDisplayValue(field, value) {
+      if (value === undefined || value === '') return null;
+      if (field.type === 'toggle' || field.type === 'checkbox') return value ? 'Yes' : 'No';
+      if (field.type === 'select') {
+        const match = (field.options || []).find(o => (typeof o === 'string' ? o : o.value) === value);
+        return match ? (typeof match === 'string' ? match : match.label) : value;
+      }
+      return value;
+    }
+
+    // Task Setup: a small bottom-sheet-style modal (js/lixa.js only ever
+    // shows this when Lixa itself decided it needs 2+ pieces of info — see
+    // startTool() above) with a "fields" step and a concise "review" step
+    // before generating, so the user sees exactly what will be sent.
+    function showTaskSetupModal(tool, missingFields, collected, onSubmit) {
       closeToolFormModal();
+      const schema = TASK_SETUP_SCHEMAS[tool.meta.id] || buildLegacyFormFields(missingFields);
+      let step = 'fields'; // 'fields' | 'review'
+      let reviewValues = null;
+
       const modal = document.createElement('div');
       modal.className = 'lixa-form-modal';
-      modal.innerHTML = `
-        <div class="lixa-form-overlay"></div>
-        <div class="lixa-form-card">
+      modal.innerHTML = `<div class="lixa-form-overlay"></div><div class="lixa-form-card"></div>`;
+      const card = modal.querySelector('.lixa-form-card');
+
+      function renderFieldsStep() {
+        // When returning via "Back" from the review step, pre-fill with
+        // whatever the user last entered (reviewValues), not the original
+        // extractFromText() guess (collected) — otherwise Back silently
+        // discards everything just typed.
+        const values = reviewValues ? { ...collected, ...reviewValues } : collected;
+        card.innerHTML = `
           <button type="button" class="lixa-form-close" aria-label="Cancel">&times;</button>
-          <h3><span>${tool.meta.icon || '✨'}</span> ${core.escapeHtml(tool.meta.name)}</h3>
-          <p class="lixa-form-sub">Just need a few details to generate this:</p>
-          <form id="lixaToolForm">
-            ${missingFields.map(f => `
-              <div class="form-group">
-                <label for="lixaField_${core.escapeHtml(f.key)}">${core.escapeHtml(f.prompt)}</label>
-                <textarea id="lixaField_${core.escapeHtml(f.key)}" name="${core.escapeHtml(f.key)}" rows="2" required></textarea>
-              </div>
-            `).join('')}
-            <button type="submit" class="btn-primary">Generate</button>
+          <h3><span>${tool.meta.icon || '✨'}</span> ${core.escapeHtml(tool.meta.name)} — Task Setup</h3>
+          <p class="lixa-form-sub">Just need a few details to generate this. Leave optional fields blank to let Lixa decide.</p>
+          <form id="lixaTaskSetupForm">
+            ${schema.map(f => fieldGroupHtml(f, values[f.key])).join('')}
+            <div class="form-group lixa-additional-instructions">
+              <label for="lixaField_additionalInstructions">Additional instructions <span class="lixa-field-optional">Optional</span></label>
+              <textarea id="lixaField_additionalInstructions" name="additionalInstructions" rows="2" placeholder="Anything else Lixa should know or do differently…">${core.escapeHtml(values.additionalInstructions || '')}</textarea>
+            </div>
+            <button type="submit" class="btn-primary">Review &amp; Generate</button>
           </form>
-        </div>
-      `;
+        `;
+        const firstInput = card.querySelector('input, textarea, select');
+        if (firstInput) firstInput.focus();
+
+        card.querySelector('.lixa-form-close').addEventListener('click', cancelModal);
+        const form = card.querySelector('#lixaTaskSetupForm');
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const values = {};
+          schema.forEach(f => {
+            const v = readFieldValue(form, f);
+            if (v !== undefined) values[f.key] = v;
+          });
+          const instrEl = form.querySelector('[name="additionalInstructions"]');
+          const instr = instrEl ? instrEl.value.trim() : '';
+          if (instr) values.additionalInstructions = instr;
+
+          const missingRequired = schema.filter(f => f.required && (values[f.key] === undefined || values[f.key] === ''));
+          if (missingRequired.length) {
+            missingRequired.forEach(f => {
+              const el = form.querySelector(`[name="${f.key}"]`);
+              if (el) el.classList.add('lixa-field-error');
+            });
+            const firstBad = form.querySelector('.lixa-field-error');
+            if (firstBad) firstBad.focus();
+            return;
+          }
+
+          reviewValues = values;
+          step = 'review';
+          renderReviewStep();
+        });
+      }
+
+      function renderReviewStep() {
+        const rows = schema.map(f => {
+          const display = fieldDisplayValue(f, reviewValues[f.key]);
+          return `<div class="lixa-review-row"><span class="lixa-review-label">${core.escapeHtml(f.label)}</span><span class="lixa-review-value">${display !== null ? core.escapeHtml(String(display)) : '<em>Lixa will decide</em>'}</span></div>`;
+        }).join('');
+        const instrRow = reviewValues.additionalInstructions
+          ? `<div class="lixa-review-row"><span class="lixa-review-label">Additional instructions</span><span class="lixa-review-value">${core.escapeHtml(reviewValues.additionalInstructions)}</span></div>`
+          : '';
+        card.innerHTML = `
+          <button type="button" class="lixa-form-close" aria-label="Cancel">&times;</button>
+          <h3><span>${tool.meta.icon || '✨'}</span> Review</h3>
+          <p class="lixa-form-sub">Here's what Lixa will use — looks good?</p>
+          <div class="lixa-review-list">${rows}${instrRow}</div>
+          <div class="lixa-form-btn-row">
+            <button type="button" class="lixa-form-btn-secondary" id="lixaReviewBackBtn">Back</button>
+            <button type="button" class="btn-primary" id="lixaReviewGoBtn">Generate</button>
+          </div>
+        `;
+        card.querySelector('.lixa-form-close').addEventListener('click', cancelModal);
+        card.querySelector('#lixaReviewBackBtn').addEventListener('click', () => { step = 'fields'; renderFieldsStep(); });
+        card.querySelector('#lixaReviewGoBtn').addEventListener('click', () => {
+          const finalData = { ...collected, ...reviewValues };
+          closeToolFormModal();
+          onSubmit(finalData);
+        });
+      }
+
+      function cancelModal() {
+        closeToolFormModal();
+        pending = null;
+        hideBanner();
+      }
+
       // Appended inside Lixa's own (kept-alive) view container, not
       // document.body — Lixa is never unmounted when you navigate away
       // (js/router.js keeps it alive), so a modal parked on <body> would
@@ -543,29 +748,10 @@
       const lixaContainer = chatMessages.closest('.kept-alive-view') || document.body;
       lixaContainer.appendChild(modal);
       activeFormModal = modal;
+      renderFieldsStep();
       requestAnimationFrame(() => modal.classList.add('open'));
 
-      const firstInput = modal.querySelector('textarea');
-      if (firstInput) firstInput.focus();
-
-      modal.querySelector('.lixa-form-close').addEventListener('click', () => {
-        closeToolFormModal();
-        pending = null;
-        hideBanner();
-      });
-      modal.querySelector('.lixa-form-overlay').addEventListener('click', () => {
-        closeToolFormModal();
-        pending = null;
-        hideBanner();
-      });
-      modal.querySelector('#lixaToolForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const formData = new FormData(e.target);
-        const values = {};
-        missingFields.forEach(f => { values[f.key] = (formData.get(f.key) || '').toString().trim(); });
-        closeToolFormModal();
-        onSubmit({ ...collected, ...values });
-      });
+      modal.querySelector('.lixa-form-overlay').addEventListener('click', cancelModal);
     }
 
     const GENERIC_STAGES = ['Reading your request…', 'Working with the AI model…', 'Structuring the result…', 'Almost done…'];

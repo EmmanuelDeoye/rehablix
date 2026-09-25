@@ -65,8 +65,11 @@
     if (!user) return { ok: false, error: 'Please log in to create a study set.' };
 
     const subjectName = data.subject.trim();
-    const notes = data.notes.trim();
-    const flashcardCount = 15, quizCount = 8;
+    const notes = (data.notes || '').trim();
+    // Defaults preserved exactly as before — only overridden when Task Setup
+    // (js/lixa.js) passes an explicit, valid count through.
+    const flashcardCount = (Number.isFinite(+data.flashcardCount) && +data.flashcardCount > 0) ? Math.round(+data.flashcardCount) : 15;
+    const quizCount = (Number.isFinite(+data.quizCount) && +data.quizCount > 0) ? Math.round(+data.quizCount) : 8;
 
     const systemPrompt = `You are an expert study coach for rehabilitation/healthcare students. From the material given, produce a JSON object with EXACTLY these keys and nothing else (no markdown, no code fences, no commentary):
 {
@@ -76,7 +79,8 @@
   "quiz": [{"question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "why that's correct", "topic": "one of the topic names above"}]
 }
 Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz questions.`;
-    const userPrompt = `Subject: ${subjectName}\n\nMaterial:\n${notes.slice(0, 12000)}`;
+    const userPrompt = `Subject: ${subjectName}\n\nMaterial:\n${notes ? notes.slice(0, 12000) : '(none provided — generate from your own knowledge of this subject)'}` +
+      (data.additionalInstructions ? `\n\nAdditional instructions from the student: ${data.additionalInstructions}` : '');
 
     await window.LixaCore.checkToolQuota();
     const config = await window.LixaCore.resolveToolModelConfig();

@@ -439,7 +439,7 @@
   position: relative;
   background: var(--surface);
   border-radius: 1.5rem;
-  max-width: 440px;
+  max-width: 480px;
   width: 100%;
   max-height: 86vh;
   overflow-y: auto;
@@ -473,13 +473,18 @@
 }
 .lixa-form-card .form-group { margin-bottom: 1rem; }
 .lixa-form-card label {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 0.35rem;
 }
-.lixa-form-card textarea {
+.lixa-form-card textarea,
+.lixa-form-card input[type="text"],
+.lixa-form-card input[type="number"],
+.lixa-form-card select {
   width: 100%;
   padding: 0.65rem 0.85rem;
   border: 1px solid var(--border-light);
@@ -490,6 +495,72 @@
   font-size: 0.9rem;
   resize: vertical;
 }
+.lixa-form-card select { cursor: pointer; }
+.lixa-form-card textarea:focus,
+.lixa-form-card input:focus,
+.lixa-form-card select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.lixa-form-card .lixa-field-error {
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12) !important;
+}
+.lixa-field-required,
+.lixa-field-optional {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 0.1rem 0.45rem;
+  border-radius: 1rem;
+}
+.lixa-field-required { background: rgba(220, 38, 38, 0.1); color: #dc2626; }
+.lixa-field-optional { background: var(--border-light); color: var(--text-secondary); }
+
+/* Toggle switch field */
+.lixa-field-toggle { margin-bottom: 0.9rem; }
+.lixa-toggle-row {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+  margin-bottom: 0 !important;
+  font-weight: 500 !important;
+  color: var(--text-primary) !important;
+  text-transform: none !important;
+}
+.lixa-toggle-label { font-size: 0.85rem; }
+.lixa-toggle-switch { position: relative; flex-shrink: 0; width: 40px; height: 24px; }
+.lixa-toggle-switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1; }
+.lixa-toggle-track {
+  position: absolute; inset: 0;
+  background: var(--border-light);
+  border-radius: 2rem;
+  transition: background 0.2s ease;
+}
+.lixa-toggle-track::before {
+  content: '';
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 18px; height: 18px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  transition: transform 0.2s ease;
+}
+.lixa-toggle-switch input:checked ~ .lixa-toggle-track { background: var(--accent); }
+.lixa-toggle-switch input:checked ~ .lixa-toggle-track::before { transform: translateX(16px); }
+
+/* Additional instructions field sits visually apart from the tool's own fields */
+.lixa-additional-instructions {
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--border-light);
+}
+
 .lixa-form-card .btn-primary {
   width: 100%;
   margin-top: 0.4rem;
@@ -502,6 +573,44 @@
   cursor: pointer;
   font-family: inherit;
 }
+
+/* Review step */
+.lixa-review-list { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1.2rem; }
+.lixa-review-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--bg-page);
+  border: 1px solid var(--border-light);
+  border-radius: 0.7rem;
+  font-size: 0.85rem;
+}
+.lixa-review-label {
+  color: var(--text-secondary);
+  font-weight: 700;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.lixa-review-value { color: var(--text-primary); word-break: break-word; white-space: pre-wrap; }
+.lixa-review-value em { color: var(--text-secondary); font-style: italic; }
+
+.lixa-form-btn-row { display: flex; gap: 0.6rem; }
+.lixa-form-btn-row .btn-primary { margin-top: 0; flex: 1; }
+.lixa-form-btn-secondary {
+  flex: 1;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  border-radius: 2rem;
+  padding: 0.75rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.lixa-form-btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ===== Inline audio recorder widget ===== */
 .lixa-audio-recorder {

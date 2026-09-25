@@ -42,10 +42,15 @@
     const topic = data.topic.trim();
     const course = data.course.trim();
     const tone = data.tone || 'professional';
-    const volume = data.volume || '3 pages';
+    // Task Setup (js/lixa.js) collects length as separate volumeCount/
+    // volumeUnit fields rather than one free-text string — compose them
+    // when present, otherwise fall back to the original `volume` string
+    // (or its default) exactly as before.
+    const volume = data.volume || (data.volumeCount ? `${data.volumeCount} ${data.volumeUnit || 'pages'}` : '3 pages');
 
     const systemPrompt = `You are an expert academic writer helping a healthcare student complete an assignment. Write in a natural, human tone (${tone}) — vary sentence length and structure, avoid robotic phrasing and repetitive transitions, and avoid clichéd AI-writing patterns. Structure the piece with clear headings where appropriate. Target roughly ${volume} of content. Return well-formatted markdown.`;
-    const userPrompt = `Course/Subject: ${course}\nAssignment topic: ${topic}\n\nWrite a complete, well-researched assignment on this topic, citing general/foundational knowledge appropriately (no fabricated specific citations).`;
+    const userPrompt = `Course/Subject: ${course}\nAssignment topic: ${topic}\n\nWrite a complete, well-researched assignment on this topic, citing general/foundational knowledge appropriately (no fabricated specific citations).` +
+      (data.additionalInstructions ? `\n\nAdditional instructions from the student: ${data.additionalInstructions}` : '');
 
     await window.LixaCore.checkToolQuota();
     const config = await window.LixaCore.resolveToolModelConfig();

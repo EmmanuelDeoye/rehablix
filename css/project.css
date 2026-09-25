@@ -158,6 +158,24 @@
   }
 }
 
+/* Collapse-header icon (Round 4 item 2) — mobile only, hidden on desktop
+   where there's no scroll-space pressure to solve. */
+.workspace-topbar-btn-mobile-only {
+  display: none;
+}
+@media (max-width: 768px) {
+  .workspace-topbar-btn-mobile-only {
+    display: flex;
+  }
+}
+/* Collapsing hides the section title/progress row + editor-actions + the
+   formatting toolbar, leaving just the text itself scrollable — toggled
+   manually via the icon above, or automatically on scroll (JS). */
+.editor-header-collapsed .editor-header,
+.editor-header-collapsed .formatting-toolbar {
+  display: none;
+}
+
 /* ===== Independent Scrolling Workspace ===== */
 .project-workspace {
   display: flex;
@@ -2142,22 +2160,6 @@
 .project-card-meta { font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.6rem; }
 .project-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem; }
 .project-card-footer small { font-size: 0.7rem; color: var(--text-secondary); }
-
-/* ----- Breadcrumb (shown once a project is open) ----- */
-.proj-breadcrumb { align-items: center; gap: 0.6rem; padding: 0.6rem 1.2rem 0; }
-.proj-breadcrumb button { background: none; border: none; color: var(--project-accent); font-size: 0.85rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.2rem; padding: 0.2rem 0.4rem; border-radius: 0.4rem; font-family: inherit; }
-.proj-breadcrumb button:hover { background: var(--project-accent-soft); }
-.proj-breadcrumb-title {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: inline-block;
-  vertical-align: bottom;
-}
-.proj-breadcrumb-title:not(:empty)::before { content: "/"; margin-right: 0.6rem; opacity: 0.5; }
 
 .proj-screen { display: none; }
 .proj-screen.active { display: block; animation: fadeIn 0.25s ease; }
