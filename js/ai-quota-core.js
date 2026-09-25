@@ -15,6 +15,12 @@
 // can use it standalone.
 (function () {
   const aiConfig = { token: null, endpoint: 'https://api.deepseek.com/v1', model: 'deepseek-v4-flash' };
+  // OpenAI-backed models (currently just blix360) need a separate token —
+  // BUG FIX: resolveModelConfig() used to always return aiConfig.token (the
+  // DeepSeek key) regardless of the resolved model's provider, which would
+  // silently break any OpenAI-provider model. Mirrors js/ask.js's
+  // fetchVisionTokens()/visionConfig pattern exactly.
+  const visionConfig = { token: null, endpoint: 'https://api.openai.com/v1', model: 'gpt-4.1' };
   const database = firebase.database();
 
   async function fetchTokens() {
@@ -31,6 +37,20 @@
     }
   }
 
+  async function fetchOpenAITokens() {
+    if (visionConfig.token) return true;
+    try {
+      const snap = await database.ref('tokens/open_ai').once('value');
+      const data = snap.val();
+      if (data && data.api_key) { visionConfig.token = data.api_key; return true; }
+      console.warn('[ai-quota-core] OpenAI API key missing');
+      return false;
+    } catch (e) {
+      console.error('[ai-quota-core] OpenAI token fetch failed:', e);
+      return false;
+    }
+  }
+
   // Resolves which model/token config to actually send a request with.
   // `modelId` (optional) pins to one of plan-tiers.js's MODELS entries
   // ('basal100' | 'corpus101' | 'medulla200' | 'blix360') via
@@ -39,6 +59,15 @@
   async function resolveModelConfig(modelId) {
     const tiers = window.RehabPlanTiers;
     const model = modelId && tiers && typeof tiers.getModel === 'function' ? tiers.getModel(modelId) : null;
+    if (model && model.provider === 'openai') {
+      const ok = await fetchOpenAITokens();
+      if (!ok) return null;
+      return {
+        token: visionConfig.token, endpoint: model.endpoint, model: model.apiModel,
+        maxTokens: model.maxTokens, weight: model.weight,
+        temperature: model.temperature, top_p: model.top_p, responseStyle: model.responseStyle
+      };
+    }
     const ok = await fetchTokens();
     if (!ok) return null;
     return {
@@ -48,7 +77,8 @@
       maxTokens: (model && model.maxTokens) || 2000,
       weight: (model && model.weight) || 1,
       temperature: (model && model.temperature) ?? 0.6,
-      top_p: (model && model.top_p) ?? 0.9
+      top_p: (model && model.top_p) ?? 0.9,
+      responseStyle: model && model.responseStyle
     };
   }
 
@@ -77,5 +107,5 @@
     }
   }
 
-  window.RehablixAIQuotaCore = { resolveModelConfig, checkQuotaOrThrow, reportTokenUsage, fetchTokens };
+  window.RehablixAIQuotaCore = { resolveModelConfig, checkQuotaOrThrow, reportTokenUsage, fetchTokens, fetchOpenAITokens };
 })();

@@ -45,7 +45,13 @@
       if (projBreadcrumb) projBreadcrumb.style.display = active ? 'flex' : 'none';
       if (projBreadcrumbTitle) projBreadcrumbTitle.textContent = active && currentProject ? currentProject.title : '';
     }
-    let screenHistory = ['dashboard'];
+    // REDESIGN (item 3): 'projects' (the "All Projects" list) is the true
+    // root screen now — was still 'dashboard' here from before that screen
+    // existed, which desynced this stack from switchScreen('projects', {
+    // suppressHistory: true })'s actual initial screen and made the shared
+    // back button skip straight past "All Projects" when stepping back out
+    // of an open project.
+    let screenHistory = ['projects'];
 
     const chaptersList = document.getElementById('chaptersList');
     const sectionEditor = document.getElementById('sectionEditor');
@@ -385,7 +391,7 @@
       navItems.forEach(function (item) { item.classList.toggle('active', item.dataset.screen === name); });
       if (!opts.suppressHistory && screenHistory[screenHistory.length - 1] !== name) screenHistory.push(name);
 
-      if (name === 'projects') renderProjectsListScreen();
+      if (name === 'projects') { if (projectsLoaded) renderProjectsListScreen(); else renderProjectsShimmer(); }
       if (name === 'dashboard') renderDashboard();
       if (name === 'setup') renderSetupScreen();
       if (name === 'review') renderReviewScreen();
@@ -406,12 +412,29 @@
     });
 
     // REDESIGN (item 3): "All Projects" list — the new landing screen.
+    // REDESIGN (Round 3 items 1-2): a shimmer placeholder shows while
+    // loadProjects()'s Firebase read is in flight (see the `projectsLoaded`
+    // flag below), and a search bar filters the grid by title.
+    let projectsLoaded = false;
+    function renderProjectsShimmer() {
+      const grid = document.getElementById('projectsListGrid');
+      if (!grid) return;
+      grid.innerHTML = Array.from({ length: 3 }).map(function () {
+        return '<div class="project-card-item project-card-shimmer"><div class="shimmer-line shimmer-title"></div><div class="shimmer-line shimmer-title-2"></div><div class="shimmer-line shimmer-meta"></div><div class="shimmer-line shimmer-bar"></div><div class="shimmer-line shimmer-footer"></div></div>';
+      }).join('');
+    }
+
     function renderProjectsListScreen() {
       const grid = document.getElementById('projectsListGrid');
       if (!grid) return;
-      const entries = Object.entries(projects).sort(function (a, b) { return (b[1].updatedAt || b[1].createdAt || 0) - (a[1].updatedAt || a[1].createdAt || 0); });
+      const searchInput = document.getElementById('projectsSearchInput');
+      const query = ((searchInput && searchInput.value) || '').trim().toLowerCase();
+      let entries = Object.entries(projects).sort(function (a, b) { return (b[1].updatedAt || b[1].createdAt || 0) - (a[1].updatedAt || a[1].createdAt || 0); });
+      if (query) entries = entries.filter(function (entry) { return (entry[1].title || '').toLowerCase().includes(query); });
       if (!entries.length) {
-        grid.innerHTML = '<div class="emr-empty-state"><i class="bx bx-folder-open"></i><p>No projects yet</p><small>Create your first academic project to get started</small></div>';
+        grid.innerHTML = query
+          ? '<div class="emr-empty-state"><i class="bx bx-search-alt"></i><p>No projects match "' + escapeHtml(query) + '"</p></div>'
+          : '<div class="emr-empty-state"><i class="bx bx-folder-open"></i><p>No projects yet</p><small>Create your first academic project to get started</small></div>';
         return;
       }
       grid.innerHTML = entries.map(function (entry) {
@@ -456,6 +479,7 @@
       });
     }
     document.getElementById('projectsNewBtn')?.addEventListener('click', function () { createNewProject(); });
+    document.getElementById('projectsSearchInput')?.addEventListener('input', function () { renderProjectsListScreen(); });
     document.getElementById('backToProjectsBtn')?.addEventListener('click', function () {
       if (screens.workspace && screens.workspace.classList.contains('active')) { saveCurrentSection(); saveToFirebase(); }
       setProjectActive(false);
@@ -628,14 +652,6 @@
       renderChapters(); loadSectionContent();
     });
 
-    document.getElementById('dashProjectAIBtn')?.addEventListener('click', function () {
-      if (!currentProject) { showToast('Select or create a project first', 'error'); return; }
-      switchScreen('workspace');
-      renderChapters(); loadSectionContent();
-      if (aiMessageInput) { aiMessageInput.focus(); }
-    });
-
-    document.getElementById('dashToolsBtn')?.addEventListener('click', function () { switchScreen('tools'); });
     document.getElementById('dashNewProjectBtn')?.addEventListener('click', function () { createNewProject(); });
 
     // =========================================================================
@@ -932,8 +948,40 @@
       return findings;
     }
 
+    // REDESIGN (Round 3): Review is now a single-panel toggle — Project AI
+    // fills the whole screen by default (like Lixa), and this button swaps
+    // it for Consistency Check + Chapter Review (full width) and back.
+    const reviewToggleBtn = document.getElementById('reviewToggleBtn');
+    const reviewFindingsPanel = document.getElementById('reviewFindingsPanel');
+    const reviewHeaderTitle = document.getElementById('reviewHeaderTitle');
+    // BUG FIX: the toggle button used to live inside #aiPanel's own header,
+    // so hiding #aiPanel to show findings also hid the only way to toggle
+    // back — it now lives in a persistent header bar above both panels.
+    function setReviewMode(mode) {
+      if (!reviewToggleBtn || !reviewFindingsPanel || !aiPanel) return;
+      if (mode === 'findings') {
+        aiPanel.style.display = 'none';
+        reviewFindingsPanel.style.display = 'block';
+        reviewToggleBtn.dataset.mode = 'findings';
+        reviewToggleBtn.innerHTML = '<i class="fas fa-robot"></i> <span>Project AI</span>';
+        reviewToggleBtn.title = 'Project AI';
+        if (reviewHeaderTitle) reviewHeaderTitle.innerHTML = '<i class="bx bx-check-shield"></i> Consistency Check & Chapter Review';
+      } else {
+        aiPanel.style.display = 'flex';
+        reviewFindingsPanel.style.display = 'none';
+        reviewToggleBtn.dataset.mode = 'ai';
+        reviewToggleBtn.innerHTML = '<i class="bx bx-check-shield"></i> <span>Findings</span>';
+        reviewToggleBtn.title = 'Consistency Check & Chapter Review';
+        if (reviewHeaderTitle) reviewHeaderTitle.innerHTML = '<i class="fas fa-robot"></i> Project AI';
+      }
+    }
+    if (reviewToggleBtn) {
+      reviewToggleBtn.addEventListener('click', function () { setReviewMode(reviewToggleBtn.dataset.mode === 'ai' ? 'findings' : 'ai'); });
+    }
+
     function renderReviewScreen() {
       if (!currentProject) { setProjectActive(false); switchScreen('projects'); return; }
+      setReviewMode('ai'); // Project AI is the default view every time Review is entered
       if (currentChapter) updateSectionNav(); // keeps the Project AI "Working on:" indicator current
       const consistencyEl = document.getElementById('reviewConsistencyFindings');
       const findings = checkConsistency();
@@ -1553,15 +1601,82 @@
       }
     }
 
-    if (humanizeCheckbox) {
-      humanizeCheckbox.addEventListener('change', function (e) {
-        if (e.target.checked) { humanizeWarningModal.classList.add('active'); humanizeCheckbox.checked = false; }
-        else { humanizeMode = false; showToast('Humanization disabled', 'info', 2000); }
-      });
-    }
+    // REDESIGN (Round 3): the old pre-generation "Humanize content" checkbox
+    // (advanced panel, now removed) is replaced by a standalone post-hoc
+    // action — a Humanize icon in the editor header opens a score modal
+    // with a "Humanize" button, which reuses this SAME academic-integrity
+    // warning modal; on confirmation it rewrites the section that is
+    // already written instead of flipping a flag consumed mid-generation.
     if (closeHumanizeWarning) closeHumanizeWarning.addEventListener('click', function () { humanizeWarningModal.classList.remove('active'); });
     if (cancelHumanizeBtn) cancelHumanizeBtn.addEventListener('click', function () { humanizeWarningModal.classList.remove('active'); });
-    if (confirmHumanizeBtn) confirmHumanizeBtn.addEventListener('click', function () { humanizeMode = true; humanizeCheckbox.checked = true; humanizeWarningModal.classList.remove('active'); showToast('Humanization enabled. Use at your own risk.', 'warning', 4000); });
+    if (confirmHumanizeBtn) confirmHumanizeBtn.addEventListener('click', function () {
+      humanizeWarningModal.classList.remove('active');
+      humanizeCurrentSection();
+    });
+
+    // Only blix360 (OpenAI, requires Pro) and medulla200 (DeepSeek, requires
+    // Student) are capable/allowed models for this action — prefers the
+    // stronger blix360 when the plan unlocks it, falls back to medulla200,
+    // and returns null (blocked) below Student.
+    function pickHumanizeModelId() {
+      const tiers = window.RehabPlanTiers;
+      if (!tiers || typeof tiers.isModelUnlocked !== 'function') return 'medulla200';
+      if (tiers.isModelUnlocked('blix360', currentPlan)) return 'blix360';
+      if (tiers.isModelUnlocked('medulla200', currentPlan)) return 'medulla200';
+      return null;
+    }
+
+    async function humanizeCurrentSection() {
+      if (!currentProject || !currentChapter) { showToast('Select a chapter and section first', 'error'); return; }
+      const modelId = pickHumanizeModelId();
+      if (!modelId) { showToast('Humanization requires Student plan or higher.', 'error'); goToSubscription(); return; }
+      const sourceHtml = sectionEditor.innerHTML;
+      if (!sourceHtml || extractPlainText(sourceHtml).trim().length < 50) { showToast('Write some content in this section first.', 'error'); return; }
+      await saveVersion();
+      const profile = currentProject.writingProfile || 'undergraduate';
+      const profileGuidance = getProfileGuidance(profile);
+      const referenceStyle = getReferenceStyle();
+      const humanizationRules = buildHumanizationPrompt();
+      const systemPrompt = 'You are an expert at rewriting academic text to sound naturally human-written.\nYour job is to change STYLE and VOICE only, never change facts, numbers, sample sizes, statistics, or citations.\nWrite in first-person student voice.\n' + PUNCTUATION_RULES;
+      const userPrompt = 'REWRITE the text below to sound like a real ' + profile + ' healthcare student wrote it.\nThe project is about: "' + currentProject.title + '"\n\nSTRICT RULES:\n- Change ONLY the writing style, voice, and phrasing.\n- Do NOT change any numbers, statistics, sample sizes, participant counts, or citations.\n- Preserve all ' + referenceStyle + ' citations exactly as written.\n\nWRITING PROFILE:\n' + profileGuidance + '\n\n' + humanizationRules + '\n\nTEXT TO REWRITE:\n' + sourceHtml.substring(0, 6000) + '\n\nReturn ONLY the rewritten HTML. No markdown fences. If the source text is empty, respond with "EMPTY_SOURCE".';
+      showToast('Humanizing...', 'info', 2500);
+      try {
+        const config = await window.RehablixAIQuotaCore.resolveModelConfig(modelId);
+        if (!config) throw new Error('AI service not configured');
+        if (currentUser) await window.RehablixAIQuotaCore.checkQuotaOrThrow(currentUser.uid, currentPlan);
+        const response = await fetch(config.endpoint + '/chat/completions', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token },
+          body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: config.maxTokens, temperature: config.temperature, top_p: config.top_p })
+        });
+        if (!response.ok) { const err = await response.json().catch(function () { return {}; }); throw new Error((err.error && err.error.message) || 'AI service error'); }
+        const data = await response.json();
+        const raw = data.choices && data.choices[0] && data.choices[0].message.content;
+        const cleaned = raw ? cleanAIResponse(raw) : '';
+        if (!cleaned || cleaned.includes('EMPTY_SOURCE') || cleaned.length < 50) throw new Error('Humanization produced no usable output');
+        if (currentUser) window.RehablixAIQuotaCore.reportTokenUsage(currentUser.uid, currentPlan, systemPrompt + userPrompt + cleaned, config.weight);
+        sectionEditor.innerHTML = cleaned;
+        saveCurrentSection(); await saveToFirebase();
+        displayHumanizationScore(); updateVersionList();
+        showToast('Section humanized', 'success');
+      } catch (err) {
+        reportError(err, 'humanize section');
+        showToast('Humanization failed: ' + (err.message || 'Unknown error'), 'error', 5000);
+      }
+    }
+
+    const humanizeScoreModal = document.getElementById('humanizeScoreModal');
+    document.getElementById('humanizeIconBtn')?.addEventListener('click', function () {
+      if (!currentProject || !currentChapter) { showToast('Select a chapter and section first', 'error'); return; }
+      displayHumanizationScore();
+      humanizeScoreModal?.classList.add('active');
+    });
+    document.getElementById('closeHumanizeScoreModal')?.addEventListener('click', function () { humanizeScoreModal?.classList.remove('active'); });
+    document.getElementById('humanizeModalSaveVersionBtn')?.addEventListener('click', function () { saveVersion(); showToast('Version saved', 'success'); });
+    document.getElementById('humanizeNowBtn')?.addEventListener('click', function () {
+      humanizeScoreModal?.classList.remove('active');
+      humanizeWarningModal.classList.add('active');
+    });
+    document.getElementById('genInstructionsSaveVersionBtn')?.addEventListener('click', function () { saveVersion(); showToast('Version saved', 'success'); });
 
     if (supervisorStrictness) supervisorStrictness.addEventListener('change', function (e) { supervisorPersonality.strictness = e.target.value; if (currentProject) { currentProject._supervisorPersonality = supervisorPersonality; saveToFirebase(); } });
     if (supervisorProfession) supervisorProfession.addEventListener('input', function (e) { supervisorPersonality.profession = e.target.value || 'Academic Supervisor'; if (currentProject) { currentProject._supervisorPersonality = supervisorPersonality; saveToFirebase(); } });
@@ -2372,9 +2487,56 @@
     }
 
     // =========================================================================
-    // MOBILE TOGGLES (ported)
+    // WORKSPACE TOP BAR (REDESIGN Round 3): chapter-drawer toggle + Setup/
+    // Review shortcuts now that the global tab layout is gone.
     // =========================================================================
     if (toggleChaptersBtn) toggleChaptersBtn.addEventListener('click', function () { chaptersSidebar.classList.toggle('open'); });
+    document.getElementById('workspaceSetupBtn')?.addEventListener('click', function () {
+      if (!currentProjectId) { showToast('Select or create a project first', 'error'); return; }
+      saveCurrentSection(); saveToFirebase();
+      switchScreen('setup');
+    });
+    document.getElementById('workspaceReviewBtn')?.addEventListener('click', function () {
+      if (!currentProjectId) { showToast('Select or create a project first', 'error'); return; }
+      saveCurrentSection(); saveToFirebase();
+      switchScreen('review');
+    });
+    document.getElementById('exportSectionBtn')?.addEventListener('click', function () {
+      if (!currentProjectId) { showToast('Select or create a project first', 'error'); return; }
+      saveCurrentSection(); saveToFirebase();
+      switchScreen('export');
+    });
+
+    // Tools icon (REDESIGN Round 3): rolls down a small dropdown with a
+    // Reference shortcut (opens the Add Reference modal directly) and a
+    // "More" shortcut (navigates to the full Project Tools screen) instead
+    // of navigating straight to Tools like it used to.
+    const toolsDropdownWrap = document.getElementById('toolsDropdownWrap');
+    const toolsDropdownBtn = document.getElementById('toolsDropdownBtn');
+    if (toolsDropdownBtn && toolsDropdownWrap) {
+      toolsDropdownBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        const open = toolsDropdownWrap.classList.toggle('open');
+        toolsDropdownBtn.setAttribute('aria-expanded', String(open));
+      });
+      document.addEventListener('click', function () {
+        toolsDropdownWrap.classList.remove('open');
+        toolsDropdownBtn.setAttribute('aria-expanded', 'false');
+      });
+    }
+    document.getElementById('toolsDropdownReferenceBtn')?.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (toolsDropdownWrap) toolsDropdownWrap.classList.remove('open');
+      if (!currentProject) { showToast('Select or create a project first', 'error'); return; }
+      openReferenceForm(null);
+    });
+    document.getElementById('toolsDropdownMoreBtn')?.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (toolsDropdownWrap) toolsDropdownWrap.classList.remove('open');
+      if (!currentProjectId) { showToast('Select or create a project first', 'error'); return; }
+      saveCurrentSection(); saveToFirebase();
+      switchScreen('tools');
+    });
     // REDESIGN (item 4): toggleAIPanelBtn/closeAIPanelBtn's slide-in-overlay
     // behavior no longer applies now that Project AI lives on the Review
     // screen (a normal-flowing sticky column, not a Workspace overlay).
@@ -2420,6 +2582,7 @@
 
         await fetchTokens();
         await loadProjects();
+        projectsLoaded = true;
 
         // REDESIGN (item 3): land on the "All Projects" list rather than
         // auto-opening the most recently edited project — the student picks

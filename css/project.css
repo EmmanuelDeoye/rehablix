@@ -102,8 +102,12 @@
   max-width: 1200px;
 }
 
-.mobile-toggles {
-  display: none;
+/* REDESIGN (Round 3): the mobile-only chapter-drawer toggle is now an
+   always-visible top bar (the global tab layout it used to sit below is
+   gone) carrying Setup/Review shortcuts alongside it. */
+.workspace-topbar {
+  display: flex;
+  align-items: center;
   padding: 0.5rem 0.8rem;
   gap: 0.5rem;
   background: var(--surface);
@@ -113,32 +117,45 @@
   z-index: 100;
 }
 
-.toggle-btn {
+.workspace-topbar-spacer {
   flex: 1;
-  padding: 0.55rem 0.8rem;
+}
+
+.workspace-topbar-btn {
+  padding: 0.5rem 0.9rem;
   border: 1px solid var(--border-light);
   border-radius: 2rem;
   background: var(--surface);
   color: var(--text-primary);
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 500;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
   font-family: inherit;
   transition: all 0.2s ease;
+  white-space: nowrap;
 }
 
-.toggle-btn:hover {
+.workspace-topbar-btn:hover {
   background: var(--project-accent-soft);
   border-color: var(--project-accent);
   color: var(--project-accent);
 }
 
-.toggle-btn i {
+.workspace-topbar-btn i {
   font-size: 0.9rem;
+}
+
+@media (max-width: 480px) {
+  .workspace-topbar-btn span {
+    display: none;
+  }
+
+  .workspace-topbar-btn {
+    padding: 0.5rem 0.6rem;
+  }
 }
 
 /* ===== Independent Scrolling Workspace ===== */
@@ -677,6 +694,54 @@
 
 .action-btn:active {
   transform: translateY(0);
+}
+
+/* ----- Tools icon dropdown (REDESIGN Round 3) ----- */
+.tools-dropdown-wrap {
+  position: relative;
+}
+
+.tools-dropdown-menu {
+  display: none;
+  flex-direction: column;
+  gap: 0.2rem;
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  background: var(--card-bg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border-light);
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 0.4rem;
+  min-width: 180px;
+  z-index: 60;
+}
+
+.tools-dropdown-wrap.open .tools-dropdown-menu {
+  display: flex;
+}
+
+.tools-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.5rem;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+}
+
+.tools-dropdown-item:hover {
+  background: var(--project-accent-soft);
+  color: var(--project-accent);
 }
 
 /* ===== Formatting Toolbar ===== */
@@ -2012,7 +2077,52 @@
 .projects-list-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.2rem; flex-wrap: wrap; }
 .projects-list-title { margin: 0; font-size: 1.4rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; }
 .projects-list-title i { color: var(--project-accent); }
+.projects-search-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 1rem;
+  margin-bottom: 1.2rem;
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 2rem;
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  max-width: 420px;
+}
+.projects-search-row i { color: var(--text-secondary); font-size: 0.85rem; }
+.projects-search-row input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.88rem;
+}
+
 .projects-list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+
+/* ----- Projects list loading shimmer (Round 3) ----- */
+.project-card-shimmer { cursor: default; display: flex; flex-direction: column; gap: 0.6rem; }
+.project-card-shimmer:hover { transform: none; box-shadow: 0 4px 16px rgba(0,0,0,0.04); border-color: var(--border-light, #e2e8f0); }
+.shimmer-line {
+  height: 0.9rem;
+  border-radius: 0.4rem;
+  background: linear-gradient(90deg, var(--border-light, #e2e8f0) 25%, var(--project-accent-soft) 50%, var(--border-light, #e2e8f0) 75%);
+  background-size: 200% 100%;
+  animation: shimmerSweep 1.4s ease-in-out infinite;
+}
+.shimmer-title { width: 85%; height: 1.1rem; }
+.shimmer-title-2 { width: 60%; height: 1.1rem; }
+.shimmer-meta { width: 70%; height: 0.75rem; margin-top: 0.3rem; }
+.shimmer-bar { width: 100%; height: 4px; margin-top: 0.3rem; }
+.shimmer-footer { width: 45%; height: 0.7rem; }
+
+@keyframes shimmerSweep {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 .project-card-item {
   background: var(--card-bg);
   backdrop-filter: blur(14px);
@@ -2037,11 +2147,17 @@
 .proj-breadcrumb { align-items: center; gap: 0.6rem; padding: 0.6rem 1.2rem 0; }
 .proj-breadcrumb button { background: none; border: none; color: var(--project-accent); font-size: 0.85rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.2rem; padding: 0.2rem 0.4rem; border-radius: 0.4rem; font-family: inherit; }
 .proj-breadcrumb button:hover { background: var(--project-accent-soft); }
-.proj-breadcrumb-title { font-size: 0.8rem; color: var(--text-secondary); }
+.proj-breadcrumb-title {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: bottom;
+}
 .proj-breadcrumb-title:not(:empty)::before { content: "/"; margin-right: 0.6rem; opacity: 0.5; }
-
-.proj-nav-bar { margin: 0; padding: 0 1.2rem; overflow-x: auto; position: sticky; top: 0; z-index: 50; background: var(--bg-page); }
-.proj-nav-item { white-space: nowrap; }
 
 .proj-screen { display: none; }
 .proj-screen.active { display: block; animation: fadeIn 0.25s ease; }
@@ -2080,12 +2196,6 @@
 /* ----- Chapter Workspace additions ----- */
 .workspace-progress-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.3rem; }
 .workspace-progress-row span { font-size: 0.72rem; color: var(--text-secondary); }
-.advanced-toggle-row { margin-top: 0.8rem; }
-.advanced-toggle-btn { background: none; border: none; color: var(--project-accent); font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0; }
-.advanced-toggle-btn i { transition: transform 0.2s; }
-.advanced-toggle-btn.open i { transform: rotate(180deg); }
-.advanced-panel { display: none; }
-.advanced-panel.open { display: block; animation: fadeIn 0.2s ease; }
 
 /* ----- Project AI contextual actions ----- */
 .proj-ai-context { font-size: 0.75rem; color: var(--text-secondary); padding: 0.5rem 0.8rem 0; display: flex; align-items: center; gap: 0.35rem; }
@@ -2103,28 +2213,101 @@
 .reference-status i { color: var(--project-accent); }
 .ref-format-btn { background: none; border: none; color: var(--project-accent); font-size: 0.72rem; cursor: pointer; padding: 0; text-decoration: underline; font-family: inherit; }
 
-/* ----- Review (REDESIGN item 4: Project AI moved here from Workspace) ----- */
-.review-layout { display: grid; grid-template-columns: 1fr 380px; gap: 1.2rem; align-items: start; }
-.review-ai-col .ai-panel {
+/* ----- Review (REDESIGN Round 3: single-panel toggle, like Lixa) -----
+   Project AI fills the whole screen by default; .review-toggle-btn swaps
+   it for Consistency Check + Chapter Review (full width) and back — only
+   one of #aiPanel / #reviewFindingsPanel is visible at a time (toggled via
+   inline style.display in JS, not a CSS state class). */
+#projScreenReview { max-width: 1100px; }
+
+/* Persistent header bar (title + toggle) above both panels — kept outside
+   #aiPanel/#reviewFindingsPanel specifically so it never disappears when
+   one of those two is hidden by the toggle. */
+.review-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.9rem 1.2rem;
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-bottom: none;
+  border-radius: 1rem 1rem 0 0;
+  background: var(--card-bg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.review-header-bar h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.review-header-bar h3 i { color: var(--project-accent); font-size: 0.9rem; }
+.review-ai-panel.ai-panel,
+.review-findings-panel {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.review-findings-panel {
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-top: none;
+  border-radius: 0 0 1rem 1rem;
+  padding: 1rem;
+}
+
+.review-ai-panel.ai-panel {
   /* .ai-panel's base rule is written for Workspace's fixed-height 3-column
      shell (width:var(--ai-panel-width), height:100%, overflow:hidden) —
-     override for its new context: a normal-flowing column on Review. */
+     override for its new context: a full-width, normal-flowing screen. */
   width: 100%;
   min-width: 0;
   height: auto;
-  max-height: 80vh;
+  max-height: none;
   overflow: visible;
   border: 1px solid var(--border-light, #e2e8f0);
   border-radius: 1rem;
-  position: sticky;
-  top: 1rem;
 }
-.review-ai-col .ai-panel .ai-chat-messages { max-height: 40vh; }
-.review-ai-col .sidebar-close { display: none; } /* no longer a slide-in overlay to close */
+.review-ai-panel .ai-chat-area { min-height: 50vh; }
+.review-ai-panel .ai-chat-messages { max-height: 55vh; }
 
-@media (max-width: 900px) {
-  .review-layout { grid-template-columns: 1fr; }
-  .review-ai-col .ai-panel { position: static; max-height: none; }
+.review-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--project-accent-soft);
+  border: 1px solid var(--project-accent);
+  color: var(--project-accent);
+  border-radius: 1.5rem;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+.review-toggle-btn:hover { background: var(--project-accent-soft-hover); }
+
+@media (max-width: 640px) {
+  .review-toggle-btn span { display: none; }
+  .review-toggle-btn { padding: 0.4rem 0.55rem; }
+}
+
+/* .ai-panel's base mobile rule (below, in the 992px block) turns it into a
+   fixed off-canvas drawer that only appears with an .open class — correct
+   for Workspace's old slide-in overlay, wrong here since Review's panel is
+   always-visible, normal-flowing content. Override with higher specificity
+   so it stays in normal document flow at every width. */
+@media (max-width: 992px) {
+  .review-ai-panel.ai-panel {
+    position: static;
+    width: 100%;
+    max-width: none;
+    height: auto;
+    right: auto;
+    box-shadow: none;
+  }
 }
 
 
@@ -2194,9 +2377,6 @@
 }
 
 @media (max-width: 992px) {
-  .mobile-toggles {
-    display: flex;
-  }
 
   .chapters-sidebar {
     position: fixed;
@@ -2429,7 +2609,7 @@
   .formatting-toolbar,
   .ai-section-generate,
   .ai-controls,
-  .mobile-toggles,
+  .workspace-topbar,
   .editor-header,
   .editor-actions,
   .history-drawer,
