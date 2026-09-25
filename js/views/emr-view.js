@@ -392,15 +392,21 @@
         if (screenName === 'patients') loadPatientsList();
     }
 
-    document.getElementById('emrBackBtn')?.addEventListener('click', function() {
-        if (screenHistory.length <= 1) return;
-        screenHistory.pop(); // discard the current screen — the stack's new top is where we're going
-        const prev = screenHistory[screenHistory.length - 1];
-        suppressHistoryPush = true; // going back shouldn't push a new entry back onto the stack
-        switchScreen(prev);
-        suppressHistoryPush = false;
-        updateBackButtonVisibility();
-    });
+    // REDESIGN (item 1): EMR's own back button is retired — the shared
+    // navbar's existing back button (js/bottom-nav.js's #navBackBtn) now
+    // drives this same screenHistory stack for every keep-alive view.
+    if (window.RehablixNav) {
+        window.RehablixNav.registerInternalBack('emr', function () {
+            if (screenHistory.length <= 1) return false;
+            screenHistory.pop(); // discard the current screen — the stack's new top is where we're going
+            const prev = screenHistory[screenHistory.length - 1];
+            suppressHistoryPush = true; // going back shouldn't push a new entry back onto the stack
+            switchScreen(prev);
+            suppressHistoryPush = false;
+            updateBackButtonVisibility();
+            return true;
+        });
+    }
 
     sidebarItems.forEach(item => {
         item.addEventListener('click', () => {

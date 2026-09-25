@@ -69,13 +69,37 @@
   transform: translateY(-1px);
 }
 
-/* ===== Layout ===== */
+/* ===== Layout =====
+   REDESIGN fix: .project-main used to be a fixed-height, overflow:hidden
+   app-shell wrapper — correct for the OLD single 3-column Workspace layout
+   (each column scrolls independently), but it also clipped every new
+   screen's content (Dashboard/Setup/Review/Export/Tools), which is normal
+   flowing page content and needs the page itself to scroll. The fixed-
+   height/overflow-hidden behavior now lives on .project-workspace alone,
+   which is the only screen that still wants it. */
 .project-main {
   padding: 0;
-  background: var(--bg-page);
-  height: calc(100vh - 56px);
-  overflow: hidden;
+  background:
+    radial-gradient(circle at 15% 0%, var(--project-accent-soft) 0%, transparent 45%),
+    radial-gradient(circle at 100% 20%, var(--project-accent-soft) 0%, transparent 40%),
+    var(--bg-page);
+  min-height: calc(100vh - 56px);
   position: relative;
+}
+
+.proj-screen {
+  padding: 1.2rem 1.5rem 2rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.proj-screen#projScreenWorkspace {
+  max-width: none;
+  padding: 0;
+}
+
+.proj-screen#projScreenTools {
+  max-width: 1200px;
 }
 
 .mobile-toggles {
@@ -120,7 +144,7 @@
 /* ===== Independent Scrolling Workspace ===== */
 .project-workspace {
   display: flex;
-  height: 100%;
+  height: calc(100vh - 56px - 45px);
   overflow: hidden;
 }
 
@@ -1655,9 +1679,17 @@
 
 .form-group textarea {
   resize: vertical;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* Monospace only makes sense for the structured chapter/section outline
+   syntax — REDESIGN: previously applied to every textarea site-wide,
+   including prose fields like Research Setup's Problem/Aim, which just
+   looked like a code editor for no reason. */
+#customOutlineInput {
   font-family: 'Courier New', monospace;
   font-size: 0.85rem;
-  line-height: 1.5;
 }
 
 .text-center {
@@ -1976,7 +2008,39 @@
    .glass-card/.card-header/.card-title/.card-body/.emr-tab-bar/.emr-tab
    directly (loaded globally already) rather than redefining them.
    ========================================================================= */
-.proj-nav-bar { margin-bottom: 1.2rem; overflow-x: auto; }
+/* ----- All Projects (REDESIGN item 3: new landing screen) ----- */
+.projects-list-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.2rem; flex-wrap: wrap; }
+.projects-list-title { margin: 0; font-size: 1.4rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; }
+.projects-list-title i { color: var(--project-accent); }
+.projects-list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+.project-card-item {
+  background: var(--card-bg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 1.1rem;
+  padding: 1.2rem;
+  cursor: pointer;
+  position: relative;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.04);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.project-card-item:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(0,0,0,0.1); border-color: var(--project-accent); }
+.project-card-current { border-color: var(--project-accent); }
+.project-card-badge { position: absolute; top: -0.5rem; right: 1rem; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; background: var(--project-accent); color: #fff; padding: 0.15rem 0.6rem; border-radius: 1rem; }
+.project-card-title { font-weight: 700; font-size: 1rem; color: var(--text-primary); margin-bottom: 0.3rem; padding-right: 1rem; }
+.project-card-meta { font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.6rem; }
+.project-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem; }
+.project-card-footer small { font-size: 0.7rem; color: var(--text-secondary); }
+
+/* ----- Breadcrumb (shown once a project is open) ----- */
+.proj-breadcrumb { align-items: center; gap: 0.6rem; padding: 0.6rem 1.2rem 0; }
+.proj-breadcrumb button { background: none; border: none; color: var(--project-accent); font-size: 0.85rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.2rem; padding: 0.2rem 0.4rem; border-radius: 0.4rem; font-family: inherit; }
+.proj-breadcrumb button:hover { background: var(--project-accent-soft); }
+.proj-breadcrumb-title { font-size: 0.8rem; color: var(--text-secondary); }
+.proj-breadcrumb-title:not(:empty)::before { content: "/"; margin-right: 0.6rem; opacity: 0.5; }
+
+.proj-nav-bar { margin: 0; padding: 0 1.2rem; overflow-x: auto; position: sticky; top: 0; z-index: 50; background: var(--bg-page); }
 .proj-nav-item { white-space: nowrap; }
 
 .proj-screen { display: none; }
@@ -1992,7 +2056,8 @@
 .dash-next-step i { color: var(--project-accent); margin-right: 0.3rem; }
 .dash-actions-row { display: flex; gap: 0.6rem; flex-wrap: wrap; }
 .dash-chapter-rail { display: flex; flex-direction: column; gap: 0.5rem; }
-.dash-rail-chapter { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.7rem; border-radius: 0.6rem; font-size: 0.85rem; background: var(--surface, rgba(0,0,0,0.02)); }
+.dash-rail-chapter { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.9rem; border-radius: 0.7rem; font-size: 0.85rem; background: var(--surface, rgba(0,0,0,0.02)); border: 1px solid transparent; transition: border-color 0.15s ease; }
+.dash-rail-chapter:hover { border-color: var(--border-light, #e2e8f0); }
 .dash-rail-completed { color: #10b981; }
 .dash-rail-completed i { color: #10b981; }
 .dash-rail-current { color: var(--project-accent); font-weight: 600; }
@@ -2023,21 +2088,51 @@
 .advanced-panel.open { display: block; animation: fadeIn 0.2s ease; }
 
 /* ----- Project AI contextual actions ----- */
+.proj-ai-context { font-size: 0.75rem; color: var(--text-secondary); padding: 0.5rem 0.8rem 0; display: flex; align-items: center; gap: 0.35rem; }
+.proj-ai-context i { color: var(--project-accent); }
 .proj-ai-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border-light, #e2e8f0); }
 .proj-ai-action-btn { display: flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; padding: 0.3rem 0.6rem; border-radius: 1rem; border: 1px solid var(--project-accent); background: var(--project-accent-soft); color: var(--project-accent); cursor: pointer; white-space: nowrap; transition: all 0.15s; }
 .proj-ai-action-btn:hover { background: var(--project-accent-soft-hover); }
 
 /* ----- Reference Manager ----- */
-.reference-item { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.6rem; padding: 0.6rem 0.8rem; border: 1px solid var(--border-light, #e2e8f0); border-radius: 0.6rem; margin-bottom: 0.5rem; }
+.reference-item { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.6rem; padding: 0.7rem 0.9rem; background: var(--project-accent-soft); border: 1px solid var(--border-light, #e2e8f0); border-radius: 0.7rem; margin-bottom: 0.5rem; transition: background 0.15s ease; }
+.reference-item:hover { background: var(--project-accent-soft-hover); }
 .reference-text { font-size: 0.85rem; color: var(--text-primary); flex: 1; min-width: 0; }
 .reference-actions { display: flex; gap: 0.3rem; flex-shrink: 0; }
+.reference-status { font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.25rem; }
+.reference-status i { color: var(--project-accent); }
+.ref-format-btn { background: none; border: none; color: var(--project-accent); font-size: 0.72rem; cursor: pointer; padding: 0; text-decoration: underline; font-family: inherit; }
 
-/* ----- Review ----- */
-.review-finding { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.6rem 0.8rem; border-radius: 0.6rem; margin-bottom: 0.5rem; font-size: 0.85rem; }
-.review-finding.review-high, .review-finding.review-inconsistent { background: rgba(220, 38, 38, 0.08); color: #dc2626; }
-.review-finding.review-medium, .review-finding.review-missing, .review-finding.review-weak { background: rgba(245, 158, 11, 0.1); color: #92400e; }
-.review-finding.review-low, .review-finding.review-unsupported { background: rgba(59, 130, 246, 0.08); color: #1d4ed8; }
-.review-finding.review-ok, .review-finding.review-empty { background: var(--project-accent-soft); color: var(--project-accent); }
+/* ----- Review (REDESIGN item 4: Project AI moved here from Workspace) ----- */
+.review-layout { display: grid; grid-template-columns: 1fr 380px; gap: 1.2rem; align-items: start; }
+.review-ai-col .ai-panel {
+  /* .ai-panel's base rule is written for Workspace's fixed-height 3-column
+     shell (width:var(--ai-panel-width), height:100%, overflow:hidden) —
+     override for its new context: a normal-flowing column on Review. */
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  max-height: 80vh;
+  overflow: visible;
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 1rem;
+  position: sticky;
+  top: 1rem;
+}
+.review-ai-col .ai-panel .ai-chat-messages { max-height: 40vh; }
+.review-ai-col .sidebar-close { display: none; } /* no longer a slide-in overlay to close */
+
+@media (max-width: 900px) {
+  .review-layout { grid-template-columns: 1fr; }
+  .review-ai-col .ai-panel { position: static; max-height: none; }
+}
+
+
+.review-finding { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.65rem 0.9rem; border-radius: 0.6rem; border-left: 3px solid transparent; margin-bottom: 0.5rem; font-size: 0.85rem; }
+.review-finding.review-high, .review-finding.review-inconsistent { background: rgba(220, 38, 38, 0.08); color: #dc2626; border-left-color: #dc2626; }
+.review-finding.review-medium, .review-finding.review-missing, .review-finding.review-weak { background: rgba(245, 158, 11, 0.1); color: #92400e; border-left-color: #f59e0b; }
+.review-finding.review-low, .review-finding.review-unsupported { background: rgba(59, 130, 246, 0.08); color: #1d4ed8; border-left-color: #3b82f6; }
+.review-finding.review-ok, .review-finding.review-empty { background: var(--project-accent-soft); color: var(--project-accent); border-left-color: var(--project-accent); }
 .review-tag { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; padding: 0.1rem 0.4rem; border-radius: 0.3rem; background: rgba(0,0,0,0.08); margin-right: 0.3rem; }
 
 /* ----- Export ----- */
@@ -2048,7 +2143,8 @@
 
 /* ----- Project Tools ----- */
 .tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
-.tool-card-item { background: var(--card-bg); border: 1px solid var(--border-light, #e2e8f0); border-radius: 0.9rem; padding: 1.1rem; position: relative; display: flex; flex-direction: column; gap: 0.5rem; }
+.tool-card-item { background: var(--card-bg); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--border-light, #e2e8f0); border-radius: 1.1rem; padding: 1.2rem; position: relative; display: flex; flex-direction: column; gap: 0.5rem; box-shadow: 0 4px 16px rgba(0,0,0,0.04); transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.tool-card-item:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(0,0,0,0.1); }
 .tool-card-icon { width: 40px; height: 40px; border-radius: 0.7rem; background: var(--project-accent-soft); color: var(--project-accent); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
 .tool-card-name { font-weight: 700; font-size: 0.95rem; color: var(--text-primary); position: relative; padding-right: 3.5rem; }
 .tool-card-badge { position: absolute; top: 0; right: 0; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; background: var(--project-accent-soft); color: var(--project-accent); padding: 0.15rem 0.5rem; border-radius: 1rem; }
@@ -2060,6 +2156,8 @@
   .dash-actions-row { flex-direction: column; }
   .dash-actions-row .btn { width: 100%; justify-content: center; }
   .tools-grid { grid-template-columns: 1fr; }
+  .export-actions { flex-direction: column; }
+  .export-actions .btn { width: 100%; justify-content: center; }
 }
 
 /* ===== Animations ===== */

@@ -27,6 +27,7 @@
     // =========================================================================
     const navItems = document.querySelectorAll('.proj-nav-item[data-screen]');
     const screens = {
+      projects: document.getElementById('projScreenProjects'),
       dashboard: document.getElementById('projScreenDashboard'),
       setup: document.getElementById('projScreenSetup'),
       workspace: document.getElementById('projScreenWorkspace'),
@@ -34,6 +35,16 @@
       export: document.getElementById('projScreenExport'),
       tools: document.getElementById('projScreenTools')
     };
+    const projNavBar = document.getElementById('projNavBar');
+    const projBreadcrumb = document.getElementById('projBreadcrumb');
+    const projBreadcrumbTitle = document.getElementById('projBreadcrumbTitle');
+    // REDESIGN (item 3): the tab layout (nav bar) + breadcrumb only appear
+    // once a project is actually open — the "All Projects" list is chrome-free.
+    function setProjectActive(active) {
+      if (projNavBar) projNavBar.style.display = active ? '' : 'none';
+      if (projBreadcrumb) projBreadcrumb.style.display = active ? 'flex' : 'none';
+      if (projBreadcrumbTitle) projBreadcrumbTitle.textContent = active && currentProject ? currentProject.title : '';
+    }
     let screenHistory = ['dashboard'];
 
     const chaptersList = document.getElementById('chaptersList');
@@ -374,6 +385,7 @@
       navItems.forEach(function (item) { item.classList.toggle('active', item.dataset.screen === name); });
       if (!opts.suppressHistory && screenHistory[screenHistory.length - 1] !== name) screenHistory.push(name);
 
+      if (name === 'projects') renderProjectsListScreen();
       if (name === 'dashboard') renderDashboard();
       if (name === 'setup') renderSetupScreen();
       if (name === 'review') renderReviewScreen();
@@ -391,6 +403,63 @@
         if (screens.workspace && screens.workspace.classList.contains('active')) { saveCurrentSection(); saveToFirebase(); }
         switchScreen(item.dataset.screen);
       });
+    });
+
+    // REDESIGN (item 3): "All Projects" list — the new landing screen.
+    function renderProjectsListScreen() {
+      const grid = document.getElementById('projectsListGrid');
+      if (!grid) return;
+      const entries = Object.entries(projects).sort(function (a, b) { return (b[1].updatedAt || b[1].createdAt || 0) - (a[1].updatedAt || a[1].createdAt || 0); });
+      if (!entries.length) {
+        grid.innerHTML = '<div class="emr-empty-state"><i class="bx bx-folder-open"></i><p>No projects yet</p><small>Create your first academic project to get started</small></div>';
+        return;
+      }
+      grid.innerHTML = entries.map(function (entry) {
+        const id = entry[0], proj = entry[1];
+        const progress = computeProgress(proj);
+        const date = proj.createdAt ? new Date(proj.createdAt).toLocaleDateString() : 'Unknown date';
+        const approachLabel = proj.approach === 'qualitative' ? 'Qualitative' : 'Quantitative';
+        const isCurrent = id === currentProjectId;
+        return '<div class="project-card-item' + (isCurrent ? ' project-card-current' : '') + '" data-id="' + id + '">' +
+          (isCurrent ? '<span class="project-card-badge">Currently open</span>' : '') +
+          '<div class="project-card-title">' + escapeHtml(proj.title || 'Untitled Project') + '</div>' +
+          '<div class="project-card-meta">' + escapeHtml(proj.type || 'N/A') + ' &middot; ' + approachLabel + ' &middot; ' + escapeHtml(proj.department || 'N/A') + '</div>' +
+          '<div class="progress-bar-mini"><div class="progress-fill" style="width:' + progress.pct + '%;background:var(--project-accent);"></div></div>' +
+          '<div class="project-card-footer"><small>' + progress.pct + '% complete &middot; ' + date + '</small>' +
+          '<button class="icon-btn-sm project-card-delete" data-id="' + id + '" title="Delete project"><i class="fas fa-trash-alt"></i></button></div></div>';
+      }).join('');
+
+      grid.querySelectorAll('.project-card-item').forEach(function (card) {
+        card.addEventListener('click', function (e) {
+          if (e.target.closest('.project-card-delete')) return;
+          switchToProject(card.dataset.id);
+        });
+      });
+      grid.querySelectorAll('.project-card-delete').forEach(function (btn) {
+        btn.addEventListener('click', async function (e) {
+          e.stopPropagation();
+          const id = btn.dataset.id;
+          if (!confirm('Permanently delete this project? This cannot be undone.')) return;
+          try {
+            await database.ref('history/' + scopeUid + '/projects/' + id).remove();
+            delete projects[id];
+            if (currentProjectId === id) {
+              currentProjectId = null; currentProject = null;
+              setProjectActive(false);
+              switchScreen('projects');
+            }
+            renderProjectsListScreen();
+            updateProjectSelector();
+            showToast('Project deleted', 'success');
+          } catch (error) { reportError(error, 'project delete'); }
+        });
+      });
+    }
+    document.getElementById('projectsNewBtn')?.addEventListener('click', function () { createNewProject(); });
+    document.getElementById('backToProjectsBtn')?.addEventListener('click', function () {
+      if (screens.workspace && screens.workspace.classList.contains('active')) { saveCurrentSection(); saveToFirebase(); }
+      setProjectActive(false);
+      switchScreen('projects');
     });
 
     // =========================================================================
@@ -653,12 +722,25 @@
     // existing wizard fields, Research Setup tab is entirely new)
     // =========================================================================
     function renderSetupScreen() {
-      if (!currentProject) { switchScreen('dashboard'); return; }
+      if (!currentProject) { setProjectActive(false); switchScreen('projects'); return; }
       document.getElementById('setupProjectTitle').value = currentProject.title || '';
       document.getElementById('setupProjectType').value = currentProject.type || 'Undergraduate Project';
       document.getElementById('setupProjectDept').value = currentProject.department || 'Occupational Therapy';
       document.getElementById('setupProjectApproach').value = currentProject.approach || 'quantitative';
       renderResearchSetupForm();
+      // REDESIGN (item 6): Writing Profile/Word Count/Reference Style/AI
+      // Tone moved here from Workspace's Advanced panel — they already
+      // auto-save via their own `change` listeners (below), this just
+      // makes sure the Setup screen shows the project's current values.
+      if (writingProfileSelect) writingProfileSelect.value = currentProject.writingProfile || 'undergraduate';
+      if (wordCountSelect) {
+        wordCountSelect.value = currentProject.wordCountPref || 'auto';
+        if (wordCountSelect.value === 'custom' && customWordCountInput) {
+          customWordCountInput.style.display = 'inline-block';
+          customWordCountInput.value = currentProject.customWordCount || 500;
+        }
+      }
+      if (referenceStyleSelect) referenceStyleSelect.value = currentProject.referenceStyle || 'APA 7th';
     }
 
     document.querySelectorAll('.setup-tab').forEach(function (tab) {
@@ -851,7 +933,8 @@
     }
 
     function renderReviewScreen() {
-      if (!currentProject) { switchScreen('dashboard'); return; }
+      if (!currentProject) { setProjectActive(false); switchScreen('projects'); return; }
+      if (currentChapter) updateSectionNav(); // keeps the Project AI "Working on:" indicator current
       const consistencyEl = document.getElementById('reviewConsistencyFindings');
       const findings = checkConsistency();
       consistencyEl.innerHTML = findings.length
@@ -941,7 +1024,7 @@
     }
 
     function renderExportScreen() {
-      if (!currentProject) { switchScreen('dashboard'); return; }
+      if (!currentProject) { setProjectActive(false); switchScreen('projects'); return; }
       const preview = document.getElementById('exportPreview');
       if (preview) {
         preview.innerHTML = '<div class="export-preview-title">' + escapeHtml(currentProject.title || 'Untitled') + '</div>' +
@@ -999,9 +1082,15 @@
       const refStyle = (currentProject && currentProject.referenceStyle) || 'APA 7th';
       container.innerHTML = entries.map(function (entry) {
         const id = entry[0], r = entry[1];
-        const formatted = (r.formatted && r.formatted[refStyle]) || formatReferencePlain(r);
+        const hasAIFormat = !!(r.formatted && r.formatted[refStyle]);
+        const formatted = hasAIFormat ? r.formatted[refStyle] : formatReferencePlain(r);
+        const isFormatting = formattingRefId === id;
         return '<div class="reference-item" data-id="' + id + '">' +
+          '<div>' +
           '<div class="reference-text">' + escapeHtml(formatted) + '</div>' +
+          (isFormatting ? '<div class="reference-status"><i class="bx bx-loader-alt bx-spin"></i> Formatting citation...</div>'
+            : !hasAIFormat ? '<div class="reference-status reference-status-plain">Plain format &middot; <button type="button" class="ref-format-btn" data-id="' + id + '">AI-format in ' + escapeHtml(refStyle) + '</button></div>' : '') +
+          '</div>' +
           '<div class="reference-actions"><button class="icon-btn-sm ref-edit-btn" data-id="' + id + '" title="Edit"><i class="fas fa-edit"></i></button>' +
           '<button class="icon-btn-sm ref-delete-btn" data-id="' + id + '" title="Delete"><i class="fas fa-trash"></i></button></div></div>';
       }).join('');
@@ -1018,6 +1107,13 @@
       });
       container.querySelectorAll('.ref-edit-btn').forEach(function (btn) {
         btn.addEventListener('click', function () { openReferenceForm(btn.dataset.id); });
+      });
+      container.querySelectorAll('.ref-format-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const id = btn.dataset.id;
+          const record = currentProject.references[id];
+          if (record) formatReferenceWithAI(id, record).catch(function () {});
+        });
       });
     }
 
@@ -1073,31 +1169,41 @@
     // AI-assisted citation formatting into the project's selected reference
     // style — cached on the reference record so it doesn't need re-formatting
     // on every render/export.
+    // REDESIGN (item 9): made every failure path visible instead of silent
+    // — a reference used to just sit on the plain-text fallback forever with
+    // no indication AI formatting ever ran or why it didn't, which read as
+    // "this doesn't work." Also exposed a manual retry (formatBtn below).
+    let formattingRefId = null;
     async function formatReferenceWithAI(refId, record) {
       const style = (currentProject && currentProject.referenceStyle) || 'APA 7th';
-      const config = await window.RehablixAIQuotaCore.resolveModelConfig('basal100');
-      if (!config) return;
+      formattingRefId = refId;
+      renderReferenceList('referenceListWorkspace'); renderReferenceList('referenceListTools');
       try {
+        const config = await window.RehablixAIQuotaCore.resolveModelConfig('basal100');
+        if (!config) { showToast('AI citation formatting is not configured right now — using plain format instead.', 'warning', 4000); return; }
         await window.RehablixAIQuotaCore.checkQuotaOrThrow(currentUser.uid, currentPlan);
-      } catch (e) { return; } // silently skip AI formatting if out of quota; plain-text fallback already renders
-      const systemPrompt = 'You are a citation formatting assistant. Given a source\'s details, output ONLY the correctly formatted reference-list entry in the requested style. No commentary, no markdown, just the citation text.';
-      const userPrompt = 'Style: ' + style + '\nType: ' + record.type + '\nAuthors: ' + (record.authors || []).map(function (a) { return a.family + (a.given ? ', ' + a.given : ''); }).join('; ') + '\nYear: ' + record.year + '\nTitle: ' + record.title + '\nSource: ' + record.source + (record.url ? '\nURL: ' + record.url : '');
-      try {
+        const systemPrompt = 'You are a citation formatting assistant. Given a source\'s details, output ONLY the correctly formatted reference-list entry in the requested style. No commentary, no markdown, just the citation text.';
+        const userPrompt = 'Style: ' + style + '\nType: ' + record.type + '\nAuthors: ' + (record.authors || []).map(function (a) { return a.family + (a.given ? ', ' + a.given : ''); }).join('; ') + '\nYear: ' + record.year + '\nTitle: ' + record.title + '\nSource: ' + record.source + (record.url ? '\nURL: ' + record.url : '');
         const response = await fetch(config.endpoint + '/chat/completions', {
           method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token },
           body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 300, temperature: 0.3 })
         });
-        if (!response.ok) return;
+        if (!response.ok) throw new Error('AI service returned an error');
         const data = await response.json();
         const formatted = data.choices && data.choices[0] && data.choices[0].message.content;
-        if (formatted) {
-          currentProject.references[refId].formatted = currentProject.references[refId].formatted || {};
-          currentProject.references[refId].formatted[style] = formatted.trim();
-          await database.ref('history/' + scopeUid + '/projects/' + currentProjectId + '/references/' + refId + '/formatted/' + style).set(formatted.trim());
-          window.RehablixAIQuotaCore.reportTokenUsage(currentUser.uid, currentPlan, systemPrompt + userPrompt + formatted, config.weight);
-          renderReferenceList('referenceListWorkspace'); renderReferenceList('referenceListTools');
-        }
-      } catch (e) { /* best-effort; plain-text formatReferencePlain() fallback already shown */ }
+        if (!formatted) throw new Error('AI service returned an empty response');
+        if (!currentProject.references[refId]) return; // reference was deleted while formatting was in flight
+        currentProject.references[refId].formatted = currentProject.references[refId].formatted || {};
+        currentProject.references[refId].formatted[style] = formatted.trim();
+        await database.ref('history/' + scopeUid + '/projects/' + currentProjectId + '/references/' + refId + '/formatted/' + style).set(formatted.trim());
+        window.RehablixAIQuotaCore.reportTokenUsage(currentUser.uid, currentPlan, systemPrompt + userPrompt + formatted, config.weight);
+      } catch (e) {
+        reportError(e, 'reference citation formatting');
+        showToast('Could not AI-format this citation — showing the plain version instead.', 'warning', 4000);
+      } finally {
+        formattingRefId = null;
+        renderReferenceList('referenceListWorkspace'); renderReferenceList('referenceListTools');
+      }
     }
 
     // =========================================================================
@@ -1119,7 +1225,7 @@
     ];
 
     function renderToolsScreen() {
-      if (!currentProject) { switchScreen('dashboard'); return; }
+      if (!currentProject) { setProjectActive(false); switchScreen('projects'); return; }
       renderReferenceList('referenceListTools');
       const grid = document.getElementById('toolsGrid');
       if (!grid) return;
@@ -1561,6 +1667,7 @@
       const hasChatHistory = await loadChatHistory();
       if (!hasChatHistory) clearChatHistory();
 
+      setProjectActive(true); // REDESIGN (item 3): reveal the tab layout now that a project is open
       switchScreen('dashboard');
       showToast('Switched to "' + currentProject.title + '"', 'info');
     }
@@ -1652,6 +1759,7 @@
         incrementProjectCount();
         projectModal.classList.remove('active');
         renderChapters(); loadSectionContent(); updateProjectSelector(); updateModificationArea(); clearChatHistory();
+        setProjectActive(true);
         switchScreen('setup');
         showToast('Project created. Fill in Research Setup to help Project AI understand your study.', 'success');
       } catch (error) { reportError(error, 'project creation'); }
@@ -1820,6 +1928,16 @@
         if (workspaceProgressFill) workspaceProgressFill.style.width = getSectionContent(currentChapter, 0).trim().length > 20 ? '100%' : '0%';
         if (workspaceProgressLabel) workspaceProgressLabel.textContent = '';
       }
+
+      // REDESIGN (item 4): Project AI's actions operate on whatever chapter/
+      // section was last opened in Workspace, but the panel itself now lives
+      // on the Review screen where the editor isn't visible — this keeps
+      // that implicit target legible instead of hidden.
+      const contextText = document.getElementById('projAIContextText');
+      if (contextText && ch) {
+        const sectionName = ch.sections && ch.sections.length ? ch.sections[currentSection] : ch.title;
+        contextText.textContent = 'Working on: ' + ch.title + (ch.sections && ch.sections.length ? ' — ' + sectionName : '');
+      }
     }
 
     function goToFlatIndex(idx) {
@@ -1924,11 +2042,15 @@
     sectionEditor.addEventListener('input', function () {
       unsavedChanges = true; updateUnsavedIndicator();
       clearTimeout(autoSaveTimer);
-      autoSaveTimer = setTimeout(async function () { saveCurrentSection(); await saveToFirebase(); displayHumanizationScore(); logActivity('section_saved', currentSectionTitle.textContent); }, 3000);
+      autoSaveTimer = setTimeout(async function () { saveCurrentSection(); await saveToFirebase(); displayHumanizationScore(); updateSectionNav(); renderChapters(); logActivity('section_saved', currentSectionTitle.textContent); }, 3000);
     });
-    sectionEditor.addEventListener('keydown', function (e) { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveCurrentSection(); saveToFirebase(); showToast('Saved', 'success', 1500); } });
+    sectionEditor.addEventListener('keydown', function (e) { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveCurrentSection(); saveToFirebase(); updateSectionNav(); renderChapters(); showToast('Saved', 'success', 1500); } });
     function updateUnsavedIndicator() { if (unsavedOverlay) unsavedOverlay.style.display = unsavedChanges ? 'block' : 'none'; }
-    if (saveNowBtn) saveNowBtn.addEventListener('click', async function () { saveCurrentSection(); await saveToFirebase(); showToast('Saved successfully', 'success'); });
+    if (saveNowBtn) saveNowBtn.addEventListener('click', async function () { saveCurrentSection(); await saveToFirebase(); updateSectionNav(); renderChapters(); showToast('Saved successfully', 'success'); });
+    // REDESIGN fix: this button's click listener was never wired during the
+    // router migration — autosave still worked (the input listener below),
+    // but the explicit Save button silently did nothing.
+    if (saveSectionBtn) saveSectionBtn.addEventListener('click', async function () { saveCurrentSection(); await saveToFirebase(); updateSectionNav(); renderChapters(); showToast('Saved successfully', 'success'); });
     const beforeUnloadHandler = function (e) { if (unsavedChanges) { e.preventDefault(); e.returnValue = 'You have unsaved changes. Are you sure you want to leave?'; return e.returnValue; } };
     window.addEventListener('beforeunload', beforeUnloadHandler);
     cleanupFns.push(function () { window.removeEventListener('beforeunload', beforeUnloadHandler); });
@@ -2004,6 +2126,38 @@
       return finalContent;
     }
 
+    // REDESIGN (item 7): a lightweight "any instructions?" prompt shown
+    // before every generate/regenerate, instead of relying on the student
+    // to discover the (still-present, for edits mid-draft) Modification
+    // Instructions field buried in Workspace's Advanced panel. Resolves to
+    // the entered text (already written into modificationInput so the
+    // existing generateSection()/prompt-building code needs no changes),
+    // or '' if skipped/closed.
+    let genInstructionsResolver = null;
+    function askForInstructions(title, hasExistingContent) {
+      const titleEl = document.getElementById('genInstructionsTitle');
+      const input = document.getElementById('genInstructionsInput');
+      if (titleEl) titleEl.textContent = title;
+      if (input) input.value = '';
+      document.getElementById('genInstructionsModal')?.classList.add('active');
+      return new Promise(function (resolve) {
+        genInstructionsResolver = resolve;
+      });
+    }
+    document.getElementById('genInstructionsGoBtn')?.addEventListener('click', function () {
+      const text = document.getElementById('genInstructionsInput')?.value.trim() || '';
+      document.getElementById('genInstructionsModal')?.classList.remove('active');
+      if (genInstructionsResolver) { genInstructionsResolver(text); genInstructionsResolver = null; }
+    });
+    document.getElementById('genInstructionsSkipBtn')?.addEventListener('click', function () {
+      document.getElementById('genInstructionsModal')?.classList.remove('active');
+      if (genInstructionsResolver) { genInstructionsResolver(''); genInstructionsResolver = null; }
+    });
+    document.getElementById('closeGenInstructionsModal')?.addEventListener('click', function () {
+      document.getElementById('genInstructionsModal')?.classList.remove('active');
+      if (genInstructionsResolver) { genInstructionsResolver(null); genInstructionsResolver = null; } // null = cancelled entirely
+    });
+
     aiGenerateSectionBtn.addEventListener('click', async function () {
       if (!currentProject || !currentChapter) { showToast('Select a chapter and section first', 'error'); return; }
       if (!canGenerateChapter(currentChapter)) { showToast('No active plan: Only Chapter 1 generation is available. Upgrade for full access.', 'error', 5000); goToSubscription(); return; }
@@ -2013,6 +2167,10 @@
         : (currentProject.chapters && currentProject.chapters[currentChapter] && (currentProject.chapters[currentChapter].content || '').trim().length > 0);
       if (hasContent && !canRegenerate()) { showToast('Regeneration requires Student or Pro plan. Upgrade for full access.', 'error', 5000); goToSubscription(); return; }
       if (!aiConfig.token) { const ok = await fetchTokens(); if (!ok) { showToast('AI service not configured', 'error'); return; } }
+      const sectionNameForModal = ch && ch.sections && ch.sections.length > 0 ? ch.sections[currentSection] : (ch ? ch.title : 'Section');
+      const instructions = await askForInstructions((hasContent ? 'Regenerate: ' : 'Generate: ') + sectionNameForModal, hasContent);
+      if (instructions === null) return; // cancelled
+      if (modificationInput) modificationInput.value = instructions;
       await saveVersion();
       const sectionName = ch && ch.sections && ch.sections.length > 0 ? ch.sections[currentSection] : (ch ? ch.title : 'Section');
       aiProgressModal.classList.add('active'); aiGenerateSectionBtn.disabled = true; aiAbortController = new AbortController(); updateProgressBar(0);
@@ -2043,6 +2201,9 @@
         const ch = getChaptersStructure()[currentChapter];
         const sections = customSections || ch.sections || [ch.title];
         if (customSections) { ensureCustomOutline(); currentProject._customOutline[currentChapter] = { title: ch.title, sections: customSections }; }
+        const chapterInstructions = await askForInstructions('Generate chapter: ' + ch.title, false);
+        if (chapterInstructions === null) return; // cancelled
+        if (modificationInput) modificationInput.value = chapterInstructions;
         aiProgressModal.classList.add('active'); aiAbortController = new AbortController(); chapterGenerationActive = true; updateProgressBar(0);
         try {
           for (let i = 0; i < sections.length; i++) {
@@ -2214,7 +2375,9 @@
     // MOBILE TOGGLES (ported)
     // =========================================================================
     if (toggleChaptersBtn) toggleChaptersBtn.addEventListener('click', function () { chaptersSidebar.classList.toggle('open'); });
-    if (toggleAIPanelBtn) toggleAIPanelBtn.addEventListener('click', function () { aiPanel.classList.toggle('open'); });
+    // REDESIGN (item 4): toggleAIPanelBtn/closeAIPanelBtn's slide-in-overlay
+    // behavior no longer applies now that Project AI lives on the Review
+    // screen (a normal-flowing sticky column, not a Workspace overlay).
     if (closeChaptersBtn) closeChaptersBtn.addEventListener('click', function () { chaptersSidebar.classList.remove('open'); });
     if (closeAIPanelBtn) closeAIPanelBtn.addEventListener('click', function () { aiPanel.classList.remove('open'); });
 
@@ -2244,7 +2407,7 @@
     let lastAuthUid = null;
     const unsubAuth = firebase.auth().onAuthStateChanged(async function (user) {
       const uidChanged = lastAuthUid !== null && (!user || user.uid !== lastAuthUid);
-      if (uidChanged) { currentProjectId = null; currentProject = null; switchScreen('dashboard'); }
+      if (uidChanged) { currentProjectId = null; currentProject = null; setProjectActive(false); switchScreen('projects'); }
       lastAuthUid = user ? user.uid : null;
       currentUser = user;
 
@@ -2258,12 +2421,13 @@
         await fetchTokens();
         await loadProjects();
 
-        const keys = Object.keys(projects);
-        if (keys.length > 0 && !currentProjectId) {
-          const sorted = keys.sort(function (a, b) { return (projects[b].updatedAt || projects[b].createdAt || 0) - (projects[a].updatedAt || projects[a].createdAt || 0); });
-          await switchToProject(sorted[0]);
-        } else {
-          renderDashboard();
+        // REDESIGN (item 3): land on the "All Projects" list rather than
+        // auto-opening the most recently edited project — the student picks
+        // which project to continue from the card grid (or resumes the one
+        // already open, if any, via the breadcrumb/nav still being visible).
+        if (!currentProjectId) {
+          setProjectActive(false);
+          switchScreen('projects', { suppressHistory: true });
         }
       } else {
         currentProjectId = null; currentProject = null;
@@ -2281,7 +2445,23 @@
     updatePlanUI();
     updateDefaultPromptsBar();
     renderProjectAIActions();
-    switchScreen('dashboard', { suppressHistory: true });
+    setProjectActive(false);
+    switchScreen('projects', { suppressHistory: true });
+
+    // REDESIGN (item 1): register with the shared navbar's existing back
+    // button (js/bottom-nav.js's #navBackBtn) instead of Project Maker
+    // growing its own dedicated back button — reuses this screenHistory stack.
+    if (window.RehablixNav) {
+      window.RehablixNav.registerInternalBack('project', function () {
+        if (screenHistory.length <= 1) return false;
+        screenHistory.pop();
+        const prev = screenHistory[screenHistory.length - 1];
+        if (screens.workspace && screens.workspace.classList.contains('active')) { saveCurrentSection(); saveToFirebase(); }
+        setProjectActive(prev !== 'projects');
+        switchScreen(prev, { suppressHistory: true });
+        return true;
+      });
+    }
 
     console.log('[Project] Ready');
 

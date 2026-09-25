@@ -8,6 +8,18 @@
 // both links still route back into the SPA shell.
 
 (function () {
+  // REDESIGN: a keep-alive view with its OWN internal screens (Smart EMR's
+  // dashboard/intake/patient/patients, Project Maker's projects/dashboard/
+  // setup/workspace/review/export/tools) registers a handler here instead
+  // of growing its own dedicated back button. goBack() below tries this
+  // FIRST — only once a view reports it has no more internal history left
+  // does the existing route-level back (leaving the tool entirely) run, so
+  // tapping back repeatedly steps through a tool's own screens before it
+  // finally exits the tool.
+  const internalHandlers = {}; // routeName -> () => boolean (true = consumed a step)
+  function registerInternalBack(routeName, handler) { internalHandlers[routeName] = handler; }
+  window.RehablixNav = { registerInternalBack };
+
   function currentRoute() {
     return document.body.dataset.route || document.body.dataset.page || '';
   }
@@ -28,6 +40,13 @@
   }
 
   function goBack() {
+    // REDESIGN: try the current route's own internal screen-history first —
+    // only once it reports nothing left to unwind does this fall through to
+    // route-level back (which is what actually "exits" that tool/page).
+    const route = currentRoute();
+    const handler = route && internalHandlers[route];
+    if (handler && handler()) return;
+
     // Inside the SPA shell the router knows whether there is an in-app page
     // to return to; standalone pages fall back to plain browser history.
     if (window.RehablixRouter) {
