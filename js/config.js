@@ -26,21 +26,28 @@ const firebaseConfig = {
         // even when a session is about to be restored. Views should
         // `await window.RehablixAuthReady` instead of reading
         // firebase.auth().currentUser directly on first load.
-        window.RehablixAuthReady = new Promise((resolve) => {
-            const unsubscribe = firebase.auth().onAuthStateChanged((user) => {
-                unsubscribe();
-                resolve(user);
-            });
-        });
-
-        // Set auth persistence
-        firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+        //
+        // setPersistence() MUST resolve before the onAuthStateChanged
+        // listener is attached: attaching it first (the previous order
+        // here) let Firebase fire that very first callback with `null`
+        // before it had finished restoring the persisted session under
+        // LOCAL persistence, and since this promise only ever resolves
+        // once, that premature `null` got captured forever for the rest
+        // of the SPA session — surfacing as a permanent "log in required"
+        // on formatview/audioview even for an already-logged-in user.
+        window.RehablixAuthReady = firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL)
             .then(() => {
                 console.log('✅ Auth persistence enabled (LOCAL)');
             })
             .catch((error) => {
                 console.error('Auth persistence error:', error);
-            });
+            })
+            .then(() => new Promise((resolve) => {
+                const unsubscribe = firebase.auth().onAuthStateChanged((user) => {
+                    unsubscribe();
+                    resolve(user);
+                });
+            }));
         
         // Monitor database connection
         const connectedRef = firebase.database().ref('.info/connected');

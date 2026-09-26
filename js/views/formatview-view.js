@@ -39,6 +39,7 @@
     let isOwner = false;
     let isEditing = false;
     let frameLoaded = null; // Promise resolved once the current srcdoc has finished loading
+    let lastAuthUid = null; // the auth uid load() most recently rendered for — kept in sync so the self-correcting listener below can't misjudge its own first callback (see mount())
 
     function showToast(message, type, duration) {
       type = type || 'success';
@@ -166,7 +167,14 @@
       // link, Firebase hasn't finished restoring the persisted session yet
       // at the moment this view mounts, so currentUser would read null
       // even for an already-logged-in user (the "log in required" bug).
-      const user = window.RehablixAuthReady ? await window.RehablixAuthReady : firebase.auth().currentUser;
+      // RehablixAuthReady only ever settles once (on the FIRST auth check),
+      // so it can't be used as the user value itself on later visits within
+      // the same SPA session (e.g. logging in after that first check, then
+      // opening this view) — it's only awaited here to guarantee that first
+      // check has happened, and the live currentUser is read afterward.
+      if (window.RehablixAuthReady) await window.RehablixAuthReady;
+      const user = firebase.auth().currentUser;
+      lastAuthUid = user ? user.uid : null;
 
       if (!recordId) {
         titleEl.textContent = 'Not found';
@@ -256,11 +264,14 @@
 
     // Self-correct if the user logs in (or out) while this view is
     // showing — e.g. they hit "log in required" and use the navbar login
-    // button without leaving this page.
-    let lastAuthUid = undefined;
+    // button without leaving this page. Also covers Firebase's own startup
+    // race: onAuthStateChanged can fire once prematurely with `null` before
+    // a persisted session finishes restoring, then again shortly after with
+    // the real user — this listener compares against lastAuthUid (kept in
+    // sync by load() itself, not a "skip the first callback" guess) so it
+    // reacts correctly to that correction even on its own first invocation.
     const unsubAuth = firebase.auth().onAuthStateChanged((user) => {
       const uid = user ? user.uid : null;
-      if (lastAuthUid === undefined) { lastAuthUid = uid; return; } // skip the initial callback — load() already handled it
       if (uid !== lastAuthUid) {
         lastAuthUid = uid;
         load();

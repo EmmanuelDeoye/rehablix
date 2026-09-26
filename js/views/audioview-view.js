@@ -34,6 +34,7 @@
     let ownerUid = null;
     let isOwner = false;
     let isEditing = false;
+    let lastAuthUid = null; // the auth uid load() most recently rendered for — kept in sync so the self-correcting listener below can't misjudge its own first callback (see mount())
 
     function showToast(message, type, duration) {
       type = type || 'success';
@@ -112,7 +113,13 @@
       const params = new URLSearchParams(window.location.search);
       recordId = params.get('id');
       const sharedUid = params.get('uid');
-      const user = window.RehablixAuthReady ? await window.RehablixAuthReady : firebase.auth().currentUser;
+      // RehablixAuthReady only ever settles once (on the FIRST auth check),
+      // so it can't be used as the user value itself on later visits within
+      // the same SPA session — it's only awaited to guarantee that first
+      // check has happened, and the live currentUser is read afterward.
+      if (window.RehablixAuthReady) await window.RehablixAuthReady;
+      const user = firebase.auth().currentUser;
+      lastAuthUid = user ? user.uid : null;
 
       if (!recordId) {
         titleEl.textContent = 'Not found';
@@ -191,11 +198,13 @@
 
     load();
 
-    // Self-correct if the user logs in/out while this view is showing.
-    let lastAuthUid = undefined;
+    // Self-correct if the user logs in/out while this view is showing. Also
+    // covers Firebase's own startup race (see formatview-view.js's mount()
+    // for the full explanation) — compares against lastAuthUid (kept in
+    // sync by load() itself) rather than skipping this listener's own first
+    // callback, so a late correction is never silently dropped.
     const unsubAuth = firebase.auth().onAuthStateChanged((user) => {
       const uid = user ? user.uid : null;
-      if (lastAuthUid === undefined) { lastAuthUid = uid; return; }
       if (uid !== lastAuthUid) { lastAuthUid = uid; load(); }
     });
     cleanupFns.push(unsubAuth);

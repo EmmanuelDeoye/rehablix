@@ -1793,7 +1793,18 @@
     async function switchToProject(id, opts) {
       opts = opts || {};
       if (!projects[id]) { showToast('Project not found', 'error'); return; }
-      if (currentProjectId && currentProject) { saveCurrentSection(); await saveToFirebase(); }
+      // Save the OUTGOING project in the background instead of awaiting it —
+      // this used to block opening the NEW project on a full network round
+      // trip for the old one (and, since saveToFirebase() has no timeout,
+      // could leave the screen stuck indefinitely on a slow/stalled
+      // connection — the "sometimes doesn't open at all" bug). The switch
+      // below is a JS deprioritization only? — no: kicking off the write
+      // and moving on is safe because saveToFirebase() reads its data from
+      // the (still-current-at-call-time) `currentProject`/`currentProjectId`
+      // closure variables synchronously before its first await, so
+      // reassigning them on the next lines does not race with what gets
+      // written.
+      if (currentProjectId && currentProject) { saveCurrentSection(); saveToFirebase(); }
       currentProjectId = id;
       currentProject = projects[id];
       currentChapter = (currentProject.dashboard && currentProject.dashboard.lastOpenedChapter) || 'chapter1';
@@ -1821,12 +1832,21 @@
       renderChapters(); loadSectionContent(); updateProjectSelector(); updateModificationArea(); updateVersionList();
       renderReferenceList('referenceListWorkspace');
 
-      const hasChatHistory = await loadChatHistory();
-      if (!hasChatHistory) clearChatHistory();
-
+      // Show the project right away from the already-loaded local `projects`
+      // cache — chat history is a nice-to-have for the AI panel, not
+      // something worth making the student wait on a network round trip to
+      // see their own project (previously `await`ed here, so a slow/stalled
+      // read blocked the screen switch below — the other half of the
+      // "reopening a project takes forever / sometimes doesn't open at all"
+      // bug, alongside the saveToFirebase() await removed above). Default to
+      // the empty state immediately; loadChatHistory() replaces it once it
+      // resolves, same as it always did.
+      clearChatHistory();
       setProjectActive(true); // REDESIGN (item 3): reveal the tab layout now that a project is open
       switchScreen('dashboard');
       if (!opts.silent) showToast('Switched to "' + currentProject.title + '"', 'info');
+
+      loadChatHistory();
     }
 
     async function createNewProject() {

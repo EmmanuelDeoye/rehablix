@@ -177,6 +177,16 @@
   display: none;
 }
 
+/* .section-editor's normal min-height:400px (below) exists to give a nearly
+   empty section a comfortable click target — but once the header is
+   collapsed specifically to free up scrolling/writing space, that same
+   fixed floor instead reads as a large dead area below short content,
+   fighting the whole point of collapsing. Let it hug its real content
+   height in this state instead. */
+.editor-header-collapsed .section-editor {
+  min-height: 0;
+}
+
 /* One-time tutorial (Round 5 item 1): a pulsing ring around the collapse
    icon + a small tooltip bubble, shown once until dismissed (click, tap
    elsewhere, or an 8s timeout — see maybeShowCollapseTutorial() in JS). */
@@ -2589,6 +2599,15 @@
 
   .action-btn span {
     display: none;
+  }
+
+  /* Generate shares Humanize's fa-magic icon, so hiding its label like the
+     other icon-only buttons above left the two indistinguishable at a
+     glance on mobile (the accent background alone wasn't enough) — keep
+     its text, just fitted down to a size that still fits the pill. */
+  .action-btn.action-btn-accent span {
+    display: inline;
+    font-size: 0.72rem;
   }
 
   .action-btn {
