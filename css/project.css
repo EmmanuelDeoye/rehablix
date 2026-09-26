@@ -2604,7 +2604,17 @@
   /* Generate shares Humanize's fa-magic icon, so hiding its label like the
      other icon-only buttons above left the two indistinguishable at a
      glance on mobile (the accent background alone wasn't enough) — keep
-     its text, just fitted down to a size that still fits the pill. */
+     its text, just fitted down to a size that still fits the pill. Also
+     overrides js/ask.js's UNRELATED chat message ".action-btn" (Copy/Word/
+     Regenerate) mobile rule (css/ask.css) — that generic class name is
+     shared, globally loaded, and pins width/height to a fixed 34px circle
+     for its own icon-only buttons, which otherwise clips this one's label
+     down to "Ge" since nothing here had overridden the width back to auto.
+  */
+  .action-btn.action-btn-accent {
+    width: auto;
+    height: auto;
+  }
   .action-btn.action-btn-accent span {
     display: inline;
     font-size: 0.72rem;
