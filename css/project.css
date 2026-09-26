@@ -187,6 +187,55 @@
   min-height: 0;
 }
 
+/* The min-height fix above wasn't the dominant cause of the leftover blank
+   area — .project-workspace/.editor-area are pinned to a fixed
+   calc(100vh - 101px) "independent scrolling pane" height (see below) so
+   .editor-wrapper's flex:1 always stretches to fill that full height
+   regardless of content, no matter how short the section is. On mobile,
+   .chapters-sidebar/.ai-panel are already position:fixed drawers (not part
+   of this flex row — see the max-width:992px rules), so nothing else
+   depends on .project-workspace's height there; once collapsed, let the
+   whole chain size to its actual content instead of the viewport, so short
+   sections don't leave a dead area below them. Only the collapsed+mobile
+   combination is touched — normal (expanded, or desktop) behavior, and
+   long sections that still need to scroll within the collapsed view, are
+   unaffected since document/page scrolling takes over instead.
+
+   Selector note: .editor-header-collapsed is toggled on #editorArea
+   itself, not on some wrapping element — so .project-workspace (editorArea's
+   own PARENT) has to be reached with :has() rather than a descendant
+   combinator (".editor-header-collapsed .project-workspace" would never
+   match anything, since that asks for a .project-workspace INSIDE a
+   .editor-header-collapsed element, the reverse of the real nesting).
+   .editor-area itself needs the compound-class form for the same reason
+   (".editor-header-collapsed .editor-area" looks for a descendant, but
+   editor-area IS the .editor-header-collapsed element). Only
+   .editor-wrapper is genuinely a descendant of #editorArea, so the
+   descendant form was already correct for it.
+*/
+@media (max-width: 768px) {
+  .project-workspace:has(.editor-header-collapsed) {
+    height: auto;
+    overflow: visible;
+    align-items: flex-start;
+  }
+  .editor-area.editor-header-collapsed {
+    height: auto;
+    overflow: visible;
+  }
+  .editor-header-collapsed .editor-wrapper {
+    flex: 0 1 auto;
+    overflow: visible;
+    /* js/result.js and js/docresult.js's UNRELATED editors (css/result.css,
+       css/docresult.css — both globally loaded) also style a
+       ".editor-wrapper", pinning min-height:60vh for their own layout;
+       that leaked in here too and was the actual source of the remaining
+       ~487px floor (60vh at a ~812px-tall phone) even after flex:1 was
+       overridden above. */
+    min-height: 0;
+  }
+}
+
 /* One-time tutorial (Round 5 item 1): a pulsing ring around the collapse
    icon + a small tooltip bubble, shown once until dismissed (click, tap
    elsewhere, or an 8s timeout — see maybeShowCollapseTutorial() in JS). */
