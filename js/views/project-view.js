@@ -115,7 +115,11 @@
     const customOutlineInput = document.getElementById('customOutlineInput');
     const currentProjectSelect = document.getElementById('currentProjectSelect');
     const newProjectBtn = document.getElementById('newProjectBtn');
-    const aiProgressModal = document.getElementById('aiProgressModal');
+    // FIX: this id used to be "aiProgressModal", which Smart EMR's template
+    // also uses (its Progress-tab AI panel). EMR is keep-alive, so once it had
+    // been opened getElementById() returned EMR's hidden panel and the
+    // generation progress modal never appeared here (reported on desktop).
+    const aiProgressModal = document.getElementById('projAiProgressModal');
     const cancelGenerateBtn = document.getElementById('cancelGenerateBtn');
     const closeProgressModal = document.getElementById('closeProgressModal');
     const progressStage = document.getElementById('progressStage');
@@ -164,8 +168,9 @@
     const exportScopeSelect = document.getElementById('exportScopeSelect');
 
     const formatBtns = document.querySelectorAll('.format-btn');
-    const fontFamilySelect = document.getElementById('fontFamilySelect');
-    const fontSizeSelect = document.getElementById('fontSizeSelect');
+    // Unique ids (result/docresult also have #fontFamilySelect/#fontSizeSelect).
+    const fontFamilySelect = document.getElementById('projFontFamilySelect');
+    const fontSizeSelect = document.getElementById('projFontSizeSelect');
 
     // =========================================================================
     // State
@@ -964,18 +969,61 @@
     // =========================================================================
     // CONSISTENCY CHECKER (ported) + REVIEW SCREEN (REDESIGN)
     // =========================================================================
-    function checkConsistency() {
+    // IMPROVED: every conflicting figure is now traced back to the exact
+    // chapter, section and sentence it appears in (not just "n=30, n=45 found
+    // somewhere"), so the Review screen can point the student at it and the
+    // Fix flow can target those passages precisely.
+    function sentenceAround(text, index, length) {
+      let start = index, end = index + length;
+      while (start > 0 && !/[.!?\n]/.test(text[start - 1])) start--;
+      while (end < text.length && !/[.!?\n]/.test(text[end])) end++;
+      if (end < text.length) end++;
+      return text.slice(start, end).replace(/\s+/g, ' ').trim();
+    }
+
+    function scanFigureOccurrences() {
+      const out = [];
+      flattenSections().forEach(function (item) {
+        const text = extractPlainText(getSectionContent(item.chapterKey, item.sectionIndex));
+        if (!text.trim()) return;
+        [{ kind: 'sample', re: /\bn\s*=\s*(\d+)/gi }, { kind: 'participants', re: /(\d+)\s*participants?/gi }].forEach(function (p) {
+          let m;
+          p.re.lastIndex = 0;
+          while ((m = p.re.exec(text)) !== null) {
+            out.push({
+              kind: p.kind, value: m[0].replace(/\s/g, '').toLowerCase(), match: m[0],
+              chapterKey: item.chapterKey, sectionIndex: item.sectionIndex, hasSections: item.hasSections,
+              chapterTitle: item.chapterTitle, sectionName: item.sectionName,
+              sentence: sentenceAround(text, m.index, m[0].length)
+            });
+          }
+        });
+      });
+      return out;
+    }
+
+    function checkConsistency(silent) {
       if (!currentProject || !currentProject.chapters) return [];
-      const allText = extractPlainText(JSON.stringify(currentProject.chapters));
+      const occ = scanFigureOccurrences();
       const findings = [];
-      const sampleMatches = allText.match(/\bn\s*=\s*(\d+)/gi) || [];
-      const sizes = [...new Set(sampleMatches.map(function (m) { return m.replace(/\s/g, '').toLowerCase(); }))];
-      if (sizes.length > 1) findings.push({ type: 'inconsistent', note: 'Sample size conflict: ' + sizes.join(', ') + ' found across chapters.', severity: 'high' });
-      const participantMatches = allText.match(/(\d+)\s*participants?/gi) || [];
-      const pCounts = [...new Set(participantMatches.map(function (m) { return m.replace(/\s/g, '').toLowerCase(); }))];
-      if (pCounts.length > 1) findings.push({ type: 'inconsistent', note: 'Participant count conflict: ' + pCounts.join(', ') + ' found.', severity: 'high' });
-      if (findings.length) showToast(findings.map(function (f) { return f.note; }).join(' '), 'warning', 7000);
+      [['sample', 'Sample size conflict'], ['participants', 'Participant count conflict']].forEach(function (k) {
+        const list = occ.filter(function (o) { return o.kind === k[0]; });
+        const values = [...new Set(list.map(function (o) { return o.value; }))];
+        if (values.length > 1) {
+          findings.push({
+            id: 'consistency_' + k[0], type: 'inconsistent', severity: 'high', kind: k[0], values: values, occurrences: list,
+            note: k[1] + ': ' + values.join(', ') + ' found across ' + [...new Set(list.map(function (o) { return o.chapterKey + ':' + o.sectionIndex; }))].length + ' sections.'
+          });
+        }
+      });
+      if (findings.length && !silent) showToast(findings.map(function (f) { return f.note; }).join(' '), 'warning', 7000);
       return findings;
+    }
+
+    function locationLabel(chapterKey, sectionIndex) {
+      const ch = getChaptersStructure()[chapterKey];
+      if (!ch) return chapterKey;
+      return ch.title + (ch.sections && ch.sections.length ? ' › ' + (ch.sections[sectionIndex] || 'Section ' + (sectionIndex + 1)) : '');
     }
 
     // REDESIGN (Round 3): Review is now a single-panel toggle — Project AI
@@ -1013,17 +1061,344 @@
       if (!currentProject) { setProjectActive(false); switchScreen('projects'); return; }
       setReviewMode('ai'); // Project AI is the default view every time Review is entered
       if (currentChapter) updateSectionNav(); // keeps the Project AI "Working on:" indicator current
-      const consistencyEl = document.getElementById('reviewConsistencyFindings');
-      const findings = checkConsistency();
-      consistencyEl.innerHTML = findings.length
-        ? findings.map(function (f) { return '<div class="review-finding review-' + f.severity + '"><i class="bx bx-error-circle"></i> ' + escapeHtml(f.note) + '</div>'; }).join('')
-        : '<div class="review-finding review-ok"><i class="bx bx-check-circle"></i> No sample-size or participant-count conflicts detected.</div>';
+      renderConsistencyFindings(checkConsistency());
+      renderChapterFindings();
+    }
 
-      const cached = (currentProject.reviewFindings || {})[currentChapter];
+    let lastConsistencyFindings = [];
+    function renderConsistencyFindings(findings) {
+      lastConsistencyFindings = findings;
+      const consistencyEl = document.getElementById('reviewConsistencyFindings');
+      if (!consistencyEl) return;
+      consistencyEl.innerHTML = findings.length
+        ? findings.map(function (f, fi) {
+          return '<div class="review-finding review-' + f.severity + ' review-finding-rich">' +
+            '<div class="review-finding-head"><i class="bx bx-error-circle"></i><span>' + escapeHtml(f.note) + '</span></div>' +
+            '<ul class="review-occurrences">' + f.occurrences.map(function (o) {
+              return '<li><button type="button" class="review-goto" data-ch="' + o.chapterKey + '" data-sec="' + o.sectionIndex + '" data-quote="' + escapeHtml(o.sentence).replace(/"/g, '&quot;') + '" title="Open this passage">' +
+                '<i class="bx bx-link-external"></i> ' + escapeHtml(locationLabel(o.chapterKey, o.sectionIndex)) + '</button>' +
+                '<span class="review-value">' + escapeHtml(o.match) + '</span>' +
+                '<blockquote class="review-quote">' + escapeHtml(o.sentence) + '</blockquote></li>';
+            }).join('') + '</ul>' +
+            '<div class="review-finding-actions"><button type="button" class="review-fix-btn" data-consistency="' + fi + '"><i class="bx bx-wrench"></i> Fix with AI</button></div></div>';
+        }).join('')
+        : '<div class="review-finding review-ok"><i class="bx bx-check-circle"></i> No sample-size or participant-count conflicts detected.</div>';
+    }
+
+    function renderChapterFindings() {
       const chapterEl = document.getElementById('reviewChapterFindings');
-      chapterEl.innerHTML = cached && cached.findings && cached.findings.length
-        ? cached.findings.map(function (f) { return '<div class="review-finding review-' + f.severity + '"><span class="review-tag">' + f.type + '</span> ' + escapeHtml(f.section || '') + ': ' + escapeHtml(f.note) + '</div>'; }).join('')
-        : '<div class="review-finding review-empty">No review run yet for this chapter. Click "Review Current Chapter" to check for missing, weak, inconsistent, or unsupported content.</div>';
+      if (!chapterEl || !currentProject) return;
+      const cached = (currentProject.reviewFindings || {})[currentChapter];
+      const list = cached && cached.findings ? cached.findings : [];
+      if (!list.length) {
+        chapterEl.innerHTML = '<div class="review-finding review-empty">No review run yet for this chapter. Click "Review Current Chapter" to check for missing, weak, inconsistent, or unsupported content.</div>';
+        return;
+      }
+      chapterEl.innerHTML = list.map(function (f, i) {
+        const loc = (typeof f.sectionIndex === 'number' && f.sectionIndex >= 0) ? locationLabel(currentChapter, f.sectionIndex) : ((getChaptersStructure()[currentChapter] || {}).title || '') + (f.section ? ' › ' + f.section : '');
+        return '<div class="review-finding review-' + escapeHtml(f.severity || 'medium') + ' review-' + escapeHtml(f.type || '') + ' review-finding-rich' + (f.fixed ? ' review-fixed' : '') + '">' +
+          '<div class="review-finding-head"><span class="review-tag">' + escapeHtml(f.type || 'issue') + '</span><span class="review-sev">' + escapeHtml(f.severity || '') + '</span>' +
+          (f.fixed ? '<span class="review-fixed-badge"><i class="bx bx-check"></i> Fixed</span>' : '') + '</div>' +
+          '<button type="button" class="review-goto" data-ch="' + currentChapter + '" data-sec="' + (typeof f.sectionIndex === 'number' && f.sectionIndex >= 0 ? f.sectionIndex : 0) + '" data-quote="' + escapeHtml(f.excerpt || '').replace(/"/g, '&quot;') + '"><i class="bx bx-link-external"></i> ' + escapeHtml(loc) + '</button>' +
+          (f.excerpt ? '<blockquote class="review-quote">' + escapeHtml(f.excerpt) + '</blockquote>' : '') +
+          '<div class="review-note">' + escapeHtml(f.note || '') + '</div>' +
+          (f.suggestion ? '<div class="review-suggestion"><i class="bx bx-bulb"></i> ' + escapeHtml(f.suggestion) + '</div>' : '') +
+          (f.fixed ? '' : '<div class="review-finding-actions"><button type="button" class="review-fix-btn" data-finding="' + i + '"><i class="bx bx-wrench"></i> Fix with AI</button></div>') +
+          '</div>';
+      }).join('');
+    }
+
+    // Delegated clicks for both findings panels: jump to the passage, or open the AI fix flow.
+    document.getElementById('reviewFindingsPanel')?.addEventListener('click', function (e) {
+      const go = e.target.closest('.review-goto');
+      if (go) { goToPassage(go.dataset.ch, parseInt(go.dataset.sec, 10) || 0, go.dataset.quote || ''); return; }
+      const fix = e.target.closest('.review-fix-btn');
+      if (!fix) return;
+      if (fix.dataset.consistency !== undefined) openFixForConsistency(lastConsistencyFindings[parseInt(fix.dataset.consistency, 10)]);
+      else if (fix.dataset.finding !== undefined) {
+        const cached = (currentProject.reviewFindings || {})[currentChapter];
+        const f = cached && cached.findings ? cached.findings[parseInt(fix.dataset.finding, 10)] : null;
+        if (f) openFixForFinding(f, parseInt(fix.dataset.finding, 10));
+      }
+    });
+
+    // "Refer the user": open the section in Chapter Workspace, scroll the
+    // passage into view and select it (a selection, not markup, so nothing
+    // stray is ever saved into the section's HTML).
+    function goToPassage(chapterKey, sectionIndex, quote) {
+      if (!currentProject || !getChaptersStructure()[chapterKey]) return;
+      if (screens.workspace && screens.workspace.classList.contains('active')) { saveCurrentSection(); saveToFirebase(); }
+      currentChapter = chapterKey; currentSection = sectionIndex;
+      switchScreen('workspace');
+      loadSectionContent(); renderChapters(); persistLastOpened();
+      if (quote) setTimeout(function () { highlightInEditor(quote); }, 120);
+    }
+
+    // =========================================================================
+    // REVIEW → FIX (deep search + fix modal)
+    // =========================================================================
+    // A chapter's sections in full, each tagged with its index so the AI can
+    // point at exact locations.
+    function buildChapterFullText(chapterKey, maxPerSection) {
+      const ch = getChaptersStructure()[chapterKey];
+      if (!ch) return '';
+      const cap = maxPerSection || 3500;
+      let out = 'CHAPTER UNDER REVIEW: ' + ch.title + '\nSECTIONS (full text):';
+      if (ch.sections && ch.sections.length) {
+        ch.sections.forEach(function (sec, i) {
+          const text = extractPlainText(getSectionContent(chapterKey, i)).replace(/\n{3,}/g, '\n\n').trim();
+          out += '\n\n### [' + i + '] ' + sec + '\n' + (text ? text.substring(0, cap) : '(this section is empty)');
+        });
+      } else {
+        const text = extractPlainText(getSectionContent(chapterKey, 0)).trim();
+        out += '\n\n### [0] ' + ch.title + '\n' + (text ? text.substring(0, cap * 3) : '(empty)');
+      }
+      return out;
+    }
+
+    function parseJsonLoose(raw) {
+      if (!raw) return null;
+      const cleaned = raw.replace(/```json|```/gi, '').trim();
+      try { return JSON.parse(cleaned); } catch (e) { /* fall through */ }
+      const firstArr = cleaned.indexOf('['), lastArr = cleaned.lastIndexOf(']');
+      const firstObj = cleaned.indexOf('{'), lastObj = cleaned.lastIndexOf('}');
+      const tryParse = function (a, b) { if (a < 0 || b <= a) return null; try { return JSON.parse(cleaned.slice(a, b + 1)); } catch (e) { return null; } };
+      if (firstArr >= 0 && (firstObj < 0 || firstArr < firstObj)) return tryParse(firstArr, lastArr) || tryParse(firstObj, lastObj);
+      return tryParse(firstObj, lastObj) || tryParse(firstArr, lastArr);
+    }
+
+    function sectionIndexByName(ch, name) {
+      if (!ch || !ch.sections || !ch.sections.length) return 0;
+      const n = (name || '').toLowerCase().replace(/^\[\d+\]\s*/, '').trim();
+      let idx = ch.sections.findIndex(function (s) { return s.toLowerCase() === n; });
+      if (idx < 0) idx = ch.sections.findIndex(function (s) { return n && (s.toLowerCase().includes(n) || n.includes(s.toLowerCase())); });
+      return idx;
+    }
+
+    function parseChapterReview(raw, ch) {
+      const parsed = parseJsonLoose(raw);
+      const arr = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.findings) ? parsed.findings : null);
+      if (arr) {
+        return arr.filter(function (f) { return f && (f.note || f.excerpt); }).map(function (f) {
+          const type = String(f.type || 'weak').toLowerCase();
+          return {
+            type: ['missing', 'weak', 'inconsistent', 'unsupported'].indexOf(type) >= 0 ? type : 'weak',
+            severity: ['high', 'medium', 'low'].indexOf(String(f.severity || '').toLowerCase()) >= 0 ? String(f.severity).toLowerCase() : 'medium',
+            section: String(f.section || ''), sectionIndex: sectionIndexByName(ch, f.section),
+            excerpt: String(f.excerpt || '').trim(), note: String(f.note || '').trim(), suggestion: String(f.suggestion || '').trim()
+          };
+        });
+      }
+      // Legacy line format fallback ("TYPE (severity): section — note").
+      return raw.split('\n').map(function (l) { return l.replace(/^[-*]\s*/, '').trim(); }).filter(Boolean).map(function (l) {
+        const m = l.match(/^(missing|weak|inconsistent|unsupported)\s*\(([^)]+)\)\s*:\s*([^:]*)[:—-]\s*(.*)$/i);
+        return m ? { type: m[1].toLowerCase(), severity: m[2].toLowerCase(), section: m[3].trim(), sectionIndex: sectionIndexByName(ch, m[3]), excerpt: '', note: m[4].trim(), suggestion: '' }
+          : { type: 'weak', severity: 'medium', section: '', sectionIndex: -1, excerpt: '', note: l, suggestion: '' };
+      });
+    }
+
+    const FIX_ACTION = { label: 'Fix issue', model: 'corpus101' };
+    let fixState = null; // { edits: [...], onApplied: fn }
+
+    function sectionText(chapterKey, sectionIndex) {
+      return extractPlainText(getSectionContent(chapterKey, sectionIndex)).replace(/\n{3,}/g, '\n\n').trim();
+    }
+
+    // Deep search: hands the AI the exact passages involved and asks for
+    // precise, verbatim-anchored edits.
+    async function requestFixEdits(problem, targets) {
+      const system = 'You are Project AI\'s fix engine for a student\'s academic project. You receive one specific problem and the FULL text of the sections involved (each tagged [chapterKey|sectionIndex]). Locate the exact passage(s) responsible and write corrected text.\n\nRules:\n- "original" MUST be copied VERBATIM, character-for-character, from the section text given (a whole sentence or a few sentences). Never paraphrase it.\n- "replacement" is the corrected text that replaces "original" exactly — same language, voice and citation style, no markdown.\n- For something MISSING, set "original" to "" and give "insertAfter": a verbatim sentence from that section after which the new text belongs (or "" to add it at the end of the section); "replacement" is the new text to insert.\n- Treat the Research Setup and the Methodology chapter as the source of truth for figures, design and instruments. Never invent sources, statistics or sample sizes that are not already established.\n- Keep edits minimal: change only what fixes the problem.\n\nReturn ONLY JSON (no code fences): {"summary":"<one or two sentences: what is wrong and exactly where>","edits":[{"chapterKey":"...","sectionIndex":0,"original":"...","insertAfter":"...","replacement":"...","reason":"<why this edit fixes it>"}]}';
+      const blocks = targets.map(function (t) {
+        return '### [' + t.chapterKey + '|' + t.sectionIndex + '] ' + locationLabel(t.chapterKey, t.sectionIndex) + '\n' + (sectionText(t.chapterKey, t.sectionIndex) || '(this section is empty)').substring(0, 6000);
+      }).join('\n\n');
+      const user = buildResearchSetupContext() + '\n\nPROJECT: "' + currentProject.title + '" (' + (currentProject.approach === 'qualitative' ? 'qualitative' : 'quantitative') + ', reference style ' + getReferenceStyle() + ')\n\nPROBLEM TO FIX:\n' + problem + '\n\nSECTIONS INVOLVED:\n' + blocks;
+      const raw = await callProjectAI(FIX_ACTION, system, user);
+      const parsed = parseJsonLoose(raw);
+      if (!parsed || !Array.isArray(parsed.edits)) throw new Error('Project AI could not produce a precise fix. Please try again.');
+      const valid = {};
+      targets.forEach(function (t) { valid[t.chapterKey + '|' + t.sectionIndex] = true; });
+      const edits = parsed.edits.map(function (e) {
+        const key = String(e.chapterKey || targets[0].chapterKey) + '|' + (parseInt(e.sectionIndex, 10) || 0);
+        const target = valid[key] ? { chapterKey: key.split('|')[0], sectionIndex: parseInt(key.split('|')[1], 10) } : targets[0];
+        return { chapterKey: target.chapterKey, sectionIndex: target.sectionIndex, original: String(e.original || '').trim(), insertAfter: String(e.insertAfter || '').trim(), replacement: String(e.replacement || '').trim(), reason: String(e.reason || '').trim(), apply: true };
+      }).filter(function (e) { return e.replacement; });
+      return { summary: String(parsed.summary || ''), edits: edits };
+    }
+
+    function openFixModalLoading(title, where) {
+      const modal = document.getElementById('projFixModal');
+      document.getElementById('projFixTitle').textContent = title;
+      document.getElementById('projFixBody').innerHTML = '<div class="proj-fix-loading"><div class="spinner"></div><p>Deep-searching ' + escapeHtml(where) + '…</p><small>Project AI is reading the exact passages involved and drafting a precise fix.</small></div>';
+      document.getElementById('projFixApplyBtn').style.display = 'none';
+      modal.classList.add('active');
+    }
+
+    function renderFixModal(result) {
+      const body = document.getElementById('projFixBody');
+      if (!result.edits.length) {
+        body.innerHTML = '<p class="proj-fix-summary">' + escapeHtml(result.summary || 'No change is needed here.') + '</p><div class="review-finding review-ok"><i class="bx bx-check-circle"></i> Project AI found nothing to change for this issue.</div>';
+        document.getElementById('projFixApplyBtn').style.display = 'none';
+        return;
+      }
+      body.innerHTML = (result.summary ? '<p class="proj-fix-summary">' + escapeHtml(result.summary) + '</p>' : '') +
+        result.edits.map(function (e, i) {
+          return '<div class="proj-fix-edit">' +
+            '<div class="proj-fix-edit-head"><label><input type="checkbox" class="proj-fix-apply" data-i="' + i + '" checked> Apply</label>' +
+            '<button type="button" class="review-goto" data-fix-goto="' + i + '"><i class="bx bx-link-external"></i> ' + escapeHtml(locationLabel(e.chapterKey, e.sectionIndex)) + '</button></div>' +
+            (e.original ? '<div class="proj-fix-label">Current text</div><blockquote class="proj-fix-original">' + escapeHtml(e.original) + '</blockquote>'
+              : '<div class="proj-fix-label">Missing — will be inserted ' + (e.insertAfter ? 'after: <em>“' + escapeHtml(e.insertAfter.substring(0, 120)) + (e.insertAfter.length > 120 ? '…' : '') + '”</em>' : 'at the end of the section') + '</div>') +
+            '<div class="proj-fix-label">Suggested ' + (e.original ? 'replacement' : 'text') + ' <small>(you can edit it)</small></div>' +
+            '<textarea class="proj-fix-replacement" data-i="' + i + '" rows="4">' + escapeHtml(e.replacement) + '</textarea>' +
+            (e.reason ? '<div class="proj-fix-reason"><i class="bx bx-info-circle"></i> ' + escapeHtml(e.reason) + '</div>' : '') +
+            '</div>';
+        }).join('');
+      document.getElementById('projFixApplyBtn').style.display = '';
+    }
+
+    async function runFix(title, where, problem, targets, onApplied) {
+      if (!currentProject) return;
+      if (!canAccessAISupervisor()) { showToast('Fixing with Project AI requires Student or Pro plan.', 'error'); goToSubscription(); return; }
+      saveCurrentSection();
+      openFixModalLoading(title, where);
+      fixState = { edits: [], onApplied: onApplied };
+      try {
+        const result = await requestFixEdits(problem, targets);
+        if (!fixState) return; // closed while loading
+        fixState.edits = result.edits;
+        renderFixModal(result);
+      } catch (err) {
+        reportError(err, 'project fix');
+        document.getElementById('projFixBody').innerHTML = '<div class="review-finding review-high"><i class="bx bx-error-circle"></i> ' + escapeHtml(err.message || 'Fix failed') + '</div>';
+      }
+    }
+
+    function openFixForConsistency(f) {
+      if (!f) return;
+      const seen = {}; const targets = [];
+      f.occurrences.forEach(function (o) { const k = o.chapterKey + '|' + o.sectionIndex; if (!seen[k]) { seen[k] = true; targets.push({ chapterKey: o.chapterKey, sectionIndex: o.sectionIndex }); } });
+      // Always let the AI see the methodology's sample description as the reference point.
+      const methodKey = getChaptersStructure().chapter3 ? 'chapter3' : null;
+      if (methodKey) [1, 2].forEach(function (i) { const k = methodKey + '|' + i; if (!seen[k] && getSectionContent(methodKey, i).trim()) { seen[k] = true; targets.push({ chapterKey: methodKey, sectionIndex: i }); } });
+      const problem = f.note + '\nOccurrences:\n' + f.occurrences.map(function (o) { return '- ' + o.match + ' in [' + o.chapterKey + '|' + o.sectionIndex + '] ' + locationLabel(o.chapterKey, o.sectionIndex) + ': "' + o.sentence + '"'; }).join('\n') +
+        '\nDecide the single correct figure (from the Research Setup / methodology) and correct every passage that uses a different one.';
+      runFix('Fix: ' + (f.kind === 'sample' ? 'sample size conflict' : 'participant count conflict'), targets.length + ' section' + (targets.length === 1 ? '' : 's'), problem, targets, function () {
+        renderConsistencyFindings(checkConsistency(true));
+      });
+    }
+
+    function openFixForFinding(f, index) {
+      const ch = getChaptersStructure()[currentChapter];
+      const secIdx = typeof f.sectionIndex === 'number' && f.sectionIndex >= 0 ? f.sectionIndex : 0;
+      const targets = [{ chapterKey: currentChapter, sectionIndex: secIdx }];
+      const problem = f.type.toUpperCase() + ' (' + f.severity + ') in ' + locationLabel(currentChapter, secIdx) + ': ' + f.note +
+        (f.excerpt ? '\nProblem passage (verbatim): "' + f.excerpt + '"' : '') + (f.suggestion ? '\nReviewer suggestion: ' + f.suggestion : '');
+      const chapterKeyAtOpen = currentChapter;
+      runFix('Fix: ' + f.type + ' — ' + (ch && ch.sections && ch.sections.length ? ch.sections[secIdx] : (ch ? ch.title : '')), locationLabel(currentChapter, secIdx), problem, targets, async function () {
+        const cached = (currentProject.reviewFindings || {})[chapterKeyAtOpen];
+        if (cached && cached.findings && cached.findings[index]) {
+          cached.findings[index].fixed = true;
+          try { await database.ref('history/' + scopeUid + '/projects/' + currentProjectId + '/reviewFindings/' + chapterKeyAtOpen + '/findings/' + index + '/fixed').set(true); } catch (e) { /* best-effort */ }
+        }
+        renderChapterFindings();
+      });
+    }
+
+    // Applies one edit to a section's HTML. Tries an exact match first, then
+    // matches inside the smallest block whose text contains the passage
+    // (keeps every other paragraph's formatting intact).
+    function applyEditToHtml(html, edit) {
+      const esc = function (s) { return escapeHtml(s); };
+      const norm = function (s) { return s.replace(/\s+/g, ' ').trim(); };
+      const div = document.createElement('div');
+      div.innerHTML = html || '';
+      const blocks = Array.from(div.querySelectorAll('p, li, td, th, h1, h2, h3, h4, h5, h6, blockquote'));
+      if (edit.original) {
+        const rep = function () { return esc(edit.replacement); }; // function form: no "$&"-style substitutions
+        if (html.indexOf(edit.original) >= 0) return { html: html.replace(edit.original, rep), ok: true };
+        if (html.indexOf(esc(edit.original)) >= 0) return { html: html.replace(esc(edit.original), rep), ok: true };
+        const target = norm(edit.original);
+        const block = blocks.filter(function (b) { return norm(b.textContent).indexOf(target) >= 0; }).sort(function (a, b) { return a.textContent.length - b.textContent.length; })[0];
+        if (block) { block.textContent = norm(block.textContent).replace(target, function () { return edit.replacement; }); return { html: div.innerHTML, ok: true }; }
+        if (norm(div.textContent) === target) return { html: '<p>' + esc(edit.replacement) + '</p>', ok: true };
+        return { html: html, ok: false };
+      }
+      const paras = edit.replacement.split(/\n{2,}/).map(function (p) { return p.trim(); }).filter(Boolean).map(function (p) { return '<p>' + esc(p) + '</p>'; }).join('');
+      if (edit.insertAfter) {
+        const t = norm(edit.insertAfter);
+        const block = blocks.filter(function (b) { return norm(b.textContent).indexOf(t) >= 0; }).sort(function (a, b) { return a.textContent.length - b.textContent.length; })[0];
+        if (block) { block.insertAdjacentHTML('afterend', paras); return { html: div.innerHTML, ok: true }; }
+      }
+      return { html: (html || '') + paras, ok: true };
+    }
+
+    function setSectionHtml(chapterKey, sectionIndex, html) {
+      const ch = getChaptersStructure()[chapterKey];
+      if (!currentProject.chapters) currentProject.chapters = {};
+      if (!currentProject.chapters[chapterKey]) currentProject.chapters[chapterKey] = { sections: {} };
+      if (ch && ch.sections && ch.sections.length) {
+        if (!currentProject.chapters[chapterKey].sections) currentProject.chapters[chapterKey].sections = {};
+        currentProject.chapters[chapterKey].sections[sectionIndex] = html;
+      } else currentProject.chapters[chapterKey].content = html;
+      if (chapterKey === currentChapter && sectionIndex === currentSection) sectionEditor.innerHTML = html;
+    }
+
+    document.getElementById('projFixBody')?.addEventListener('click', function (e) {
+      const go = e.target.closest('[data-fix-goto]');
+      if (!go || !fixState) return;
+      const edit = fixState.edits[parseInt(go.dataset.fixGoto, 10)];
+      document.getElementById('projFixModal').classList.remove('active');
+      if (edit) goToPassage(edit.chapterKey, edit.sectionIndex, edit.original || edit.insertAfter);
+    });
+
+    document.getElementById('projFixApplyBtn')?.addEventListener('click', async function () {
+      if (!fixState || !fixState.edits.length) return;
+      const body = document.getElementById('projFixBody');
+      body.querySelectorAll('.proj-fix-apply').forEach(function (cb) { fixState.edits[parseInt(cb.dataset.i, 10)].apply = cb.checked; });
+      body.querySelectorAll('.proj-fix-replacement').forEach(function (ta) { fixState.edits[parseInt(ta.dataset.i, 10)].replacement = ta.value.trim(); });
+      const chosen = fixState.edits.filter(function (e) { return e.apply && e.replacement; });
+      if (!chosen.length) { showToast('Select at least one fix to apply', 'info'); return; }
+      saveCurrentSection();
+      await saveVersion(); // the currently open section can be restored from Version History
+      let applied = 0; const missed = [];
+      chosen.forEach(function (e) {
+        const before = getSectionContent(e.chapterKey, e.sectionIndex);
+        const r = applyEditToHtml(before, e);
+        if (r.ok) { setSectionHtml(e.chapterKey, e.sectionIndex, r.html); applied++; } else missed.push(e);
+      });
+      await saveToFirebase();
+      renderChapters(); updateSectionNav(); displayHumanizationScore();
+      logActivity('section_saved', 'Applied ' + applied + ' AI fix' + (applied === 1 ? '' : 'es'));
+      document.getElementById('projFixModal').classList.remove('active');
+      const onApplied = fixState.onApplied; fixState = null;
+      if (applied && onApplied) await onApplied();
+      if (missed.length) {
+        const m = missed[0];
+        try { await navigator.clipboard.writeText(m.replacement); } catch (err) { /* clipboard may be blocked */ }
+        showToast('Applied ' + applied + ' fix' + (applied === 1 ? '' : 'es') + '. One passage had changed and could not be located — its suggested text is on your clipboard.', 'warning', 7000);
+        goToPassage(m.chapterKey, m.sectionIndex, m.original);
+      } else showToast('Applied ' + applied + ' fix' + (applied === 1 ? '' : 'es'), 'success');
+    });
+
+    document.getElementById('closeProjFixModal')?.addEventListener('click', function () { document.getElementById('projFixModal').classList.remove('active'); fixState = null; });
+    document.getElementById('projFixCancelBtn')?.addEventListener('click', function () { document.getElementById('projFixModal').classList.remove('active'); fixState = null; });
+
+    function highlightInEditor(quote) {
+      const needle = quote.replace(/\s+/g, ' ').trim().slice(0, 60);
+      if (!needle) return;
+      const walker = document.createTreeWalker(sectionEditor, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        const idx = node.nodeValue.replace(/\s+/g, ' ').indexOf(needle);
+        const raw = idx >= 0 ? idx : node.nodeValue.indexOf(needle.slice(0, 25));
+        if (raw >= 0) {
+          const range = document.createRange();
+          range.setStart(node, Math.min(raw, node.nodeValue.length));
+          range.setEnd(node, Math.min(raw + needle.length, node.nodeValue.length));
+          const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+          (node.parentElement || sectionEditor).scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+      }
     }
 
     document.getElementById('reviewChapterBtn')?.addEventListener('click', function () { runProjectAIAction('reviewChapter'); });
@@ -1455,19 +1830,26 @@
           saveCurrentSection(); await saveToFirebase();
           hideTypingIndicator(); appendAIChatMessage('assistant', 'Checked this section for citations — review the changes in the editor.');
         } else if (actionKey === 'reviewChapter') {
-          systemPrompt += ' Classify this chapter\'s content as missing, weak, inconsistent, or unsupported, section by section. Return a short bullet list, one line per finding, formatted as "TYPE (severity): section — note".';
-          userPrompt = buildFullProjectSummary() + '\n\nReview chapter: "' + (ch ? ch.title : currentChapter) + '"';
+          const reviewEl = document.getElementById('reviewChapterFindings');
+          if (reviewEl) reviewEl.innerHTML = '<div class="review-finding review-empty"><i class="bx bx-loader-alt bx-spin"></i> Reviewing ' + escapeHtml(ch ? ch.title : 'this chapter') + ' — reading every section in full…</div>';
+          // IMPROVED: the reviewer now sees each section's full text (not a
+          // 500-char digest) and must return structured, specific findings —
+          // the exact section, a verbatim quote of the problem passage, what
+          // precisely is wrong, and how to fix it — so every finding can be
+          // located in the editor and fixed with one click.
+          systemPrompt += ' You are reviewing ONE chapter of a student\'s academic project with the rigor of a strict examiner. Find concrete problems only: content that is missing from what a section of this title must contain, weak or vague argument, statements inconsistent with the Research Setup or other chapters (designs, figures, instruments, variables), and claims that need evidence or a citation. Be specific: name the exact problem, never generic advice.\n\nReturn ONLY a JSON array (no prose, no code fences). Each element:\n{"type":"missing|weak|inconsistent|unsupported","severity":"high|medium|low","section":"<exact section title from the list given>","excerpt":"<a VERBATIM quote, copied character-for-character from that section, of the sentence(s) with the problem; empty string when the problem is something missing>","note":"<specific explanation of what is wrong and why, referring to the actual content>","suggestion":"<specific, actionable fix>"}\nReturn [] if the chapter has no real problems. At most 12 findings, most important first.';
+          userPrompt = buildWorkspaceContext(false) + '\n\n' + buildChapterFullText(currentChapter) + '\n\nReview chapter: "' + (ch ? ch.title : currentChapter) + '"';
           const result = await callProjectAI(action, systemPrompt, userPrompt);
-          const findings = result.split('\n').map(function (l) { return l.replace(/^[-*]\s*/, '').trim(); }).filter(Boolean).map(function (l) {
-            const m = l.match(/^(missing|weak|inconsistent|unsupported)\s*\(([^)]+)\)\s*:\s*([^:]*)[:—-]\s*(.*)$/i);
-            return m ? { type: m[1].toLowerCase(), severity: m[2].toLowerCase(), section: m[3].trim(), note: m[4].trim() } : { type: 'weak', severity: 'medium', section: '', note: l };
-          });
+          const findings = parseChapterReview(result, ch);
           if (!currentProject.reviewFindings) currentProject.reviewFindings = {};
           currentProject.reviewFindings[currentChapter] = { findings: findings, computedAt: Date.now() };
           await database.ref('history/' + scopeUid + '/projects/' + currentProjectId + '/reviewFindings/' + currentChapter).set({ findings: findings, computedAt: firebase.database.ServerValue.TIMESTAMP });
           logActivity('chapter_reviewed', ch ? ch.title : currentChapter);
-          hideTypingIndicator(); appendAIChatMessage('assistant', 'Chapter review complete — see the Review screen for the full findings list.');
-          if (screens.review && screens.review.classList.contains('active')) renderReviewScreen();
+          hideTypingIndicator();
+          appendAIChatMessage('assistant', findings.length
+            ? 'Chapter review complete — ' + findings.length + ' specific issue' + (findings.length === 1 ? '' : 's') + ' found. Open **Findings** to see each one and fix it.'
+            : 'Chapter review complete — no real problems found in this chapter.');
+          renderChapterFindings();
         }
       } catch (err) {
         hideTypingIndicator();
@@ -2336,10 +2718,6 @@
       document.getElementById('genInstructionsModal')?.classList.remove('active');
       if (genInstructionsResolver) { genInstructionsResolver(text); genInstructionsResolver = null; }
     });
-    document.getElementById('genInstructionsSkipBtn')?.addEventListener('click', function () {
-      document.getElementById('genInstructionsModal')?.classList.remove('active');
-      if (genInstructionsResolver) { genInstructionsResolver(''); genInstructionsResolver = null; }
-    });
     document.getElementById('closeGenInstructionsModal')?.addEventListener('click', function () {
       document.getElementById('genInstructionsModal')?.classList.remove('active');
       if (genInstructionsResolver) { genInstructionsResolver(null); genInstructionsResolver = null; } // null = cancelled entirely
@@ -2384,12 +2762,11 @@
         document.getElementById('genDropdownWrap')?.classList.remove('open');
         if (!canAccessResources()) { showToast('Chapter generation requires Student plan or higher.', 'error'); goToSubscription(); return; }
         if (!currentProject || !currentChapter) return;
-        const useCustom = confirm('Would you like to provide a custom outline for this chapter?\n\nClick OK to enter a custom outline, or Cancel to use the default sections.');
-        let customSections = null;
-        if (useCustom) { const outlineText = prompt('Enter section titles, one per line:', ''); if (outlineText && outlineText.trim()) customSections = outlineText.split('\n').filter(function (l) { return l.trim(); }); }
+        // The old confirm()/prompt() custom-outline detour is gone: the
+        // chapter's outline is edited in the chapters drawer (rename / add /
+        // delete section), so generation always follows the current outline.
         const ch = getChaptersStructure()[currentChapter];
-        const sections = customSections || ch.sections || [ch.title];
-        if (customSections) { ensureCustomOutline(); currentProject._customOutline[currentChapter] = { title: ch.title, sections: customSections }; }
+        const sections = (ch.sections && ch.sections.length) ? ch.sections.slice() : [ch.title];
         const chapterInstructions = await askForInstructions('Generate chapter: ' + ch.title, false);
         if (chapterInstructions === null) return; // cancelled
         if (modificationInput) modificationInput.value = chapterInstructions;
@@ -2418,7 +2795,6 @@
           else { reportError(err, 'chapter generation'); showToast('Chapter generation failed: ' + (err.message || 'Unknown error'), 'error'); }
         } finally {
           aiProgressModal.classList.remove('active'); aiAbortController = null; chapterGenerationActive = false; updateProgressBar(0);
-          if (customSections) { delete currentProject._customOutline[currentChapter]; if (Object.keys(currentProject._customOutline).length === 0) delete currentProject._customOutline; }
         }
       });
     }

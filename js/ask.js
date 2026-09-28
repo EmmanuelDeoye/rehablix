@@ -1623,14 +1623,11 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${config.token}`
       },
-      body: JSON.stringify({
-        model: config.model,
-        messages: apiMessages,
-        max_tokens: maxTokens || config.maxTokens || 2000,
-        temperature: config.temperature ?? 0.7,
-        top_p: config.top_p ?? 0.9,
-        stream: true
-      })
+      // js/ai-transport.js builds the body: the web-search model needs
+      // max_completion_tokens + web_search_options and takes no sampling params.
+      body: JSON.stringify(window.RehablixAI
+        ? window.RehablixAI.buildChatBody(config, apiMessages, maxTokens, true)
+        : { model: config.model, messages: apiMessages, max_tokens: maxTokens || config.maxTokens || 2000, temperature: config.temperature ?? 0.7, top_p: config.top_p ?? 0.9, stream: true })
     });
 
     if (!response.ok) {
@@ -1738,7 +1735,18 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     const recentMessages = messages.slice(-20);
     const needsVision = recentMessages.some(m => m.visionImages && m.visionImages.length > 0);
 
-    const config = await resolveModelConfig(needsVision);
+    // Web browsing: none of the DeepSeek models (and not plain gpt-4.1) can
+    // reach the live web, so a turn that needs current/online information is
+    // routed to OpenAI's web-search model whatever model is selected — billed
+    // at the OpenAI weight (js/ai-transport.js). Images keep the vision route.
+    let config = null;
+    const lastUser = [...recentMessages].reverse().find(m => m.role === 'user');
+    if (!needsVision && lastUser && window.RehablixAI && window.RehablixAI.needsWebSearch(lastUser.displayContent || lastUser.content)) {
+      const selected = window.RehabPlanTiers ? window.RehabPlanTiers.getModel(selectedModelId) : null;
+      config = await window.RehablixAI.webSearchConfig(selected && selected.responseStyle);
+      if (config) showToast('Searching the web…', 'info', 2500);
+    }
+    if (!config) config = await resolveModelConfig(needsVision);
     if (!config) throw new Error('AI service is not configured.');
 
     await checkQuotaOrThrow();
@@ -1771,7 +1779,19 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       ...recentMessages.map(m => ({ role: m.role, content: buildApiContent(m) }))
     ];
 
-    let result = await streamChatCompletion(config, apiMessages, needsVision, onToken, config.maxTokens);
+    let result;
+    try {
+      result = await streamChatCompletion(config, apiMessages, needsVision, onToken, config.maxTokens);
+    } catch (err) {
+      if (!config.webSearch || (err && err.name === 'AbortError')) throw err;
+      // Web search unavailable — answer from the selected model instead of failing the turn.
+      console.warn('[Lixa] web search failed, falling back to the selected model:', err);
+      showToast('Web search is unavailable right now — answering from the model\'s own knowledge.', 'warning', 4000);
+      config = await resolveModelConfig(false);
+      if (!config) throw err;
+      // (the system prompt already carries the selected model's response style)
+      result = await streamChatCompletion(config, apiMessages, needsVision, onToken, config.maxTokens);
+    }
     if (!result.text || !result.text.trim()) {
       // Retry once — onToken hasn't fired yet on a genuinely empty attempt,
       // so this is a clean second try, not a duplicate/garbled render.
