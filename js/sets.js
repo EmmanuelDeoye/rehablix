@@ -406,11 +406,10 @@
   }
 
 
-  const TOOL_LABELS = {
-    doc: 'Documentation', presentation: 'Presentations', rom: 'ROM & Gait Analyzer',
-    project: 'Projects', standardized: 'Standardized Tests', exam: 'Exam Prep',
-    study: 'Study Tools', assignment: 'Assignments', ppt: 'PPT Builder', audio: 'Audio Transcription'
-  };
+  // Only these tools are shared with a center (RehablixCenter.SHARED_TOOLS);
+  // every other tool is private to each member and has no toggle.
+  const TOOL_LABELS = { doc: 'Smart EMR', project: 'Project Maker', audio: 'Audio', exam: 'Exam Simulator' };
+  const SHARED_NOTE = 'Shared with your center: Smart EMR, Project Maker, Audio and Exam Simulator. Everything else (Lixa, Motion, Presentations, Study, Assignments, …) stays private to each person.';
 
   async function loadCenterCard(uid, userData) {
     const body = document.getElementById('centerCardBody');
@@ -447,6 +446,23 @@
         <h4 class="settings-subheading">Your Center Memberships</h4>
         <div class="members-list">${rows}</div>
       `;
+      // Members choose where the shared tools save their work; owners always
+      // work in their own center, so they get no switch.
+      const activeCenters = membershipEntries.filter(([, m]) => m.status === 'active');
+      if (!ctx.isCenterOwner && activeCenters.length) {
+        const opt = (id, label, icon) => `
+          <label class="workspace-choice ${ctx.activeContext === id ? 'on' : ''}">
+            <input type="radio" name="workspaceChoice" value="${escapeHtml(id)}" ${ctx.activeContext === id ? 'checked' : ''}>
+            <i class="${icon}"></i> <span>${escapeHtml(label)}</span>
+          </label>`;
+        html += `
+          <h4 class="settings-subheading">Work in</h4>
+          <p class="settings-hint">${SHARED_NOTE} You can also switch with the <i class="fas fa-user-friends"></i> icon on those pages.</p>
+          <div class="workspace-choices">
+            ${opt('individual', 'Personal account', 'fas fa-user')}
+            ${activeCenters.map(([cid, m]) => opt(cid, m.centerName || 'Center', 'fas fa-hospital')).join('')}
+          </div>`;
+      }
     }
 
     // ---------- Ownership / conversion section ----------
@@ -468,6 +484,19 @@
     }
 
     body.innerHTML = html;
+
+    // ---- Personal ⇄ center workspace for the shared tools ----
+    body.querySelectorAll('input[name="workspaceChoice"]').forEach(r => {
+      r.addEventListener('change', async () => {
+        try {
+          await window.RehablixCenter.switchActiveContext(r.value);
+          body.querySelectorAll('.workspace-choice').forEach(l => l.classList.toggle('on', l.contains(r)));
+          showToast(r.value === 'individual' ? 'Shared tools now use your personal account' : 'Shared tools now use your center', 'success');
+        } catch (err) {
+          showToast(err.message || 'Could not switch', 'error');
+        }
+      });
+    });
 
     // ---- Respond to a pending invite, right from settings ----
     body.querySelectorAll('.respond-invite-btn').forEach(btn => {
@@ -570,6 +599,7 @@
 
     return `
       <h4 class="settings-subheading">Your Center: ${escapeHtml(center.name || '')}</h4>
+      <p class="settings-hint">${SHARED_NOTE} As the owner you always work in your center's data, so you won't see a workspace switch.</p>
 
       <h4 class="settings-subheading">Your Center's Link</h4>
       <p class="settings-hint">Share this link with your team. Anyone with active access can use it to get straight to your center's tools.</p>

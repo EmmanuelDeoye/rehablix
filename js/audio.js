@@ -292,6 +292,14 @@ function mount() {
   function setStage(n) {
     [stageSetup, stageRecord, stageProcessing, stageResult].forEach(s => s.classList.remove('active'));
     [stageSetup, stageRecord, stageProcessing, stageResult][n - 1].classList.add('active');
+    // The page layout (css/audio.css) keys off this: 1 idle card, 2 recording
+    // in the same card, 3 processing, 4 result.
+    const main = document.querySelector('.audio-main');
+    if (main) main.dataset.stage = String(n);
+    const locked = n !== 1;
+    sourceModeTabs.querySelectorAll('.au-source-tab').forEach(b => { b.disabled = locked || (b.dataset.source === 'upload' && audioMode === 'coach'); });
+    const modeBtn = $('auModeToggleBtn');
+    if (modeBtn) modeBtn.disabled = locked;
     progressSteps.forEach(step => {
       const stepNum = parseInt(step.dataset.step, 10);
       step.classList.toggle('active', stepNum === Math.min(n, 3));
@@ -299,15 +307,55 @@ function mount() {
     });
   }
 
-  sourceModeTabs.querySelectorAll('.source-mode-tab').forEach(btn => {
+  // ---- Page chrome: source switch, Transcribe/Coach toggle, details modal ----
+  const auModeToggleBtn = $('auModeToggleBtn');
+  const auModeChip = $('auModeChip');
+  const auCardTitle = $('auCardTitle');
+  const auLiveFeed = $('auLiveFeed');
+  const auDetailsModal = $('auDetailsModal');
+  const auMicGroup = $('auMicGroup');
+
+  function applySourceMode() {
+    const live = sourceMode === 'live';
+    liveSetupPanel.style.display = live ? 'block' : 'none';
+    uploadSetupPanel.style.display = live ? 'none' : 'block';
+    if (auLiveFeed) auLiveFeed.style.display = live ? '' : 'none';
+    if (auModeToggleBtn) auModeToggleBtn.hidden = !live;
+    if (auMicGroup) auMicGroup.style.display = live ? '' : 'none';
+    if (auCardTitle) auCardTitle.textContent = live ? (audioMode === 'coach' ? 'Coach session' : 'Live transcription') : 'Upload audio';
+    if (auModeChip) auModeChip.hidden = !(live && audioMode === 'coach');
+  }
+
+  sourceModeTabs.querySelectorAll('.au-source-tab').forEach(btn => {
     btn.addEventListener('click', () => {
-      sourceModeTabs.querySelectorAll('.source-mode-tab').forEach(b => b.classList.remove('active'));
+      if (btn.disabled) return;
+      sourceModeTabs.querySelectorAll('.au-source-tab').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
       btn.classList.add('active');
+      btn.setAttribute('aria-selected', 'true');
       sourceMode = btn.dataset.source;
-      liveSetupPanel.style.display = sourceMode === 'live' ? 'block' : 'none';
-      uploadSetupPanel.style.display = sourceMode === 'upload' ? 'block' : 'none';
+      applySourceMode();
     });
   });
+
+  if (auModeToggleBtn) auModeToggleBtn.addEventListener('click', () => {
+    const next = audioMode === 'coach' ? 'transcribe' : 'coach';
+    const b = audioModeTabs && audioModeTabs.querySelector(`[data-mode="${next}"]`);
+    if (b) b.click();
+    auModeToggleBtn.classList.toggle('active', audioMode === 'coach');
+    auModeToggleBtn.setAttribute('aria-pressed', String(audioMode === 'coach'));
+    applySourceMode();
+    showToast(audioMode === 'coach' ? 'Coach mode: speaker labels + suggested questions' : 'Transcribe mode', 'info', 2200);
+  });
+
+  function openDetails() { if (!auDetailsModal) return; auDetailsModal.hidden = false; setTimeout(() => sessionTitleInput && sessionTitleInput.focus(), 30); }
+  function closeDetails() { if (!auDetailsModal) return; auDetailsModal.hidden = true; const b = $('auDetailsBtn'); if (b) b.focus(); }
+  if ($('auDetailsBtn')) $('auDetailsBtn').addEventListener('click', openDetails);
+  if ($('auDetailsClose')) $('auDetailsClose').addEventListener('click', closeDetails);
+  if ($('auDetailsDone')) $('auDetailsDone').addEventListener('click', closeDetails);
+  if (auDetailsModal) {
+    auDetailsModal.addEventListener('click', (e) => { if (e.target === auDetailsModal) closeDetails(); });
+    auDetailsModal.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDetails(); });
+  }
 
   // Transcribe (default) / Coach
   if (audioModeTabs) {
@@ -458,6 +506,27 @@ function mount() {
   });
 
   startSetupBtn.addEventListener('click', startNewRecording);
+
+  // Cancel: stop everything and throw this recording away (nothing is
+  // transcribed or saved). Asks first — it can't be undone.
+  const cancelRecordingBtn = $('cancelRecordingBtn');
+  if (cancelRecordingBtn) cancelRecordingBtn.addEventListener('click', async () => {
+    if (!mediaRecorder) return;
+    if (!confirm('Cancel this recording? Nothing will be transcribed or saved.')) return;
+    const stopper = activeSessionStopper;
+    activeSessionStopper = null;
+    try { if (stopper) stopper(); } catch (e) {}
+    mediaRecorder = null;
+    isPaused = false;
+    const id = localSessionId;
+    resetToSetup();
+    if (id) {
+      await idbDeleteChunksForSession(id).catch(() => {});
+      await idbDeleteSegmentsForSession(id).catch(() => {});
+      await idbDeleteSession(id).catch(() => {});
+    }
+    showToast('Recording cancelled', 'info');
+  });
 
   async function startNewRecording() {
     if (!currentUser) { showToast('Please log in first', 'error'); return; }

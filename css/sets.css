@@ -755,3 +755,10 @@ input:checked + .toggle-slider:before {
   color: var(--settings-text-secondary);
   white-space: nowrap;
 }
+
+/* "Work in" — personal ⇄ center for the shared tools */
+.workspace-choices { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.5rem 0 1.2rem; }
+.workspace-choice { display: flex; align-items: center; gap: 0.6rem; padding: 0.7rem 0.9rem; border: 1px solid var(--settings-border, var(--border-light)); border-radius: 12px; cursor: pointer; font-size: 0.9rem; }
+.workspace-choice input { accent-color: var(--accent); }
+.workspace-choice.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); font-weight: 600; }
+.workspace-choice i { color: var(--accent); width: 1.1rem; text-align: center; }

@@ -15,8 +15,7 @@ const SHELL_FILES = [
   '/index.html',
   '/offline.html',
   '/manifest.json',
-  '/img/logo.png',
-  '/img/icon-192.png',
+    '/img/icon-192.png',
   '/img/icon-512.png'
 ];
 

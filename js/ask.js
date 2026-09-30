@@ -205,6 +205,43 @@
     return loadedScripts[src];
   }
 
+  // Live Markdown while streaming: the partial reply is "closed" first so
+  // half-written syntax never shows as raw symbols (##, **, __, ||, ``` …),
+  // then rendered through the same renderer as finished messages.
+  function balanceStreamingMarkdown(src) {
+    let s = String(src || '').replace(/\s+$/, '');
+    // Open code fence -> close it.
+    if (((s.match(/^\s*```/gm) || []).length) % 2 === 1) return s + '\n```';
+    const lines = s.split('\n');
+    let last = lines[lines.length - 1];
+    // Half-typed table row (no closing pipe yet) or a lone separator row.
+    if (/^\s*\|/.test(last) && !/\|\s*$/.test(last.trim().slice(1))) lines.pop();
+    else if (/^\s*[#>*_\-|~`=+]{1,6}\s*$/.test(last)) lines.pop(); // bare marker line ("##", "***", "|", "---" being typed)
+    s = lines.join('\n');
+    // Table header without its separator row yet: hide the pipes until it arrives.
+    const tl = s.split('\n');
+    if (tl.length && /^\s*\|.*\|\s*$/.test(tl[tl.length - 1]) && !(tl.length > 1 && /^\s*\|?\s*:?-{2,}/.test(tl[tl.length - 1])) && !(tl.length > 1 && /^\s*\|/.test(tl[tl.length - 2]))) tl.pop();
+    s = tl.join('\n');
+    // Trailing partial markers at the very end of the text.
+    s = s.replace(/(\*{1,3}|_{1,3}|~{1,2}|`{1,2}|#{1,6}|\|)\s*$/, '').replace(/\s+$/, '');
+    // Unmatched inline markers on the last paragraph -> close them.
+    const para = s.slice(s.lastIndexOf('\n\n') + 1);
+    const outsideCode = para.replace(/`[^`]*`/g, '');
+    const count = (re) => (outsideCode.match(re) || []).length;
+    if (count(/`/g) % 2 === 1) s += '`';
+    if (count(/\*\*/g) % 2 === 1) s += '**';
+    if (count(/__/g) % 2 === 1) s += '__';
+    if (count(/~~/g) % 2 === 1) s += '~~';
+    const singles = outsideCode.replace(/\*\*/g, '').replace(/^\s*[*-]\s/gm, '').match(/\*/g);
+    if (singles && singles.length % 2 === 1) s += '*';
+    return s;
+  }
+
+  function renderStreamingHtml(text) {
+    try { return renderAssistantHtml(balanceStreamingMarkdown(text)); }
+    catch (e) { const d = document.createElement('div'); d.textContent = text; return d.innerHTML; }
+  }
+
   // Render markdown for AI messages, style + classify links, and make
   // internal tool-page links hand off context instead of navigating cold.
   function renderAssistantHtml(content) {
@@ -787,27 +824,122 @@ If the user's message includes content extracted from an uploaded file, an image
   // Render messages (with action buttons, attachments, and suggestions)
   // =========================================================================
   // =========================================================================
-  // Empty-chat greeting: a short line with the user's first name. One of 10
-  // variations, picked at random, then kept for 5 hours before rotating (and
-  // never the same one twice in a row). The chosen index + timestamp live in
-  // localStorage so a refresh or a return visit within the window shows the
-  // same greeting.
+  // Empty-chat greeting: 30 templates — 10 each for morning (05:00–11:59),
+  // afternoon (12:00–16:59) and evening/night (17:00–04:59). One is picked at
+  // random from the current frame, favouring ones that fit the context (day
+  // of week, weekend, late night). The pick is kept for the rest of that
+  // frame and is forced to change the moment the frame changes (checked every
+  // minute while the empty chat is on screen). Mirrored in the Android app
+  // (lixa/LixaGreetings.kt) — keep both lists identical.
   // =========================================================================
-  const GREETINGS = [
-    'Hi, {name}',
-    'Welcome, {name}',
-    'Hello, {name}',
-    'Hey {name}',
-    'Good to see you, {name}',
-    'Welcome back, {name}',
-    'Ready when you are, {name}',
-    'How can I help, {name}?',
-    'What shall we build, {name}?',
-    "Let's get started, {name}"
-  ];
+  const GREETINGS = {
+    morning: [
+      { t: 'Good morning, {name}' },
+      { t: 'Morning, {name}. Ready to plan the day?' },
+      { t: 'Rise and shine, {name}' },
+      { t: "Good morning, {name}. What's first today?" },
+      { t: 'Fresh start, {name}. How can I help?' },
+      { t: 'Morning, {name}. Coffee and clinical notes?' },
+      { t: "Good morning, {name}. Let's make today count" },
+      { t: "Happy Monday, {name}. Let's set up the week", when: 'monday' },
+      { t: 'Easy weekend morning, {name}?', when: 'weekend' },
+      { t: 'Good morning, {name}. Friday already!', when: 'friday' }
+    ],
+    afternoon: [
+      { t: 'Good afternoon, {name}' },
+      { t: "Afternoon, {name}. How's the day going?" },
+      { t: 'Need a hand this afternoon, {name}?' },
+      { t: 'Good afternoon, {name}. What are we working on?' },
+      { t: 'Afternoon check-in, {name}' },
+      { t: "Keep going, {name}. I'm here to help" },
+      { t: 'Good afternoon, {name}. Ready for the next one?' },
+      { t: 'Almost the weekend, {name}', when: 'friday' },
+      { t: 'Relaxed weekend afternoon, {name}?', when: 'weekend' },
+      { t: 'Monday afternoon, {name}. How can I help?', when: 'monday' }
+    ],
+    evening: [
+      { t: 'Good evening, {name}' },
+      { t: 'Evening, {name}. Wrapping up your notes?' },
+      { t: 'Welcome back this evening, {name}' },
+      { t: "Good evening, {name}. Let's finish strong" },
+      { t: 'Winding down, {name}?' },
+      { t: 'Evening, {name}. What can I help with?' },
+      { t: 'Working late, {name}?', when: 'late' },
+      { t: 'Burning the midnight oil, {name}?', when: 'late' },
+      { t: 'Happy Friday evening, {name}', when: 'friday' },
+      { t: 'Quiet weekend evening, {name}?', when: 'weekend' }
+    ]
+  };
+  // rehablix logo "engraved" into the page: four rounded quarter-discs filled
+  // with the page colour, carved in by an inner shadow (top-left), a lit
+  // lower edge and fractal-noise grain — colours come from CSS (theme-aware).
+  const ENGRAVED_LOGO_SVG = `
+    <svg class="engraved-logo" viewBox="0 0 100 100" width="104" height="104" role="img" aria-label="rehablix">
+      <defs>
+        <filter id="lixaEngrave" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+          <feComponentTransfer in="SourceAlpha" result="inv"><feFuncA type="table" tableValues="1 0"/></feComponentTransfer>
+          <feOffset in="inv" dx="1.6" dy="1.6" result="invDark"/>
+          <feGaussianBlur in="invDark" stdDeviation="1.3" result="invDarkBlur"/>
+          <feComposite in="invDarkBlur" in2="SourceAlpha" operator="in" result="innerShadowMask"/>
+          <feFlood class="engrave-shadow" result="shadowColor"/>
+          <feComposite in="shadowColor" in2="innerShadowMask" operator="in" result="innerShadow"/>
+          <feOffset in="inv" dx="-1.2" dy="-1.2" result="invLight"/>
+          <feGaussianBlur in="invLight" stdDeviation="1" result="invLightBlur"/>
+          <feComposite in="invLightBlur" in2="SourceAlpha" operator="in" result="innerLightMask"/>
+          <feFlood class="engrave-light" result="lightColor"/>
+          <feComposite in="lightColor" in2="innerLightMask" operator="in" result="innerLight"/>
+          <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" seed="7" result="noise"/>
+          <feColorMatrix in="noise" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0.7 0 0 0 -0.3" result="grain"/>
+          <feComposite in="grain" in2="SourceAlpha" operator="in" result="grainInside"/>
+          <feMerge><feMergeNode in="SourceGraphic"/><feMergeNode in="grainInside"/><feMergeNode in="innerShadow"/><feMergeNode in="innerLight"/></feMerge>
+        </filter>
+        <path id="lixaPetal" d="M45 45 L11.32 45 A39 39 0 0 1 45 11.32 Z"/>
+      </defs>
+      <g filter="url(#lixaEngrave)" class="engrave-fill">
+        <use href="#lixaPetal"/>
+        <use href="#lixaPetal" transform="rotate(90 50 50)"/>
+        <use href="#lixaPetal" transform="rotate(180 50 50)"/>
+        <use href="#lixaPetal" transform="rotate(270 50 50)"/>
+      </g>
+    </svg>`;
   const GREETING_KEY = 'rehab-lixa-greeting';
-  const GREETING_TTL_MS = 5 * 60 * 60 * 1000;
   let greetingName = '';
+
+  function greetingFrame(d) {
+    const h = d.getHours();
+    return h >= 5 && h < 12 ? 'morning' : h >= 12 && h < 17 ? 'afternoon' : 'evening';
+  }
+
+  // Frame instance id: an evening that runs past midnight is still the same frame.
+  function greetingFrameId(d) {
+    const x = new Date(d);
+    if (x.getHours() < 5) x.setDate(x.getDate() - 1);
+    return `${x.getFullYear()}-${x.getMonth() + 1}-${x.getDate()}:${greetingFrame(d)}`;
+  }
+
+  function greetingContextMatches(when, d) {
+    const day = d.getDay(), h = d.getHours();
+    if (when === 'weekend') return day === 0 || day === 6;
+    if (when === 'monday') return day === 1;
+    if (when === 'friday') return day === 5;
+    if (when === 'late') return h >= 22 || h < 5;
+    return true;
+  }
+
+  function pickGreetingIndex(frame, d, avoid) {
+    const list = GREETINGS[frame];
+    // Context-specific lines get 3x the weight when they fit; lines whose
+    // context doesn't fit are excluded.
+    const pool = [];
+    list.forEach((g, i) => {
+      if (g.when && !greetingContextMatches(g.when, d)) return;
+      const w = g.when ? 3 : 1;
+      for (let k = 0; k < w; k++) pool.push(i);
+    });
+    let choices = pool.filter(i => i !== avoid);
+    if (!choices.length) choices = pool;
+    return choices[Math.floor(Math.random() * choices.length)];
+  }
 
   function firstNameOf(raw) {
     const first = String(raw || '').trim().split(/\s+/)[0] || '';
@@ -815,25 +947,32 @@ If the user's message includes content extracted from an uploaded file, an image
   }
 
   function greetingText() {
+    const now = new Date();
+    const frame = greetingFrame(now);
+    const id = greetingFrameId(now);
     let state = null;
     try { state = JSON.parse(localStorage.getItem(GREETING_KEY) || 'null'); } catch (e) { state = null; }
-    const now = Date.now();
-    const valid = state && Number.isInteger(state.i) && state.i >= 0 && state.i < GREETINGS.length && (now - state.t) < GREETING_TTL_MS;
+    const valid = state && state.id === id && Number.isInteger(state.i) && GREETINGS[frame][state.i];
     if (!valid) {
-      let i = Math.floor(Math.random() * GREETINGS.length);
-      if (state && Number.isInteger(state.i) && i === state.i) i = (i + 1) % GREETINGS.length;
-      state = { i, t: now };
+      state = { id, i: pickGreetingIndex(frame, now, state && state.i) };
       try { localStorage.setItem(GREETING_KEY, JSON.stringify(state)); } catch (e) { /* private mode — just won't persist */ }
     }
-    const tpl = GREETINGS[state.i];
+    const tpl = GREETINGS[frame][state.i].t;
     if (greetingName) return tpl.replace('{name}', greetingName);
-    // Not logged in / no name yet: drop the name ("Hi" → "Hi there").
-    const bare = tpl.replace(/,?\s*\{name\}/, '').trim();
-    return /^(Hi|Hey|Hello)$/.test(bare) ? bare + ' there' : bare;
+    // Not logged in / no name yet: drop the name cleanly.
+    return tpl.replace(/,\s*\{name\}(?=[.?!]|$)/, '').replace(/,\s*\{name\}/, '').replace(/\s*\{name\}/, '').trim();
   }
 
+  // Frame changes while the page is open: refresh the visible greeting.
+  let lastGreetingFrameId = greetingFrameId(new Date());
+  const greetingTimer = setInterval(() => {
+    const id = greetingFrameId(new Date());
+    if (id !== lastGreetingFrameId) { lastGreetingFrameId = id; refreshGreeting(); }
+  }, 60 * 1000);
+  if (typeof cleanupFns !== 'undefined' && Array.isArray(cleanupFns)) cleanupFns.push(() => clearInterval(greetingTimer));
   function refreshGreeting() {
     const el = document.getElementById('lixaGreeting');
+    document.querySelectorAll('.empty-chat-icon').forEach(ic => { if (!ic.querySelector('.engraved-logo')) ic.innerHTML = ENGRAVED_LOGO_SVG; });
     if (el) el.textContent = greetingText();
   }
 
@@ -855,7 +994,7 @@ If the user's message includes content extracted from an uploaded file, an image
     if (messages.length === 0) {
       chatMessages.innerHTML = `
         <div class="empty-chat">
-          <div class="empty-chat-icon">✨</div>
+          <div class="empty-chat-icon" aria-hidden="true">${ENGRAVED_LOGO_SVG}</div>
           <p class="empty-chat-greeting" id="lixaGreeting">${escapeHtml(greetingText())}</p>
         </div>
       `;
@@ -1839,7 +1978,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     let rafPending = false;
     function flush() {
       rafPending = false;
-      bubbleEl.textContent = latestFullSoFar;
+      bubbleEl.innerHTML = renderStreamingHtml(latestFullSoFar);
       if (isNearBottom()) chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'auto' });
     }
     function onToken(delta, fullSoFar) {
@@ -1911,7 +2050,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     function flushStreamFrame() {
       rafPending = false;
       if (!bubbleEl) return;
-      bubbleEl.textContent = latestFullSoFar;
+      bubbleEl.innerHTML = renderStreamingHtml(latestFullSoFar);
       if (followBottom) {
         chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'auto' });
       }

@@ -2096,3 +2096,23 @@ main { flex: 1; }
 .workspace-option-check {
   margin-left: auto;
 }
+
+/* Theme toggle lives on Lixa and Workspace only (other pages: Settings). */
+body[data-route]:not([data-route="lixa"]):not([data-route="workspace"]) #themeToggle { display: none; }
+
+/* Personal ⇄ center switcher (js/center-switcher.js) — shared pages only */
+.center-switch { position: relative; display: inline-flex; }
+.center-switch[hidden] { display: none; }
+.center-switch-btn { position: relative; }
+.center-switch-dot { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface, #fff); }
+.center-switch-dot[hidden] { display: none; }
+.center-switch-menu { display: none; position: absolute; top: calc(100% + 8px); right: 0; z-index: 1200; width: 260px; max-width: calc(100vw - 32px);
+  background: var(--surface, #fff); border: 1px solid var(--border-light); border-radius: 14px; box-shadow: 0 16px 40px rgba(0,0,0,0.16); padding: 6px; }
+.center-switch-menu.open { display: block; }
+.center-switch-head { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-secondary); padding: 8px 10px 4px; }
+.center-switch-option { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: transparent; color: var(--text-primary);
+  padding: 10px; border-radius: 10px; font: inherit; font-size: 0.9rem; cursor: pointer; text-align: left; }
+.center-switch-option:hover, .center-switch-option:focus-visible { background: var(--bg-page); }
+.center-switch-option.active { color: var(--accent); font-weight: 600; }
+.center-switch-option span { flex: 1; }
+.center-switch-note { font-size: 0.72rem; line-height: 1.4; color: var(--text-secondary); padding: 8px 10px 6px; border-top: 1px solid var(--border-light); margin-top: 4px; }

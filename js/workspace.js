@@ -279,7 +279,8 @@
       document.querySelectorAll('.tool-card-link').forEach(card => {
         const permKey = CARD_TOOL_MAP[card.getAttribute('data-tool')];
         let visible = true;
-        if (permKey && ctx.isActiveContextCenter && ctx.centerId !== ctx.ownCenterId) {
+        // Only the center-shared tools follow the center's permissions; the rest are always private and available.
+        if (permKey && window.RehablixCenter.SHARED_TOOLS.includes(permKey) && ctx.isActiveContextCenter && ctx.centerId !== ctx.ownCenterId) {
           visible = !(ctx.permissions && ctx.permissions[permKey] === false);
         }
         card.style.display = visible ? '' : 'none';
@@ -297,8 +298,11 @@
       banner.innerHTML = '';
     }
 
+    // The workspace switcher now lives on the center-shared pages only
+    // (js/center-switcher.js); the Workspace page stays uncluttered.
     async function renderSwitcher(ctx) {
-      if (!switcherWrap) return;
+      if (switcherWrap) switcherWrap.style.display = 'none';
+      return;
       const options = await window.RehablixCenter.getAvailableContexts();
       if (options.length <= 1) { switcherWrap.style.display = 'none'; return; }
 

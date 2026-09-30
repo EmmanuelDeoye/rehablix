@@ -119,7 +119,19 @@ body {
   100% { background-position: -200% 0; }
 }
 
-.empty-chat-icon { font-size: 3rem; margin-bottom: 0.8rem; opacity: 0.7; }
+.empty-chat-icon { margin: 0 auto 0.9rem; width: 104px; height: 104px; }
+/* rehablix logo engraved into the page background */
+.engraved-logo { display: block; width: 100%; height: 100%; overflow: visible; }
+.engraved-logo .engrave-fill {
+  fill: color-mix(in srgb, var(--bg-page) 95%, #000);
+  stroke: color-mix(in srgb, var(--bg-page) 95%, #000);
+  stroke-width: 6; stroke-linejoin: round;
+}
+.engraved-logo .engrave-shadow { flood-color: #000; flood-opacity: 0.28; }
+.engraved-logo .engrave-light { flood-color: #fff; flood-opacity: 0.85; }
+[data-theme="dark"] .engraved-logo .engrave-fill { fill: color-mix(in srgb, var(--bg-page) 88%, #000); stroke: color-mix(in srgb, var(--bg-page) 88%, #000); }
+[data-theme="dark"] .engraved-logo .engrave-shadow { flood-opacity: 0.6; }
+[data-theme="dark"] .engraved-logo .engrave-light { flood-opacity: 0.09; }
 .empty-chat p { margin: 0.3rem 0; font-size: 0.95rem; }
 .empty-chat .empty-chat-greeting { font-size: 1.3rem; font-weight: 600; color: var(--text-primary); }
 .empty-chat-hint { font-size: 0.8rem; opacity: 0.7; }
@@ -168,7 +180,7 @@ body {
    text, not yet markdown-parsed) — preserve line breaks until the final
    render swaps this class out for properly parsed HTML. */
 .message.assistant .message-bubble.streaming-text {
-  white-space: pre-wrap;
+  white-space: normal; /* rendered as live Markdown (js/ask.js renderStreamingHtml) */
 }
 .message.assistant .message-bubble.streaming-text::after {
   content: '';

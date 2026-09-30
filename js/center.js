@@ -270,6 +270,7 @@
   async function checkAccess(toolKey) {
     const ctx = await getContext();
     if (!ctx.loggedIn) return true; // let the page's own auth-gate logic handle logged-out state
+    if (toolKey && !SHARED_TOOLS.includes(toolKey)) return true; // private tools are always available
     if (!ctx.isActiveContextCenter) return true; // personal workspace, or owns the active center
     if (ctx.centerId === ctx.ownCenterId) return true; // owner, full access
     if (ctx.memberStatus !== 'active') return false;
@@ -337,9 +338,14 @@
   //   so everyone on the team sees and edits the SAME patients/records.
   // Returns null if access to this specific tool has been revoked/declined —
   // callers should treat that as "no access" and show an appropriate message.
+  // Only these tools are shared with a center; everything else is always
+  // private to the signed-in user, whatever workspace is active.
+  const SHARED_TOOLS = ['doc', 'project', 'audio', 'exam'];
+
   async function getEffectiveScopeUid(toolKey) {
     const ctx = await getContext();
     if (!ctx.loggedIn) return null;
+    if (toolKey && !SHARED_TOOLS.includes(toolKey)) return ctx.uid;
     if (!ctx.isActiveContextCenter) return ctx.uid;
     if (ctx.centerId === ctx.ownCenterId) return ctx.uid;
     if (ctx.memberStatus !== 'active') return null;
@@ -353,6 +359,7 @@
     try {
       const ctx = await getContext();
       if (!ctx.loggedIn || !ctx.isActiveContextCenter) return;
+      if (page && !SHARED_TOOLS.includes(page)) return; // private tools never report to the center
 
       await db().ref(`users/${ctx.centerId}/centers/activity`).push({
         uid: ctx.uid,
@@ -462,6 +469,7 @@
     getAvailableContexts,
     switchActiveContext,
     getEffectiveScopeUid,
+    SHARED_TOOLS,
     convertToCenter,
     inviteMember,
     linkPendingInviteForUser,

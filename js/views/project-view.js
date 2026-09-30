@@ -3132,26 +3132,43 @@
       updateDefaultPromptsBar();
     }
 
-    // Strictness / Profession live in a compact settings popover.
+    // Strictness / Profession: a real modal (moved to <body>) so it can never
+    // be clipped or hidden behind the review/chat panels.
     const projAISettingsBtn = document.getElementById('projAISettingsBtn');
     const supervisorPersonalityEl = document.getElementById('supervisorPersonality');
     if (projAISettingsBtn && supervisorPersonalityEl) {
+      const overlay = document.createElement('div');
+      overlay.className = 'proj-settings-overlay';
+      overlay.hidden = true;
+      overlay.innerHTML = '<div class="proj-settings-modal" role="dialog" aria-modal="true" aria-labelledby="projSettingsTitle">' +
+        '<div class="proj-settings-head"><h3 id="projSettingsTitle"><i class="bx bx-slider-alt" aria-hidden="true"></i> Project AI preferences</h3>' +
+        '<button type="button" class="proj-settings-close" aria-label="Close preferences">&times;</button></div>' +
+        '<p class="proj-settings-sub">How the AI supervisor reviews and responds to your work.</p>' +
+        '<div class="proj-settings-body"></div>' +
+        '<div class="proj-settings-foot"><button type="button" class="generate-btn proj-settings-done">Done</button></div></div>';
+      document.body.appendChild(overlay);
+      overlay.querySelector('.proj-settings-body').appendChild(supervisorPersonalityEl);
+      supervisorPersonalityEl.hidden = false;
+      supervisorPersonalityEl.classList.remove('proj-ai-settings-pop');
+      const closeSettings = function () {
+        overlay.hidden = true;
+        document.body.classList.remove('proj-settings-open');
+        projAISettingsBtn.setAttribute('aria-expanded', 'false');
+        projAISettingsBtn.focus();
+      };
       projAISettingsBtn.addEventListener('click', function (e) {
         e.stopPropagation();
-        const open = supervisorPersonalityEl.hidden;
-        supervisorPersonalityEl.hidden = !open;
-        projAISettingsBtn.setAttribute('aria-expanded', String(open));
-        if (open && supervisorStrictness) supervisorStrictness.focus();
+        overlay.hidden = false;
+        document.body.classList.add('proj-settings-open');
+        projAISettingsBtn.setAttribute('aria-expanded', 'true');
+        if (supervisorStrictness) supervisorStrictness.focus();
       });
-      const closeSettings = function (e) {
-        if (supervisorPersonalityEl.hidden || supervisorPersonalityEl.contains(e.target) || projAISettingsBtn.contains(e.target)) return;
-        supervisorPersonalityEl.hidden = true; projAISettingsBtn.setAttribute('aria-expanded', 'false');
-      };
-      document.addEventListener('click', closeSettings);
-      cleanupFns.push(function () { document.removeEventListener('click', closeSettings); });
-      supervisorPersonalityEl.addEventListener('keydown', function (e) { if (e.key === 'Escape') { supervisorPersonalityEl.hidden = true; projAISettingsBtn.setAttribute('aria-expanded', 'false'); projAISettingsBtn.focus(); } });
+      overlay.addEventListener('click', function (e) { if (e.target === overlay) closeSettings(); });
+      overlay.querySelector('.proj-settings-close').addEventListener('click', closeSettings);
+      overlay.querySelector('.proj-settings-done').addEventListener('click', closeSettings);
+      overlay.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeSettings(); });
+      cleanupFns.push(function () { overlay.remove(); });
     }
-
     async function loadChatHistory() {
       if (!currentUser || !currentProjectId) return false;
       try {
