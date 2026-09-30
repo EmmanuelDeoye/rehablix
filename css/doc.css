@@ -1895,3 +1895,8 @@
   color: var(--text-primary);
   font-size: 0.82rem;
 }
+
+/* EMR security pass: AI draft / review badges + Mark as reviewed */
+.ai-draft-tag { white-space: normal; }
+.emr-review-btn { margin-top: 0.4rem; }
+.summary-card .emr-review-btn { margin: 0 0.8rem 0.6rem; }

@@ -2,28 +2,39 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
+  <script>
+    // Development logging is off unless window.REHABLIX_DEBUG is true (or
+    // localStorage 'rehablix_debug' = '1'). Warnings and errors always show.
+    (function () {
+      try { if (localStorage.getItem('rehablix_debug') === '1') window.REHABLIX_DEBUG = true; } catch (e) {}
+      ['log', 'info', 'debug'].forEach(function (k) {
+        var orig = console[k];
+        console[k] = function () { if (window.REHABLIX_DEBUG) orig.apply(console, arguments); };
+      });
+    })();
+  </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5" />
 
     <title>rehablix · Admin</title>
 
     <!-- Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js" defer>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js" defer integrity="sha384-4gq9w/AGf72FXdNQ3Kn3EqWP7633NbCMjpYHt8YCZyXf23o2opcuAr4cif41tLrC" crossorigin="anonymous">
     </script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js" defer>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js" defer integrity="sha384-xtdq4MQqPj1dB5DQsuw9O7dh4kHhMP/Wp5u8O1jiaWiou13ZfJIgiccjtVK2pBhL" crossorigin="anonymous">
     </script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js" defer>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js" defer integrity="sha384-5PDE6CZvnNIJI5xu68GIFoOO3U73lAnRLBwPBmmKjWnYnYwKEHWr/ghtGooEOXGb" crossorigin="anonymous">
     </script>
 
     <!-- Chart.js for visit statistics -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous">
     </script>
 
     <!-- EmailJS: sends partner approval/rejection emails client-side since
          this site has no backend. See js/admin.js EMAILJS_CONFIG for setup. -->
-    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js" defer>
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4.4.1/dist/email.min.js" defer integrity="sha384-SALc35EccAf6RzGw4iNsyj7kTPr33K7RoGzYu+7heZhT8s0GZouafRiCg1qy44AS" crossorigin="anonymous">
     </script>
 
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" integrity="sha384-5e2ESR8Ycmos6g3gAKr1Jvwye8sW4U1u/cAKulfVJnkakCcMqhOudbtPnvJ+nbv7" crossorigin="anonymous">
     <link rel="stylesheet" href="css/admin.css" />
     <link rel="stylesheet" href="css/main.css" />
 

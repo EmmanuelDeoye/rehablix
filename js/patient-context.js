@@ -72,25 +72,31 @@
     const sessions = patient.sessions ? Object.values(patient.sessions) : [];
     const progress = summarizeProgress(patient);
 
+    // De-identified: name, DOB, phone, insurance, referring physician and
+    // address never enter the context; free text is scrubbed of them too.
+    const D = window.RehablixDeidentify;
+    const ids = D ? D.identifiersOf(patient) : [];
+    const S = (t) => (D ? D.scrubText(t || '', ids) : (t || ''));
     return {
       patientId,
-      name: patient.name || 'Patient',
+      ageBand: D ? D.ageBand(patient.dob, patient.age) : null,
+      gender: patient.gender || '',
       diagnosis: patient.primaryDx || '',
-      chiefComplaint: patient.chiefComplaint || '',
-      goals: patient.goals || '',
+      chiefComplaint: S(patient.chiefComplaint),
+      goals: S(patient.goals),
       category: patient.category || '',
       profession: patient.profession || patient.department || '',
       state: patient.state || '',
-      assessment: patient.assessment || '',
+      assessment: S(patient.assessment),
       status: patient.status || (patient.active === false ? 'discharged' : 'active'),
-      problems: problems.map((p) => ({ id: p.id, title: p.title, detail: p.detail })),
-      latestTreatmentPlan: latestPlan ? { title: latestPlan.title, content: latestPlan.content, date: latestPlan.date } : null,
+      problems: problems.filter(Boolean).map((p) => ({ id: p.id, title: S(p.title), detail: S(p.detail) })),
+      latestTreatmentPlan: latestPlan ? { title: S(latestPlan.title), content: S(latestPlan.plainText || latestPlan.content), date: latestPlan.date } : null,
       treatmentPlanCount: plans.length,
       sessionCount: sessions.length,
-      latestProgress: progress.latest,
+      latestProgress: S(progress.latest),
       latestProgressDate: progress.latestDate,
-      progressTrend: progress.trend,
-      linkedClinicalResults: summarizeLinkedRecords(patient),
+      progressTrend: progress.trend.map(S),
+      linkedClinicalResults: summarizeLinkedRecords(patient).map(S),
       dischargeSummaryCount: (patient.dischargeSummaries || []).length
     };
   }
@@ -103,7 +109,9 @@
   function toPromptText(ctx) {
     if (!ctx) return '';
     const lines = [];
-    lines.push(`Patient: ${ctx.name || 'Patient'}`);
+    // Never a name: age band + sex only (older fallback shapes that still
+    // carry a name are ignored here).
+    lines.push(`Patient: ${[ctx.ageBand, ctx.gender].filter(Boolean).join(', ') || 'details withheld'}`);
     if (ctx.diagnosis) lines.push(`Diagnosis: ${ctx.diagnosis}`);
     if (ctx.chiefComplaint) lines.push(`Chief Complaint: ${ctx.chiefComplaint}`);
     if (ctx.goals) lines.push(`Functional Goals: ${ctx.goals}`);

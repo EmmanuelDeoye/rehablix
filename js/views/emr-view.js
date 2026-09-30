@@ -235,6 +235,41 @@
     }
 
     // =========================================================================
+    // EMR security/scale pass: shared data layer (js/emr-store.js) +
+    // de-identification (js/deidentify.js).
+    // =========================================================================
+    const Store = () => window.RehablixEmrStore;
+    const Deid = () => window.RehablixDeidentify;
+
+    // Locator for a list item: by id when it has one, else index + the
+    // rendered copy (legacy items saved before ids existed).
+    function itemRef(list, index) {
+        const item = (list || [])[index];
+        return item && item.id ? { id: item.id } : { index, item };
+    }
+
+    // The de-identified patient header every EMR prompt starts with — age
+    // band and sex instead of name/DOB; never phone, insurance, referrer.
+    function patientBrief(d) {
+        d = d || {};
+        const band = Deid() ? Deid().ageBand(d.dob, d.age) : null;
+        const lines = [`Patient: ${[band, d.gender].filter(Boolean).join(', ') || 'details withheld'}`, `Diagnosis: ${d.primaryDx || 'Unknown'}`];
+        if (d.category) lines.push(`Category: ${d.category}`);
+        if (d.chiefComplaint) lines.push(`Chief Complaint: ${d.chiefComplaint}`);
+        if (d.goals) lines.push(`Goals: ${d.goals}`);
+        return lines.join('\n');
+    }
+
+    function reviewBadge(item) {
+        return Store() ? Store().reviewBadge(item, escapeHtml) : '';
+    }
+
+    function reviewButton(kind, key, item) {
+        if (!item || !item.aiGenerated || item.reviewed) return '';
+        return `<button type="button" class="btn btn-secondary emr-review-btn" data-kind="${kind}" data-key="${escapeHtml(key)}" style="font-size:0.7rem;padding:0.2rem 0.8rem;"><i class="bx bx-check-shield"></i> Mark as reviewed</button>`;
+    }
+
+    // =========================================================================
     // Robust parser for AI responses that should be a JSON array
     // =========================================================================
     function parseAIJsonArray(text) {
@@ -344,7 +379,9 @@
             warning: 'bx bx-error'
         };
 
-        toast.innerHTML = `<i class="${icons[type] || icons.info}"></i><span>${message}</span>`;
+        toast.innerHTML = `<i class="${icons[type] || icons.info}"></i><span></span>`;
+        toast.querySelector('span').textContent = String(message == null ? '' : message);
+        toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
         container.appendChild(toast);
 
         setTimeout(() => {
@@ -491,106 +528,67 @@
     // =========================================================================
     // Dashboard Data
     // =========================================================================
+    // EMR scale pass: the dashboard reads only the lightweight patient index
+    // (history/{scope}/patientIndex — js/emr-store.js), never every
+    // patient's full sessions/notes.
+    async function loadPatientIndex(force) {
+        if (Store()) return Store().loadIndex(scopeUid, { force });
+        const snap = await database.ref(`history/${scopeUid}/patients`).once('value');
+        const full = snap.val() || {};
+        const out = {};
+        Object.entries(full).forEach(([id, p]) => { out[id] = p; });
+        return out;
+    }
+
     async function loadDashboardData() {
         if (!currentUser) return;
         try {
-            const patientsSnap = await database.ref(`history/${scopeUid}/patients`).once('value');
-            const patients = patientsSnap.val() || {};
-            const patientCount = Object.keys(patients).length;
-            dashStats.patients.textContent = patientCount;
+            const index = await loadPatientIndex();
+            const entries = Object.entries(index || {}).filter(([, e]) => e);
+            dashStats.patients.textContent = entries.length;
 
-            document.getElementById('dashboardDate').textContent = new Date().toLocaleDateString('en-US', {
+            document.getElementById('dashboardDate').textContent = new Date().toLocaleDateString(undefined, {
                 weekday: 'long',
                 month: 'short',
                 day: 'numeric'
             });
 
-            // EMR AI UPGRADE (item 11): counts AI-drafted notes awaiting
-            // sign-off specifically — was every unsigned session, including
-            // ones the clinician is still writing themselves (never "AI
-            // pending" in the first place).
-            let pendingNotes = 0;
-            for (const [patientId, patient] of Object.entries(patients)) {
-                if (patient.sessions) {
-                    for (const [sessionId, session] of Object.entries(patient.sessions)) {
-                        if (session.aiGenerated && !session.signed) pendingNotes++;
-                    }
-                }
-            }
-            dashStats.notesPending.textContent = pendingNotes;
+            // AI-drafted session notes awaiting sign-off.
+            dashStats.notesPending.textContent = entries.reduce((n, [, e]) => n + (Number(e.pendingNotes) || 0), 0);
 
-            generateAIInsights(patients);
-            renderPendingDocs(patients);
+            generateAIInsights(entries);
+            renderPendingDocs(entries);
         } catch (error) {
             console.error('[EMR] Dashboard load error:', error);
         }
     }
 
-    async function generateAIInsights(patients) {
-        const insights = [];
-        for (const [patientId, patient] of Object.entries(patients)) {
-            if (patient.sessions) {
-                const sessionList = Object.values(patient.sessions).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-                if (sessionList.length >= 3) {
-                    const recent = sessionList.slice(-3);
-                    const painTrend = recent.map(s => s.pain || 5);
-                    if (painTrend[0] < painTrend[2]) {
-                        insights.push({
-                            patientName: patient.name || 'Patient',
-                            message: 'Pain scores trending up. Consider reassessment.',
-                            severity: 'warning'
-                        });
-                    }
-                }
-            }
-        }
+    function generateAIInsights(entries) {
+        const insights = entries
+            .filter(([, e]) => e.painTrendUp)
+            .map(([, e]) => ({ patientName: e.name || 'Patient', message: 'Pain scores trending up. Consider reassessment.', severity: 'warning' }));
         if (insights.length === 0) {
             dashAIInsights.innerHTML = `<div class="emr-empty-state"><i class="bx bx-check-circle"></i><p>All patients on track.</p></div>`;
             return;
         }
         dashAIInsights.innerHTML = insights.map(insight => `
             <div class="ai-strip" style="margin-bottom:0.5rem;${insight.severity === 'warning' ? 'border-color:#ef4444;' : ''}">
-                <div class="ai-icon"><i class="bx bx-brain"></i></div>
+                <div class="ai-icon"><i class="bx bx-brain" aria-hidden="true"></i></div>
                 <div class="ai-text"><strong>${escapeHtml(insight.patientName)}</strong> — ${escapeHtml(insight.message)}</div>
             </div>
         `).join('');
     }
 
-    // EMR AI UPGRADE (item 11): only lists AI-generated content the
-    // clinician hasn't reviewed yet — was every unsigned session
-    // regardless of whether it was AI-drafted or just a human note still
-    // in progress. Uses the same aiGenerated/reviewed convention already
-    // added to problems/treatment plans (Round 1) and sessions'
-    // aiGenerated/signed fields. Clicking an item goes straight to the
-    // actual section that needs attention instead of always a session editor.
-    function renderPendingDocs(patients) {
+    // Unreviewed AI-generated content, from each index entry's compact
+    // `pending` list (kept current by js/emr-store.js).
+    const PENDING_TAB = { problems: 'problems', treatment: 'treatment', session: 'sessions', summary: 'summary', progress: 'progress', discharge: 'discharge', nextsession: 'nextsession' };
+    function renderPendingDocs(entries) {
         const pending = [];
-        for (const [patientId, patient] of Object.entries(patients)) {
-            if (patient.sessions) {
-                for (const [sessionId, session] of Object.entries(patient.sessions)) {
-                    // A session's "signed" flag is its review marker — an
-                    // AI-drafted session that hasn't been signed off yet
-                    // still needs the clinician's attention.
-                    if (session.aiGenerated && !session.signed) {
-                        pending.push({
-                            kind: 'session', patientId, patientName: patient.name || 'Unknown',
-                            label: `${session.type || 'Session'} note`,
-                            date: session.date || '', sessionId: session.id || sessionId
-                        });
-                    }
-                }
-            }
-            (patient.problemList || []).forEach(p => {
-                if (p.aiGenerated && !p.reviewed) {
-                    pending.push({ kind: 'problems', patientId, patientName: patient.name || 'Unknown', label: `Problem: ${p.title}`, date: '' });
-                }
+        entries.forEach(([patientId, e]) => {
+            (Array.isArray(e.pending) ? e.pending : Object.values(e.pending || {})).forEach(p => {
+                if (p) pending.push(Object.assign({ patientId, patientName: e.name || 'Unknown' }, p));
             });
-            (patient.treatmentPlans || []).forEach(plan => {
-                if (plan.aiGenerated && !plan.reviewed) {
-                    pending.push({ kind: 'treatment', patientId, patientName: patient.name || 'Unknown', label: plan.title || 'Treatment Plan', date: plan.date || '' });
-                }
-            });
-        }
+        });
 
         if (pending.length === 0) {
             dashPendingDocs.innerHTML = `<div class="emr-empty-state"><i class="bx bx-check-circle"></i><p>All AI-generated content has been reviewed!</p></div>`;
@@ -598,29 +596,27 @@
         }
 
         dashPendingDocs.innerHTML = pending.map((item, i) => `
-            <div class="pending-doc-item" data-index="${i}" style="display:flex;align-items:center;gap:0.8rem;padding:0.4rem 0;border-bottom:1px solid var(--border-light);cursor:pointer;">
-                <i class="bx bx-magic" style="color:var(--accent);"></i>
+            <div class="pending-doc-item" data-index="${i}" role="button" tabindex="0" aria-label="Open ${escapeHtml(item.patientName)}: ${escapeHtml(item.label)}" style="display:flex;align-items:center;gap:0.8rem;padding:0.4rem 0;border-bottom:1px solid var(--border-light);cursor:pointer;">
+                <i class="bx bx-magic" style="color:var(--accent);" aria-hidden="true"></i>
                 <div style="flex:1;">
                     <div style="font-weight:600;font-size:0.85rem;">${escapeHtml(item.patientName)} — ${escapeHtml(item.label)}</div>
-                    <div style="font-size:0.75rem;color:var(--text-secondary);">${item.date ? escapeHtml(item.date) + ' · ' : ''}<span class="tag tag-amber" style="font-size:0.65rem;">AI · Unreviewed</span></div>
+                    <div style="font-size:0.75rem;color:var(--text-secondary);">${item.date ? escapeHtml(item.date) + ' · ' : ''}<span class="tag tag-amber" style="font-size:0.65rem;">AI draft, review before use.</span></div>
                 </div>
-                <i class="bx bx-chevron-right"></i>
+                <i class="bx bx-chevron-right" aria-hidden="true"></i>
             </div>
         `).join('');
 
         dashPendingDocs.querySelectorAll('.pending-doc-item').forEach(el => {
-            el.addEventListener('click', async () => {
+            const go = async () => {
                 const item = pending[parseInt(el.dataset.index, 10)];
                 await openPatient(item.patientId);
                 switchScreen('patient');
-                // EMR UPGRADE (item 2): every kind lands on the patient's own
-                // tab now — a session used to jump straight to the standalone
-                // docresult editor, bypassing the patient section entirely.
-                switchPatientTab(item.kind === 'problems' ? 'problems' : item.kind === 'treatment' ? 'treatment' : 'sessions');
-            });
+                switchPatientTab(PENDING_TAB[item.kind] || 'sessions');
+            };
+            el.addEventListener('click', go);
+            el.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); } });
         });
     }
-
     // =========================================================================
     // Patients List
     // =========================================================================
@@ -637,9 +633,8 @@
     async function loadPatientsList() {
         if (!currentUser) return;
         try {
-            const snapshot = await database.ref(`history/${scopeUid}/patients`).once('value');
-            const patients = snapshot.val() || {};
-            allPatients = Object.entries(patients).map(([id, data]) => ({ id, ...data }));
+            const patients = await loadPatientIndex();
+            allPatients = Object.entries(patients || {}).filter(([, data]) => data).map(([id, data]) => ({ id, ...data }));
             applyPatientsListView();
         } catch (error) {
             console.error('[EMR] Patients list error:', error);
@@ -661,7 +656,8 @@
         if (searchTerm) {
             list = list.filter(p =>
                 (p.name || '').toLowerCase().includes(searchTerm) ||
-                (p.primaryDx || '').toLowerCase().includes(searchTerm)
+                (p.primaryDx || '').toLowerCase().includes(searchTerm) ||
+                (p.regNumber || '').toLowerCase().includes(searchTerm)
             );
         }
 
@@ -698,8 +694,8 @@
             const initials = (p.name || '').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || '??';
             const metaParts = [escapeHtml(p.primaryDx) || 'No diagnosis', escapeHtml(p.state) || null, p.regNumber ? `Reg # ${escapeHtml(p.regNumber)}` : null].filter(Boolean);
             return `
-                <div class="patient-list-card" onclick="openPatient('${escapeHtml(p.id)}')">
-                    <div class="patient-list-avatar">${initials}</div>
+                <div class="patient-list-card" role="button" tabindex="0" aria-label="Open ${escapeHtml(p.name || 'patient')}" onclick="openPatient('${escapeHtml(p.id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPatient('${escapeHtml(p.id)}');}">
+                    <div class="patient-list-avatar" aria-hidden="true">${escapeHtml(initials)}</div>
                     <div class="patient-list-info">
                         <div class="patient-list-name">${escapeHtml(p.name) || 'Unknown'} ${p.status === 'draft' ? '<span class="tag tag-amber">Draft</span>' : ''}</div>
                         <div class="patient-list-meta">${metaParts.join(' · ')}</div>
@@ -722,7 +718,11 @@
         try {
             patientListenerRef = database.ref(`history/${scopeUid}/patients/${patientId}`);
             patientListenerRef.on('value', snapshot => {
-                currentPatientData = snapshot.val() || {};
+                const val = snapshot.val();
+                currentPatientData = val || {};
+                // Keep this patient's lightweight index entry current after
+                // every change (ours, a teammate's, or another tool's).
+                if (Store() && currentPatientId === patientId) Store().updateIndex(scopeUid, patientId, val);
                 renderPatientData();
             });
             const snapshot = await patientListenerRef.once('value');
@@ -892,24 +892,20 @@
         if (!currentPatientId || !currentUser) return;
         try {
             const plainContent = stripMarkdown(match.content || '');
-            const currentAssessment = currentPatientData.assessment || '';
-            const newAssessment = currentAssessment
-                ? `${currentAssessment}\n\n--- Linked from ${match.type} (${match.date}) ---\n${plainContent}`
-                : `--- Linked from ${match.type} (${match.date}) ---\n${plainContent}`;
-
-            const linkedRecords = currentPatientData.linkedRecords || [];
+            const block = `--- Linked from ${match.type} (${match.date}) ---\n${plainContent}`;
             // EMR AI UPGRADE (item 7): also store a structured entry (actual
             // measured values, not just prose) so Lixa / the shared context
             // builder / Timeline can use real numbers — the flattened text
-            // above is kept too, unchanged, for the existing Assessment view.
-            linkedRecords.push({ source: match.source, key: match.key, type: match.type, date: match.date, linkedAt: new Date().toISOString(), structuredSummary: match.structuredSummary || null });
-
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}`).update({
-                assessment: newAssessment,
-                linkedRecords: linkedRecords
-            });
-            currentPatientData.assessment = newAssessment;
-            currentPatientData.linkedRecords = linkedRecords;
+            // is kept too, unchanged, for the existing Assessment view.
+            // EMR scale pass: both writes are transactional, so a teammate's
+            // concurrent assessment edit or link is never lost.
+            const entry = { source: match.source, key: match.key, type: match.type, date: match.date, linkedAt: new Date().toISOString(), structuredSummary: match.structuredSummary || null };
+            await Store().mutateList(scopeUid, currentPatientId, 'linkedRecords', arr => {
+                if (arr.some(r => r && r.source === entry.source && r.key === entry.key)) return false;
+                arr.push(entry);
+            }, { allowEmpty: true });
+            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/assessment`)
+                .transaction(cur => (cur ? cur + '\n\n' : '') + block);
 
             showToast(`Linked "${match.type}" — content added to Assessment`, 'success');
             loadPatientIntake();
@@ -922,9 +918,11 @@
     async function unlinkRecord(source, key) {
         if (!currentPatientId || !currentUser) return;
         try {
-            const linkedRecords = (currentPatientData.linkedRecords || []).filter(r => !(r.source === source && r.key === key));
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/linkedRecords`).set(linkedRecords);
-            currentPatientData.linkedRecords = linkedRecords;
+            await Store().mutateList(scopeUid, currentPatientId, 'linkedRecords', arr => {
+                const i = arr.findIndex(r => r && r.source === source && r.key === key);
+                if (i < 0) return false;
+                arr.splice(i, 1);
+            });
             showToast('Unlinked. Text already added to Assessment was left as-is — edit it manually if you want it removed too.', 'info', 6000);
             loadLinkedRecords();
         } catch (err) {
@@ -960,8 +958,17 @@
         if (!confirm('Are you sure you want to delete this patient? This action cannot be undone.')) return;
 
         const deletedPatientName = currentPatientData?.name || 'a patient';
-        database.ref(`history/${scopeUid}/patients/${currentPatientId}`).remove()
+        const deletedId = currentPatientId;
+        const deletedReg = currentPatientData?.regNumber || '';
+        if (patientListenerRef) { patientListenerRef.off('value'); patientListenerRef = null; }
+        database.ref(`history/${scopeUid}/patients/${deletedId}`).remove()
             .then(() => {
+                if (Store()) {
+                    Store().updateIndex(scopeUid, deletedId, null);
+                    Store().audit(scopeUid, deletedId, 'delete', deletedReg ? `Reg #${deletedReg}` : 'Patient deleted');
+                }
+                currentPatientId = null;
+                currentPatientData = null;
                 showToast('Patient deleted successfully', 'success');
                 if (window.RehablixCenter) {
                     window.RehablixCenter.logActivity('doc', 'Deleted patient', deletedPatientName).catch(() => {});
@@ -1010,48 +1017,55 @@
     function renderProblemList() {
         const container = document.getElementById('patientProblemList');
         if (!container) return;
-        const problems = currentPatientData?.problemList || [];
+        const problems = (currentPatientData?.problemList || []).filter(Boolean);
         if (problems.length === 0) {
             container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-list-check"></i><p>No problems identified yet. Click "AI Generate" to analyze intake data.</p></div>`;
             return;
         }
-        container.innerHTML = problems.map(p => {
-            if (editingProblemId === p.id) {
+        container.innerHTML = problems.map((p, i) => {
+            const key = p.id || ('idx:' + i);
+            if (editingProblemId === key) {
                 return `
-                <div class="problem-item expanded" data-id="${escapeHtml(p.id)}">
+                <div class="problem-item expanded" data-key="${escapeHtml(key)}">
                     <div style="padding:0.8rem;">
-                        <input class="inline-edit-title" id="editProblemTitle_${escapeHtml(p.id)}" value="${escapeHtml(p.title)}" placeholder="Problem title" />
-                        <textarea class="inline-edit-textarea" id="editProblemDetail_${escapeHtml(p.id)}" rows="6" placeholder="Detail">${escapeHtml(p.detail || '')}</textarea>
+                        <input class="inline-edit-title" id="editProblemTitle_${i}" value="${escapeHtml(p.title)}" placeholder="Problem title" aria-label="Problem title" />
+                        <textarea class="inline-edit-textarea" id="editProblemDetail_${i}" rows="6" placeholder="Detail" aria-label="Problem detail">${escapeHtml(p.detail || '')}</textarea>
                         <div class="inline-edit-actions">
-                            <button class="btn btn-primary problem-save-btn" data-id="${escapeHtml(p.id)}" style="font-size:0.75rem;padding:0.3rem 0.8rem;"><i class="bx bx-check"></i> Save</button>
+                            <button class="btn btn-primary problem-save-btn" data-index="${i}" style="font-size:0.75rem;padding:0.3rem 0.8rem;"><i class="bx bx-check"></i> Save</button>
                             <button class="btn btn-secondary problem-cancel-btn" style="font-size:0.75rem;padding:0.3rem 0.8rem;"><i class="bx bx-x"></i> Cancel</button>
                         </div>
                     </div>
                 </div>`;
             }
             return `
-            <div class="problem-item" data-id="${escapeHtml(p.id)}">
-                <div class="problem-item-header">
-                    <div class="problem-item-title"><i class="bx bx-chevron-right problem-chevron"></i> ${escapeHtml(p.title)}${p.aiGenerated && !p.reviewed ? ' <span class="tag tag-amber" style="margin-left:0.3rem;">AI · Unreviewed</span>' : ''}</div>
+            <div class="problem-item" data-key="${escapeHtml(key)}">
+                <div class="problem-item-header" role="button" tabindex="0" aria-expanded="false">
+                    <div class="problem-item-title"><i class="bx bx-chevron-right problem-chevron" aria-hidden="true"></i> ${escapeHtml(p.title)} ${reviewBadge(p)}</div>
                     <div style="display:flex;gap:0.3rem;">
-                        <button class="card-edit-btn problem-edit" data-id="${escapeHtml(p.id)}" title="Edit"><i class="bx bx-edit"></i></button>
-                        <button class="icon-btn-sm problem-delete" data-id="${escapeHtml(p.id)}" title="Remove"><i class="bx bx-trash"></i></button>
+                        <button class="card-edit-btn problem-edit" data-index="${i}" title="Edit" aria-label="Edit problem"><i class="bx bx-edit" aria-hidden="true"></i></button>
+                        <button class="icon-btn-sm problem-delete" data-index="${i}" title="Remove" aria-label="Remove problem"><i class="bx bx-trash" aria-hidden="true"></i></button>
                     </div>
                 </div>
-                <div class="problem-item-detail">${escapeHtml(p.detail) || '<em>No further detail.</em>'}</div>
+                <div class="problem-item-detail">${escapeHtml(p.detail) || '<em>No further detail.</em>'}
+                    ${p.aiGenerated && !p.reviewed ? `<div style="margin-top:0.5rem;">${reviewButton('problemList', String(i), p)}</div>` : ''}
+                </div>
             </div>`;
         }).join('');
 
         container.querySelectorAll('.problem-item-header').forEach(header => {
-            header.addEventListener('click', (e) => {
+            const toggle = (e) => {
                 if (e.target.closest('.problem-edit') || e.target.closest('.problem-delete')) return;
-                header.closest('.problem-item').classList.toggle('expanded');
-            });
+                const open = header.closest('.problem-item').classList.toggle('expanded');
+                header.setAttribute('aria-expanded', String(open));
+            };
+            header.addEventListener('click', toggle);
+            header.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === header) { e.preventDefault(); toggle(e); } });
         });
         container.querySelectorAll('.problem-edit').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                editingProblemId = btn.dataset.id;
+                const i = parseInt(btn.dataset.index, 10);
+                editingProblemId = problems[i].id || ('idx:' + i);
                 renderProblemList();
             });
         });
@@ -1059,12 +1073,11 @@
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 if (!currentPatientId || !currentUser) return;
-                const id = btn.dataset.id;
-                const remaining = (currentPatientData?.problemList || []).filter(p => p.id !== id);
+                const i = parseInt(btn.dataset.index, 10);
+                if (!confirm('Remove this problem?')) return;
                 try {
-                    await database.ref(`history/${scopeUid}/patients/${currentPatientId}/problemList`).set(remaining);
-                    currentPatientData.problemList = remaining;
-                    renderProblemList();
+                    const removed = await Store().removeItem(scopeUid, currentPatientId, 'problemList', itemRef(problems, i));
+                    if (removed) Store().audit(scopeUid, currentPatientId, 'delete', `Problem: ${problems[i].title || ''}`);
                 } catch (err) {
                     showToast('Error removing problem: ' + (err.message || 'unknown error'), 'error', 6000);
                 }
@@ -1073,16 +1086,15 @@
         container.querySelectorAll('.problem-save-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
-                const id = btn.dataset.id;
-                const titleEl = document.getElementById(`editProblemTitle_${id}`);
-                const detailEl = document.getElementById(`editProblemDetail_${id}`);
-                const problems = currentPatientData?.problemList || [];
-                const idx = problems.findIndex(p => p.id === id);
-                if (idx === -1) return;
-                problems[idx] = { ...problems[idx], title: titleEl.value.trim() || problems[idx].title, detail: detailEl.value.trim(), reviewed: true };
+                const i = parseInt(btn.dataset.index, 10);
+                const title = document.getElementById(`editProblemTitle_${i}`).value.trim();
+                const detail = document.getElementById(`editProblemDetail_${i}`).value.trim();
                 try {
-                    await database.ref(`history/${scopeUid}/patients/${currentPatientId}/problemList`).set(problems);
-                    currentPatientData.problemList = problems;
+                    // Editing an item is the clinician's review of it.
+                    const saved = await Store().updateItem(scopeUid, currentPatientId, 'problemList', itemRef(problems, i),
+                        item => Object.assign(item, { title: title || item.title, detail }, Store().reviewStamp()));
+                    if (!saved) { showToast('This problem was changed or removed elsewhere — reopen it and try again.', 'warning', 6000); return; }
+                    Store().audit(scopeUid, currentPatientId, 'edit', `Problem: ${saved.title || ''}`);
                     editingProblemId = null;
                     renderProblemList();
                     showToast('Problem updated', 'success');
@@ -1100,6 +1112,44 @@
         });
     }
 
+    // "Mark as reviewed" — one delegated handler for every AI-generated
+    // block (problems, plans, summaries, notes, discharge, sessions, next
+    // session plan). Stamps reviewer + time; reviewed content is then
+    // protected from AI regeneration.
+    const REVIEW_LABELS = { problemList: 'Problem', treatmentPlans: 'Treatment plan', summaries: 'Summary report', progressNotes: 'Progress note', dischargeSummaries: 'Discharge summary', sessions: 'Session note', nextSessionPlan: 'Next session plan' };
+    document.getElementById('screen-patient')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('.emr-review-btn');
+        if (!btn || !currentPatientId || !Store()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const kind = btn.dataset.kind;
+        const key = btn.dataset.key;
+        btn.disabled = true;
+        try {
+            let ok;
+            if (kind === 'sessions') {
+                await database.ref(`history/${scopeUid}/patients/${currentPatientId}/sessions/${key}`).update(Store().reviewStamp());
+                ok = true;
+            } else if (kind === 'nextSessionPlan') {
+                ok = await Store().mutateObject(scopeUid, currentPatientId, 'nextSessionPlan', plan => plan ? Object.assign(plan, Store().reviewStamp()) : false);
+            } else {
+                const list = (currentPatientData?.[kind] || []).filter(Boolean);
+                ok = await Store().updateItem(scopeUid, currentPatientId, kind, itemRef(list, parseInt(key, 10)), Store().reviewStamp());
+            }
+            if (!ok) { showToast('Could not find that item — it may have been changed elsewhere.', 'warning'); btn.disabled = false; return; }
+            Store().audit(scopeUid, currentPatientId, 'review', REVIEW_LABELS[kind] || kind);
+            showToast('Marked as reviewed', 'success');
+        } catch (err) {
+            btn.disabled = false;
+            showToast('Could not mark as reviewed: ' + (err.message || 'unknown error'), 'error', 6000);
+        }
+    });
+
+    // Keyboard access for the expandable cards (headers are role=button).
+    document.getElementById('screen-patient')?.addEventListener('keydown', (e) => {
+        const h = e.target.closest('.session-card-x-header[role="button"], .activity-card-header[role="button"]');
+        if (h && e.target === h && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); h.click(); }
+    });
     document.getElementById('addProblemBtn')?.addEventListener('click', async function() {
         if (!currentPatientId || !currentUser) { showToast('Open a patient first', 'warning'); return; }
         const result = await showCustomModal({
@@ -1111,12 +1161,9 @@
             ]
         });
         if (!result || !result.title) return;
-        const problems = currentPatientData?.problemList || [];
-        problems.push({ id: Date.now().toString(), title: stripMarkdown(result.title), detail: stripMarkdown(result.detail || '') });
         try {
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/problemList`).set(problems);
-            currentPatientData.problemList = problems;
-            renderProblemList();
+            await Store().addItem(scopeUid, currentPatientId, 'problemList', { id: Date.now().toString(), title: stripMarkdown(result.title), detail: stripMarkdown(result.detail || '') });
+            Store().audit(scopeUid, currentPatientId, 'create', `Problem: ${stripMarkdown(result.title)}`);
             showToast('Problem added', 'success');
         } catch (err) {
             showToast('Error saving problem: ' + (err.message || 'unknown error'), 'error', 6000);
@@ -1141,28 +1188,28 @@
         showLoading('Analyzing patient data for problems…', 10);
         try {
             const d = currentPatientData;
+            const pid = currentPatientId;
             const systemPrompt = `You are a rehabilitation clinician building a clinical problem list from intake information and the patient's recorded history. Return ONLY a JSON array (no markdown, no code fences, no commentary) of 3 to 6 objects, each with a "title" (short, under 10 words) and a "detail" (1-2 sentence clinical explanation). Base every problem strictly on the information provided — do not invent details that aren't supported by it. The output must be strictly valid JSON: never put a literal double-quote character inside a field's text, and do not add a trailing comma after the last item.`;
-            // EMR AI UPGRADE (item 3/4): pulls the shared clinical context
-            // (linked Motion/standardized results, prior progress trend) —
-            // not just the bare intake fields — when it's available.
-            const sharedCtx = window.RehablixPatientContext ? await window.RehablixPatientContext.build(scopeUid, currentPatientId, d) : null;
-            const userPrompt = sharedCtx ? window.RehablixPatientContext.toPromptText(sharedCtx) : `Patient: ${d.name || 'Patient'}\nDiagnosis: ${d.primaryDx || 'Unknown'}\nChief Complaint: ${d.chiefComplaint || ''}\nGoals: ${d.goals || ''}\nAssessment: ${d.assessment || 'None provided'}`;
+            // Shared, de-identified clinical context (js/patient-context.js).
+            const sharedCtx = window.RehablixPatientContext ? await window.RehablixPatientContext.build(scopeUid, pid, d) : null;
+            const userPrompt = sharedCtx ? window.RehablixPatientContext.toPromptText(sharedCtx) : `${patientBrief(d)}\nAssessment: ${d.assessment || 'None provided'}`;
             updateLoadingProgress(40, 'Identifying problems…');
-            const response = await callDeepSeek(systemPrompt, userPrompt, 1000);
+            const response = await callDeepSeek(systemPrompt, userPrompt, 1000, d);
             updateLoadingProgress(75, 'Saving…');
             const parsed = parseAIJsonArray(response);
             const problems = parsed.map((p, i) => ({
                 id: Date.now().toString() + '_' + i,
                 title: stripMarkdown(p.title || 'Problem'),
                 detail: stripMarkdown(p.detail || ''),
-                aiGenerated: true, reviewed: false // EMR AI UPGRADE (item 4): mark until the clinician edits/reviews it
+                aiGenerated: true, reviewed: false
             }));
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/problemList`).set(problems);
-            currentPatientData.problemList = problems;
+            // Reviewed and manually-added problems are kept; only earlier
+            // unreviewed AI drafts are replaced.
+            const res = await Store().replaceUnreviewedAI(scopeUid, pid, 'problemList', problems);
             updateLoadingProgress(100, 'Done!');
             setTimeout(() => {
                 hideLoading();
-                showToast('Problem list generated!', 'success');
+                showToast(res && res.kept ? `Problem list generated — ${res.kept} reviewed/manual problem(s) kept.` : 'Problem list generated!', 'success');
                 renderProblemList();
             }, 400);
         } catch (error) {
@@ -1171,13 +1218,12 @@
             showToast('Error generating problem list: ' + (error.message || 'unknown error'), 'error', 6000);
         }
     }
-
     // =========================================================================
     // Summary Tab
     // =========================================================================
     function loadPatientSummary() {
         const container = document.getElementById('paneSummaryContent');
-        const summaries = currentPatientData?.summaries || [];
+        const summaries = (currentPatientData?.summaries || []).filter(Boolean);
         if (summaries.length === 0) {
             container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-file"></i><p>No summary reports yet.</p></div>`;
             return;
@@ -1185,17 +1231,18 @@
         const indexed = summaries.map((s, i) => ({ ...s, _index: i }));
         const sorted = indexed.sort((a, b) => new Date(b.date) - new Date(a.date));
         container.innerHTML = sorted.map(summary => `
-            <a href="index.html?id=${currentPatientId}&type=summary&index=${summary._index}#/docresult" target="_blank" style="text-decoration:none;color:inherit;display:block;">
-                <div class="summary-card">
+            <div class="summary-card">
+                <a href="index.html?id=${encodeURIComponent(currentPatientId)}&type=summary&index=${summary._index}#/docresult" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;display:block;" aria-label="Open ${escapeHtml(summary.title || 'Summary Report')} in editor">
                     <div class="summary-card-header">
                         <div>
-                            <div class="summary-card-title">${escapeHtml(summary.title) || 'Summary Report'}</div>
+                            <div class="summary-card-title">${escapeHtml(summary.title) || 'Summary Report'} ${reviewBadge(summary)}</div>
                             <div class="summary-card-meta">${escapeHtml(summary.date) || ''}</div>
                         </div>
-                        <div><i class="bx bx-link-external"></i></div>
+                        <div><i class="bx bx-link-external" aria-hidden="true"></i></div>
                     </div>
-                </div>
-            </a>
+                </a>
+                ${reviewButton('summaries', String(summary._index), summary)}
+            </div>
         `).join('');
     }
 
@@ -1217,8 +1264,8 @@
         showLoading('Generating summary report…', 10);
         try {
             const d = currentPatientData;
+            const pid = currentPatientId;
             const patientInfo = {
-                name: d.name || 'Patient',
                 diagnosis: d.primaryDx || 'Unknown',
                 chiefComplaint: d.chiefComplaint || '',
                 goals: d.goals || '',
@@ -1234,7 +1281,7 @@
 
             const systemPrompt = `You are a medical writer. Generate a concise, professional summary report for a ${patientInfo.category} patient (${patientInfo.profession}, ${patientInfo.state}). Include: patient overview, diagnosis, key findings, progress, and recommendations. Use plain text. Do not use markdown formatting.${CLINICAL_INTEGRITY_CLAUSE}`;
 
-            let userPrompt = `Patient: ${patientInfo.name}\nDiagnosis: ${patientInfo.diagnosis}\nChief Complaint: ${patientInfo.chiefComplaint}\nGoals: ${patientInfo.goals}\nAssessment: ${patientInfo.assessment || 'None provided'}\nSessions completed: ${patientInfo.sessions}\n`;
+            let userPrompt = `${patientBrief(d)}\nAssessment: ${patientInfo.assessment || 'None provided'}\nSessions completed: ${patientInfo.sessions}\n`;
             if (patientInfo.treatmentPlans.length > 0) {
                 userPrompt += `Treatment plans:\n${patientInfo.treatmentPlans.map(p => `- ${p.title}: ${p.content}`).join('\n')}\n`;
             }
@@ -1248,18 +1295,16 @@
             }
 
             updateLoadingProgress(50, 'Generating summary…');
-            const response = await callTieredAI(systemPrompt, userPrompt, 1500); // EMR AI UPGRADE (item 7)
+            const response = await callTieredAI(systemPrompt, userPrompt, 1500, d); // EMR AI UPGRADE (item 7)
 
             updateLoadingProgress(80, 'Saving summary…');
 
-            const summaries = currentPatientData?.summaries || [];
-            summaries.push({
+            await Store().addItem(scopeUid, pid, 'summaries', {
                 title: `Summary - ${new Date().toLocaleDateString()}`,
                 content: stripMarkdown(response),
-                date: new Date().toLocaleDateString()
+                date: new Date().toLocaleDateString(),
+                aiGenerated: true, reviewed: false
             });
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/summaries`).set(summaries);
-            currentPatientData.summaries = summaries;
 
             updateLoadingProgress(100, 'Done!');
             setTimeout(() => {
@@ -1288,7 +1333,7 @@
 
     function loadPatientTreatmentPlans() {
         const container = document.getElementById('paneTreatmentPlanContent');
-        const plans = currentPatientData?.treatmentPlans || [];
+        const plans = (currentPatientData?.treatmentPlans || []).filter(Boolean);
         if (plans.length === 0) {
             container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-clipboard"></i><p>No treatment plans yet.</p></div>`;
             return;
@@ -1301,8 +1346,8 @@
                 return `
                 <div class="session-card-x expanded" data-index="${plan._index}">
                     <div style="padding:0.2rem 0 0.6rem;">
-                        <input class="inline-edit-title" id="editPlanTitle_${plan._index}" value="${escapeHtml(plan.title) || ''}" placeholder="Plan title" />
-                        <textarea class="inline-edit-textarea" id="editPlanContent_${plan._index}" rows="10" placeholder="Plan content">${escapeHtml(plan.content || '')}</textarea>
+                        <input class="inline-edit-title" id="editPlanTitle_${plan._index}" value="${escapeHtml(plan.title) || ''}" placeholder="Plan title" aria-label="Plan title" />
+                        <textarea class="inline-edit-textarea" id="editPlanContent_${plan._index}" rows="10" placeholder="Plan content" aria-label="Plan content">${escapeHtml(plan.content || '')}</textarea>
                         <div class="inline-edit-actions">
                             <button class="btn btn-primary plan-save-btn" data-index="${plan._index}" style="font-size:0.75rem;padding:0.3rem 0.8rem;"><i class="bx bx-check"></i> Save</button>
                             <button class="btn btn-secondary plan-cancel-btn" style="font-size:0.75rem;padding:0.3rem 0.8rem;"><i class="bx bx-x"></i> Cancel</button>
@@ -1312,20 +1357,23 @@
             }
             return `
             <div class="session-card-x" data-index="${plan._index}">
-                <div class="session-card-x-header">
+                <div class="session-card-x-header" role="button" tabindex="0">
                     <div>
                         <div class="session-date">${escapeHtml(plan.date) || ''}</div>
-                        <div class="session-title">${escapeHtml(plan.title) || 'Treatment Plan'}${plan.aiGenerated && !plan.reviewed ? ' <span class="tag tag-amber" style="margin-left:0.3rem;">AI · Unreviewed</span>' : ''}</div>
+                        <div class="session-title">${escapeHtml(plan.title) || 'Treatment Plan'} ${reviewBadge(plan)}</div>
                         <div class="session-therapist">${escapeHtml(plan.category) || ''}${plan.profession || plan.department ? ' · ' + escapeHtml(plan.profession || plan.department) : ''}</div>
                     </div>
                     <div style="display:flex;align-items:center;gap:0.4rem;">
-                        <button class="card-edit-btn plan-edit-btn" data-index="${plan._index}" title="Edit"><i class="bx bx-edit"></i></button>
+                        <button class="card-edit-btn plan-edit-btn" data-index="${plan._index}" title="Edit" aria-label="Edit treatment plan"><i class="bx bx-edit" aria-hidden="true"></i></button>
                         <i class="bx bx-chevron-down session-chevron"></i>
                     </div>
                 </div>
                 <div class="session-card-x-body">
                     <div class="session-card-x-content">${escapeHtml(stripMarkdown(plan.content || '')) || '<em>No content.</em>'}</div>
-                    <button class="btn btn-secondary treatment-regenerate-btn" data-index="${plan._index}" style="font-size:0.7rem;padding:0.2rem 0.8rem;margin-top:0.6rem;"><i class="bx bx-magic"></i> Regenerate with AI</button>
+                    <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.6rem;">
+                        ${reviewButton('treatmentPlans', String(plan._index), plan)}
+                        <button class="btn btn-secondary treatment-regenerate-btn" data-index="${plan._index}" style="font-size:0.7rem;padding:0.2rem 0.8rem;"><i class="bx bx-magic"></i> ${plan.reviewed ? 'Draft a revision with AI' : 'Regenerate with AI'}</button>
+                    </div>
                 </div>
             </div>`;
         }).join('');
@@ -1349,12 +1397,13 @@
                 const index = parseInt(btn.dataset.index, 10);
                 const titleEl = document.getElementById(`editPlanTitle_${index}`);
                 const contentEl = document.getElementById(`editPlanContent_${index}`);
-                const plans = currentPatientData?.treatmentPlans || [];
-                if (!plans[index]) return;
-                plans[index] = { ...plans[index], title: titleEl.value.trim() || plans[index].title, content: contentEl.value.trim(), lastEdited: new Date().toLocaleString(), reviewed: true };
+                const title = titleEl.value.trim();
+                const content = contentEl.value.trim();
                 try {
-                    await database.ref(`history/${scopeUid}/patients/${currentPatientId}/treatmentPlans`).set(plans);
-                    currentPatientData.treatmentPlans = plans;
+                    const saved = await Store().updateItem(scopeUid, currentPatientId, 'treatmentPlans', itemRef(plans, index),
+                        item => Object.assign(item, { title: title || item.title, content, lastEdited: new Date().toLocaleString() }, Store().reviewStamp()));
+                    if (!saved) { showToast('This plan was changed or removed elsewhere — reopen it and try again.', 'warning', 6000); return; }
+                    Store().audit(scopeUid, currentPatientId, 'edit', `Treatment plan: ${saved.title || ''}`);
                     editingTreatmentPlanIndex = null;
                     loadPatientTreatmentPlans();
                     showToast('Treatment plan updated', 'success');
@@ -1389,18 +1438,16 @@
             ]
         });
         if (!result || !result.content) return;
-        const plans = currentPatientData?.treatmentPlans || [];
-        plans.push({
-            title: result.title || 'Treatment Plan',
-            content: stripMarkdown(result.content),
-            date: new Date().toLocaleDateString(),
-            category: currentPatientData?.category || '',
-            profession: currentPatientData?.profession || currentPatientData?.department || '',
-            state: currentPatientData?.state || ''
-        });
         try {
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/treatmentPlans`).set(plans);
-            currentPatientData.treatmentPlans = plans;
+            await Store().addItem(scopeUid, currentPatientId, 'treatmentPlans', {
+                title: result.title || 'Treatment Plan',
+                content: stripMarkdown(result.content),
+                date: new Date().toLocaleDateString(),
+                category: currentPatientData?.category || '',
+                profession: currentPatientData?.profession || currentPatientData?.department || '',
+                state: currentPatientData?.state || ''
+            });
+            Store().audit(scopeUid, currentPatientId, 'create', `Treatment plan: ${result.title || 'Treatment Plan'}`);
             showToast('Treatment plan added', 'success');
             loadPatientTreatmentPlans();
         } catch (err) {
@@ -1427,16 +1474,16 @@
         showLoading('Generating treatment plan…', 10);
         try {
             const d = currentPatientData;
+            const pid = currentPatientId;
             const latestProgress = getLatestProgressNoteText();
             const systemPrompt = `You are a rehabilitation specialist creating a treatment plan for a ${d.category || 'general'} patient (${d.profession || d.department || 'clinician'}, ${d.state || 'outpatient'}). Provide a clear, structured plan with actionable steps. Use plain text, no markdown. If a recent progress note is given, adjust the plan to reflect the patient's actual observed progress so it reads as a natural continuation of care rather than a generic plan.${CLINICAL_INTEGRITY_CLAUSE}`;
-            let userPrompt = `Patient: ${d.name || 'Patient'}\nDiagnosis: ${d.primaryDx || 'Unknown'}\nChief Complaint: ${d.chiefComplaint || ''}\nGoals: ${d.goals || ''}`;
+            let userPrompt = patientBrief(d);
             if (latestProgress) userPrompt += `\n\nMost recent progress note:\n${latestProgress}`;
             if (instructions) userPrompt += `\n\nAdditional instructions from the clinician:\n${instructions}`;
             updateLoadingProgress(40, 'Generating plan…');
-            const response = await callDeepSeek(systemPrompt, userPrompt, 1500);
+            const response = await callDeepSeek(systemPrompt, userPrompt, 1500, d);
             updateLoadingProgress(80, 'Saving plan…');
-            const plans = currentPatientData?.treatmentPlans || [];
-            plans.push({
+            await Store().addItem(scopeUid, pid, 'treatmentPlans', {
                 title: `AI Plan - ${new Date().toLocaleDateString()}`,
                 content: stripMarkdown(response),
                 date: new Date().toLocaleDateString(),
@@ -1445,8 +1492,6 @@
                 state: d?.state || '',
                 aiGenerated: true, reviewed: false // EMR AI UPGRADE (item 4)
             });
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/treatmentPlans`).set(plans);
-            currentPatientData.treatmentPlans = plans;
             updateLoadingProgress(100, 'Done!');
             setTimeout(() => { hideLoading(); showToast('Treatment plan generated!', 'success'); loadPatientTreatmentPlans(); }, 500);
         } catch (error) {
@@ -1457,9 +1502,12 @@
     }
 
     async function regenerateTreatmentPlan(index) {
-        const plans = currentPatientData?.treatmentPlans || [];
+        const plans = (currentPatientData?.treatmentPlans || []).filter(Boolean);
         const plan = plans[index];
         if (!plan) return;
+        // Reviewed content is never overwritten by AI: a reviewed plan gets
+        // a new draft revision alongside it instead.
+        const asNewDraft = !!plan.reviewed;
         const result = await showCustomModal({
             title: 'Regenerate Treatment Plan',
             subtitle: 'Tell the AI what to change. The current plan and most recent progress note are used as context automatically.',
@@ -1474,19 +1522,33 @@
         showLoading('Regenerating treatment plan…', 10);
         try {
             const d = currentPatientData;
+            const pid = currentPatientId;
             const latestProgress = getLatestProgressNoteText();
             const systemPrompt = `You are a rehabilitation specialist revising a treatment plan. Use plain text, no markdown. If a recent progress note is provided, factor it in so the revised plan stays clinically accurate and reads as a natural continuation of care.${CLINICAL_INTEGRITY_CLAUSE}`;
-            let userPrompt = `Patient: ${d.name || 'Patient'}\nDiagnosis: ${d.primaryDx || 'Unknown'}\n\nCurrent plan:\n${plan.content}\n`;
+            let userPrompt = `${patientBrief(d)}\n\nCurrent plan:\n${plan.content}\n`;
             if (latestProgress) userPrompt += `\nMost recent progress note:\n${latestProgress}\n`;
             userPrompt += `\nRegeneration instructions:\n${result.instructions}\n\nPlease revise the plan according to the instructions above.`;
             updateLoadingProgress(40, 'Revising…');
-            const response = await callDeepSeek(systemPrompt, userPrompt, 1500);
+            const response = await callDeepSeek(systemPrompt, userPrompt, 1500, d);
             updateLoadingProgress(80, 'Saving…');
-            plans[index] = { ...plan, content: stripMarkdown(response), lastEdited: new Date().toLocaleString() };
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/treatmentPlans`).set(plans);
-            currentPatientData.treatmentPlans = plans;
+            if (asNewDraft) {
+                await Store().addItem(scopeUid, pid, 'treatmentPlans', {
+                    title: `Revised plan (AI draft) - ${new Date().toLocaleDateString()}`,
+                    content: stripMarkdown(response),
+                    date: new Date().toLocaleDateString(),
+                    category: plan.category || '', profession: plan.profession || plan.department || '', state: plan.state || '',
+                    revisionOf: plan.id || null,
+                    aiGenerated: true, reviewed: false
+                });
+            } else {
+                const saved = await Store().updateItem(scopeUid, pid, 'treatmentPlans', itemRef(plans, index), item => {
+                    if (item.reviewed) return null; // reviewed elsewhere meanwhile — don't overwrite
+                    return Object.assign(item, { content: stripMarkdown(response), lastEdited: new Date().toLocaleString(), aiGenerated: true, reviewed: false });
+                });
+                if (!saved) throw new Error('This plan was reviewed or changed elsewhere, so the AI draft was not applied.');
+            }
             updateLoadingProgress(100, 'Done!');
-            setTimeout(() => { hideLoading(); showToast('Treatment plan updated!', 'success'); loadPatientTreatmentPlans(); }, 400);
+            setTimeout(() => { hideLoading(); showToast(asNewDraft ? 'Reviewed plan kept — the AI revision was added as a new draft.' : 'Treatment plan updated!', 'success', 4500); loadPatientTreatmentPlans(); }, 400);
         } catch (error) {
             console.error(error);
             hideLoading();
@@ -1516,13 +1578,13 @@
             const bodyText = stripMarkdown(session.notes || session.content || session.plainText || '');
             return `
             <div class="session-card-x ${session.date === today ? 'today' : ''}" data-id="${escapeHtml(session.id)}">
-                <div class="session-card-x-header">
+                <div class="session-card-x-header" role="button" tabindex="0">
                     <div>
                         <div class="session-date">${escapeHtml(session.date) || 'Unknown date'} — ${escapeHtml(session.time) || '--:--'}</div>
                         <div class="session-title">${escapeHtml(session.type) || 'Session'}</div>
                         <div class="session-therapist">${escapeHtml(session.therapist || currentUser?.displayName) || 'Clinician'}</div>
                         <div class="session-tags">
-                            ${session.aiGenerated ? '<span class="tag tag-blue">AI Generated</span>' : ''}
+                            ${session.aiGenerated && !session.signed ? reviewBadge(session) : (session.aiGenerated ? '<span class="tag tag-blue">AI Generated</span>' : '')}
                             ${session.codes ? session.codes.map(code => `<span class="tag tag-blue">${escapeHtml(code)}</span>`).join('') : ''}
                             ${session.signed ? '<span class="tag tag-green">Signed</span>' : '<span class="tag tag-amber">Draft</span>'}
                         </div>
@@ -1531,7 +1593,10 @@
                 </div>
                 <div class="session-card-x-body">
                     <div class="session-card-x-content">${bodyText ? escapeHtml(bodyText) : '<em>No notes recorded yet.</em>'}</div>
-                    <a href="index.html?id=${currentPatientId}&type=session&sessionId=${encodeURIComponent(session.id)}#/docresult" target="_blank" class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.8rem;margin-top:0.6rem;display:inline-block;text-decoration:none;"><i class="bx bx-edit"></i> Open Full Editor</a>
+                    <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.6rem;">
+                        <a href="index.html?id=${encodeURIComponent(currentPatientId)}&type=session&sessionId=${encodeURIComponent(session.id)}#/docresult" target="_blank" rel="noopener" class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.8rem;display:inline-block;text-decoration:none;"><i class="bx bx-edit" aria-hidden="true"></i> Open Full Editor</a>
+                        ${session.signed ? '' : reviewButton('sessions', session.id, session)}
+                    </div>
                 </div>
             </div>`;
         }).join('');
@@ -1615,8 +1680,9 @@
         showLoading('Generating next session plan…', 10);
         try {
             const d = currentPatientData;
+            const pid = currentPatientId;
             const systemPrompt = `You are a rehabilitation clinician planning the next session. Base the plan strictly on the problems and treatment plan given below, and the most recent progress note if provided — do not invent clinical details that aren't supported by them. Return ONLY a JSON array (no markdown, no code fences, no commentary) of 3 to 6 activities, each an object with: "timeFrame" (short, e.g. "0-10 min"), "title" (short activity name), "goal" (short, one sentence), and "details" (2-3 sentences describing exercises/interventions, cues, sets/reps as relevant). The output must be strictly valid JSON: never put a literal double-quote character inside a field's text (write inches as 2 in, not 2"), and do not add a trailing comma after the last item.`;
-            let userPrompt = `Patient: ${d.name || 'Patient'}\nDiagnosis: ${d.primaryDx || 'Unknown'}\nSession Type: ${sessionType}\n`;
+            let userPrompt = `${patientBrief(d)}\nSession Type: ${sessionType}\n`;
             if (problems.length > 0) {
                 userPrompt += `\nProblems to address:\n${problems.map(p => `- ${p.title}${p.detail ? ': ' + p.detail : ''}`).join('\n')}\n`;
             } else {
@@ -1631,7 +1697,7 @@
             // of clinical detail) plus JSON overhead could run past 1800 and
             // get truncated mid-response, silently dropping the later
             // activities down to just whichever ones finished before the cutoff.
-            const response = await callDeepSeek(systemPrompt, userPrompt, 2400);
+            const response = await callDeepSeek(systemPrompt, userPrompt, 2400, d);
             const parsed = parseAIJsonArray(response);
 
             updateLoadingProgress(80, 'Saving plan…');
@@ -1649,10 +1715,11 @@
                 problemIds: problems.map(p => p.id),
                 treatmentPlanTitle: latestPlan ? (latestPlan.title || null) : null,
                 completed: false,
-                aiGenerated: true // EMR AI UPGRADE (item 4) — activities can still be hand-edited/added afterwards
+                aiGenerated: true, reviewed: false // activities can still be hand-edited/added afterwards
             };
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/nextSessionPlan`).set(nextPlan);
-            currentPatientData.nextSessionPlan = nextPlan;
+            // A reviewed plan is never overwritten by regeneration.
+            const saved = await Store().mutateObject(scopeUid, pid, 'nextSessionPlan', cur => (cur && cur.reviewed) ? false : nextPlan, { allowEmpty: true });
+            if (!saved) throw new Error('The current next session plan has been reviewed, so it was not replaced. Complete it or remove its activities first.');
 
             updateLoadingProgress(100, 'Done!');
             setTimeout(() => {
@@ -1683,7 +1750,7 @@
         }
 
         container.innerHTML = `
-            <div style="margin-bottom:0.8rem;font-size:0.8rem;color:var(--text-secondary);">Created: ${escapeHtml(nextPlan.date) || ''}${nextPlan.type ? ' · ' + escapeHtml(nextPlan.type) : ''}${nextPlan.aiGenerated ? ' · <span class="tag tag-amber">AI Generated</span>' : ''}</div>
+            <div style="margin-bottom:0.8rem;font-size:0.8rem;color:var(--text-secondary);">Created: ${escapeHtml(nextPlan.date) || ''}${nextPlan.type ? ' · ' + escapeHtml(nextPlan.type) : ''} ${reviewBadge(nextPlan)} ${reviewButton('nextSessionPlan', 'plan', nextPlan)}</div>
             <div id="nextSessionActivitiesList"></div>
             <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
                 <button class="btn btn-secondary" id="regenerateNextSessionBtn"><i class="bx bx-magic"></i> Regenerate All</button>
@@ -1717,7 +1784,8 @@
             ).join('\n\n');
             const combinedText = `Plan:\n${planText}\n\nSession Summary:\n${result.summary}`;
 
-            const newRef = database.ref(`history/${scopeUid}/patients/${currentPatientId}/sessions`).push();
+            const pid = currentPatientId;
+            const newRef = database.ref(`history/${scopeUid}/patients/${pid}/sessions`).push();
             const sessionData = {
                 id: newRef.key,
                 date: new Date().toISOString().split('T')[0],
@@ -1734,12 +1802,9 @@
                 aiGenerated: !!plan.problemIds
             };
             await newRef.set(sessionData);
-
-            const sessionCount = (currentPatientData.sessionCount || 0) + 1;
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/sessionCount`).set(sessionCount);
-
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/nextSessionPlan`).remove();
-            currentPatientData.nextSessionPlan = null;
+            await Store().incrementSessionCount(scopeUid, pid, 1);
+            await database.ref(`history/${scopeUid}/patients/${pid}/nextSessionPlan`).remove();
+            Store().audit(scopeUid, pid, 'create', `Session: ${sessionData.type}`);
 
             showToast('Session completed and moved to Previous Sessions!', 'success');
             loadPatientNextSession();
@@ -1772,15 +1837,15 @@
             }
             return `
             <div class="activity-card" data-index="${i}">
-                <div class="activity-card-header">
+                <div class="activity-card-header" role="button" tabindex="0">
                     <div>
                         ${a.timeFrame ? `<div class="activity-time-badge">${escapeHtml(a.timeFrame)}</div>` : ''}
                         <div class="activity-title">${escapeHtml(a.title) || 'Activity'}</div>
                         ${a.goal ? `<div class="activity-goal">Goal: ${escapeHtml(a.goal)}</div>` : ''}
                     </div>
                     <div style="display:flex;align-items:center;gap:0.4rem;">
-                        <button class="card-edit-btn activity-edit-btn" data-index="${i}" title="Edit"><i class="bx bx-edit"></i></button>
-                        <button class="icon-btn-sm activity-delete-btn" data-index="${i}" title="Remove"><i class="bx bx-trash"></i></button>
+                        <button class="card-edit-btn activity-edit-btn" data-index="${i}" title="Edit" aria-label="Edit activity"><i class="bx bx-edit" aria-hidden="true"></i></button>
+                        <button class="icon-btn-sm activity-delete-btn" data-index="${i}" title="Remove" aria-label="Remove activity"><i class="bx bx-trash" aria-hidden="true"></i></button>
                         <i class="bx bx-chevron-down activity-chevron"></i>
                     </div>
                 </div>
@@ -1807,12 +1872,17 @@
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 const index = parseInt(btn.dataset.index, 10);
-                const nextPlan = currentPatientData.nextSessionPlan;
-                nextPlan.activities.splice(index, 1);
+                const target = activities[index];
                 try {
-                    await database.ref(`history/${scopeUid}/patients/${currentPatientId}/nextSessionPlan`).set(nextPlan);
-                    currentPatientData.nextSessionPlan = nextPlan;
-                    loadPatientNextSession();
+                    await Store().mutateObject(scopeUid, currentPatientId, 'nextSessionPlan', plan => {
+                        if (!plan) return false;
+                        const list = Store().toArray(plan.activities);
+                        const i = Store().locate(list, target && target.id ? { id: target.id } : { index, item: target });
+                        if (i < 0) return false;
+                        list.splice(i, 1);
+                        plan.activities = list;
+                        return plan;
+                    });
                 } catch (err) {
                     showToast('Error removing activity: ' + (err.message || 'unknown error'), 'error', 6000);
                 }
@@ -1822,19 +1892,25 @@
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 const index = parseInt(btn.dataset.index, 10);
-                const nextPlan = currentPatientData.nextSessionPlan;
-                const activity = nextPlan.activities[index];
+                const activity = activities[index];
                 if (!activity) return;
-                nextPlan.activities[index] = {
-                    ...activity,
+                const patch = {
                     timeFrame: document.getElementById(`editActivityTimeFrame_${index}`).value.trim(),
                     title: document.getElementById(`editActivityTitle_${index}`).value.trim() || activity.title,
                     goal: document.getElementById(`editActivityGoal_${index}`).value.trim(),
                     details: document.getElementById(`editActivityDetails_${index}`).value.trim()
                 };
                 try {
-                    await database.ref(`history/${scopeUid}/patients/${currentPatientId}/nextSessionPlan`).set(nextPlan);
-                    currentPatientData.nextSessionPlan = nextPlan;
+                    const saved = await Store().mutateObject(scopeUid, currentPatientId, 'nextSessionPlan', plan => {
+                        if (!plan) return false;
+                        const list = Store().toArray(plan.activities);
+                        const i = Store().locate(list, activity.id ? { id: activity.id } : { index, item: activity });
+                        if (i < 0) return false;
+                        list[i] = Object.assign({}, list[i], patch);
+                        plan.activities = list;
+                        return plan;
+                    });
+                    if (!saved) { showToast('This activity was changed or removed elsewhere.', 'warning'); return; }
                     editingActivityIndex = null;
                     loadPatientNextSession();
                     showToast('Activity updated', 'success');
@@ -1866,22 +1942,21 @@
         });
         if (!result || !result.title) return;
 
-        let nextPlan = currentPatientData?.nextSessionPlan;
-        if (!nextPlan) {
-            nextPlan = { date: new Date().toLocaleDateString(), type: 'Follow-up Therapy Session', activities: [], completed: false };
-        }
-        if (!nextPlan.activities) nextPlan.activities = [];
-        nextPlan.activities.push({
+        const activity = {
             id: Date.now().toString(),
             timeFrame: result.timeFrame || '',
             title: result.title,
             goal: result.goal || '',
             details: result.details || ''
-        });
-
+        };
         try {
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/nextSessionPlan`).set(nextPlan);
-            currentPatientData.nextSessionPlan = nextPlan;
+            await Store().mutateObject(scopeUid, currentPatientId, 'nextSessionPlan', plan => {
+                plan = plan || { date: new Date().toLocaleDateString(), type: 'Follow-up Therapy Session', activities: [], completed: false };
+                const list = Store().toArray(plan.activities);
+                list.push(activity);
+                plan.activities = list;
+                return plan;
+            }, { allowEmpty: true });
             loadPatientNextSession();
             showToast('Activity added', 'success');
         } catch (err) {
@@ -1900,61 +1975,77 @@
     // =========================================================================
     function loadPatientProgress() {
         const container = document.getElementById('paneProgressList');
-        const notes = currentPatientData?.progressNotes || [];
+        const notes = (currentPatientData?.progressNotes || []).filter(Boolean);
         if (notes.length === 0) {
             container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-line-chart"></i><p>No progress notes yet.</p></div>`;
             return;
         }
-        const sorted = [...notes].sort((a, b) => new Date(b.date) - new Date(a.date));
+        const sorted = notes.map((n, i) => ({ ...n, _index: i })).sort((a, b) => new Date(b.date) - new Date(a.date));
         container.innerHTML = sorted.map(note => `
             <div class="progress-note">
                 <div class="progress-note-header">
-                    <div><strong>${note.title || 'Progress Note'}</strong></div>
-                    <div class="progress-note-date">${note.date || ''}</div>
+                    <div><strong>${escapeHtml(note.title || 'Progress Note')}</strong> ${reviewBadge(note)}</div>
+                    <div class="progress-note-date">${escapeHtml(note.date || '')}</div>
                 </div>
-                <div class="progress-note-content">${stripMarkdown(note.content || '')}</div>
-                <div style="margin-top:0.5rem;display:flex;gap:0.5rem;">
-                    <button class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.8rem;" onclick="editProgressNote('${note.id}')"><i class="bx bx-edit"></i></button>
-                    <button class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.8rem;color:#dc2626;border-color:#dc2626;" onclick="deleteProgressNote('${note.id}')"><i class="bx bx-trash"></i></button>
+                <div class="progress-note-content">${escapeHtml(stripMarkdown(note.plainText || note.content || ''))}</div>
+                <div style="margin-top:0.5rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+                    <button class="btn btn-secondary progress-edit-btn" data-index="${note._index}" style="font-size:0.7rem;padding:0.2rem 0.8rem;" aria-label="Edit progress note"><i class="bx bx-edit" aria-hidden="true"></i></button>
+                    <button class="btn btn-secondary progress-delete-btn" data-index="${note._index}" style="font-size:0.7rem;padding:0.2rem 0.8rem;color:#dc2626;border-color:#dc2626;" aria-label="Delete progress note"><i class="bx bx-trash" aria-hidden="true"></i></button>
+                    ${reviewButton('progressNotes', String(note._index), note)}
                 </div>
             </div>
         `).join('');
+        container.querySelectorAll('.progress-edit-btn').forEach(btn => btn.addEventListener('click', () => editProgressNoteAt(parseInt(btn.dataset.index, 10))));
+        container.querySelectorAll('.progress-delete-btn').forEach(btn => btn.addEventListener('click', () => deleteProgressNoteAt(parseInt(btn.dataset.index, 10))));
     }
 
     document.getElementById('addProgressBtn')?.addEventListener('click', function() {
         if (!currentPatientId) { showToast('Open a patient first', 'warning'); return; }
-        window.open(`index.html?id=${currentPatientId}&type=progress&action=new#/docresult`, '_blank');
+        window.open(`index.html?id=${encodeURIComponent(currentPatientId)}&type=progress&action=new#/docresult`, '_blank');
     });
 
-    async function saveProgressNotes(notes) {
+    async function editProgressNoteAt(index) {
+        const notes = (currentPatientData?.progressNotes || []).filter(Boolean);
+        const note = notes[index];
+        if (!note) return;
+        const result = await showCustomModal({
+            title: 'Edit Progress Note',
+            fields: [{ id: 'content', type: 'textarea', rows: 12, label: 'Progress note', value: stripMarkdown(note.plainText || note.content || '') }]
+        });
+        if (!result) return;
         try {
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/progressNotes`).set(notes);
-            currentPatientData.progressNotes = notes;
+            const saved = await Store().updateItem(scopeUid, currentPatientId, 'progressNotes', itemRef(notes, index), item => {
+                const text = stripMarkdown(result.content);
+                return Object.assign(item, { content: text, plainText: text, lastEdited: new Date().toLocaleString() }, Store().reviewStamp());
+            });
+            if (!saved) { showToast('This note was changed or removed elsewhere.', 'warning'); return; }
+            Store().audit(scopeUid, currentPatientId, 'edit', `Progress note: ${saved.title || ''}`);
             showToast('Progress note saved', 'success');
-            loadPatientProgress();
         } catch (error) {
             showToast('Error saving progress note', 'error');
         }
     }
 
-    window.editProgressNote = function(id) {
-        const notes = currentPatientData?.progressNotes || [];
-        const note = notes.find(n => n.id === id);
-        if (!note) return;
-        const newContent = prompt('Edit progress note:', note.content);
-        if (newContent !== null) {
-            note.content = stripMarkdown(newContent);
-            saveProgressNotes(notes);
-        }
-    };
-
-    window.deleteProgressNote = function(id) {
+    async function deleteProgressNoteAt(index) {
         if (!confirm('Delete this progress note?')) return;
-        let notes = currentPatientData?.progressNotes || [];
-        notes = notes.filter(n => n.id !== id);
-        saveProgressNotes(notes);
-    };
+        const notes = (currentPatientData?.progressNotes || []).filter(Boolean);
+        try {
+            const removed = await Store().removeItem(scopeUid, currentPatientId, 'progressNotes', itemRef(notes, index));
+            if (removed) Store().audit(scopeUid, currentPatientId, 'delete', `Progress note: ${removed.title || ''}`);
+        } catch (error) {
+            showToast('Error deleting progress note', 'error');
+        }
+    }
 
+    // Kept for older inline handlers / other callers (by note id).
+    window.editProgressNote = function(id) {
+        const i = (currentPatientData?.progressNotes || []).filter(Boolean).findIndex(n => n.id === id);
+        if (i >= 0) editProgressNoteAt(i);
+    };
+    window.deleteProgressNote = function(id) {
+        const i = (currentPatientData?.progressNotes || []).filter(Boolean).findIndex(n => n.id === id);
+        if (i >= 0) deleteProgressNoteAt(i);
+    };
     // AI Progress Assistant
     document.getElementById('aiProgressBtn')?.addEventListener('click', function() {
         if (!currentPatientId) { showToast('Open a patient first', 'warning'); return; }
@@ -2034,19 +2125,20 @@
 
         showLoading('Generating progress note…', 10);
         try {
-            const prompt = `Based on the following per-problem progress review, write a professional, clinically accurate progress note. Weave the ratings and discussion into natural prose organized by problem — do not just restate the ratings verbatim.\n\n${promptBody}\n\nPatient: ${currentPatientData?.name || 'Patient'}\nDiagnosis: ${currentPatientData?.primaryDx || ''}`;
+            const d = currentPatientData;
+            const pid = currentPatientId;
+            const prompt = `Based on the following per-problem progress review, write a professional, clinically accurate progress note. Weave the ratings and discussion into natural prose organized by problem — do not just restate the ratings verbatim.\n\n${promptBody}\n\n${patientBrief(d)}`;
             updateLoadingProgress(30, 'Generating note…');
             const response = await callDeepSeek(
                 'You are a rehabilitation specialist. Write a concise, professional progress note based on the per-problem review provided. Do not use markdown formatting.' + CLINICAL_INTEGRITY_CLAUSE,
                 prompt,
-                1200
+                1200,
+                d
             );
             updateLoadingProgress(80, 'Saving note…');
-            const notes = currentPatientData?.progressNotes || [];
-            const noteEntry = { id: Date.now().toString(), title: `Progress Note - ${new Date().toLocaleDateString()}`, content: stripMarkdown(response), date: new Date().toLocaleDateString() };
+            const noteEntry = { id: Date.now().toString(), title: `Progress Note - ${new Date().toLocaleDateString()}`, content: stripMarkdown(response), date: new Date().toLocaleDateString(), aiGenerated: true, reviewed: false };
             if (structuredRatings) noteEntry.ratings = structuredRatings; // preserves actual values/dates for progress tracking (item 5) — only set when real ratings were collected, never fabricated.
-            notes.push(noteEntry);
-            await saveProgressNotes(notes);
+            await Store().addItem(scopeUid, pid, 'progressNotes', noteEntry);
             document.getElementById('aiProgressModal').style.display = 'none';
             updateLoadingProgress(100, 'Done!');
             setTimeout(() => { hideLoading(); showToast('Progress note generated!', 'success'); }, 500);
@@ -2066,23 +2158,28 @@
     // =========================================================================
     function loadPatientDischarge() {
         const container = document.getElementById('paneDischargeList');
-        const summaries = currentPatientData?.dischargeSummaries || [];
+        const summaries = (currentPatientData?.dischargeSummaries || []).filter(Boolean);
         if (summaries.length === 0) {
             container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-file"></i><p>No discharge summary yet.</p></div>`;
             return;
         }
-        const sorted = [...summaries].sort((a, b) => new Date(b.date) - new Date(a.date));
-        container.innerHTML = sorted.map((summary, index) => `
-            <a href="index.html?id=${currentPatientId}&type=discharge&index=${index}#/docresult" target="_blank" style="text-decoration:none;color:inherit;display:block;">
-                <div class="report-item">
-                    <div class="report-icon ri-amber"><i class="bx bx-file"></i></div>
-                    <div>
-                        <div class="report-name">${summary.title || 'Discharge Summary'}</div>
-                        <div class="report-meta">${summary.date || ''}</div>
+        // _index is the item's real position — the editor link used the
+        // sorted position before, which opened the wrong summary.
+        const sorted = summaries.map((s, i) => ({ ...s, _index: i })).sort((a, b) => new Date(b.date) - new Date(a.date));
+        container.innerHTML = sorted.map(summary => `
+            <div>
+                <a href="index.html?id=${encodeURIComponent(currentPatientId)}&type=discharge&index=${summary._index}#/docresult" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;display:block;" aria-label="Open ${escapeHtml(summary.title || 'Discharge Summary')} in editor">
+                    <div class="report-item">
+                        <div class="report-icon ri-amber"><i class="bx bx-file" aria-hidden="true"></i></div>
+                        <div>
+                            <div class="report-name">${escapeHtml(summary.title || 'Discharge Summary')} ${reviewBadge(summary)}</div>
+                            <div class="report-meta">${escapeHtml(summary.date || '')}</div>
+                        </div>
+                        <div class="report-action"><i class="bx bx-link-external" aria-hidden="true"></i></div>
                     </div>
-                    <div class="report-action"><i class="bx bx-link-external"></i></div>
-                </div>
-            </a>
+                </a>
+                ${reviewButton('dischargeSummaries', String(summary._index), summary)}
+            </div>
         `).join('');
     }
 
@@ -2095,20 +2192,19 @@
 
         showToast('Gathering all patient data – this may take a moment…', 'info', 4000);
         const d = currentPatientData;
-        
-        // Build comprehensive history
+        const pid = currentPatientId;
+
+        // Build comprehensive, de-identified history: age band instead of
+        // name/DOB; referring physician and insurance are never included.
         let fullHistory = '';
-        fullHistory += `Patient: ${d.name}\n`;
-        fullHistory += `Date of Birth: ${d.dob || 'N/A'}\n`;
+        fullHistory += `Patient: ${(Deid() && Deid().ageBand(d.dob, d.age)) || 'age not recorded'}\n`;
         fullHistory += `Gender: ${d.gender || 'N/A'}\n`;
         fullHistory += `Diagnosis: ${d.primaryDx || 'N/A'}\n`;
         fullHistory += `Category: ${d.category || 'N/A'}\n`;
         fullHistory += `Profession: ${d.profession || d.department || 'N/A'}\n`;
         fullHistory += `State: ${d.state || 'N/A'}\n`;
         fullHistory += `Chief Complaint: ${d.chiefComplaint || 'N/A'}\n`;
-        fullHistory += `Goals: ${d.goals || 'N/A'}\n`;
-        fullHistory += `Referring Physician: ${d.referring || 'N/A'}\n`;
-        fullHistory += `Insurance: ${d.insurance || 'N/A'}\n\n`;
+        fullHistory += `Goals: ${d.goals || 'N/A'}\n\n`;
         
         if (d.assessment) fullHistory += `Initial Assessment:\n${d.assessment}\n\n`;
         
@@ -2117,7 +2213,7 @@
             fullHistory += 'Session History:\n';
             const sessionValues = Object.values(d.sessions).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
             sessionValues.forEach(s => {
-                fullHistory += `- ${s.date} (${s.type || 'Session'}): ${s.notes || 'No notes'}\n`;
+                fullHistory += `- ${s.date} (${s.type || 'Session'}): ${stripMarkdown(s.plainText || s.notes || 'No notes')}\n`;
             });
             fullHistory += `\n`;
         }
@@ -2152,17 +2248,15 @@
 Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTEGRITY_CLAUSE}`;
 
             updateLoadingProgress(30, 'Compiling patient history…');
-            const response = await callTieredAI(systemPrompt, fullHistory, 3000); // EMR AI UPGRADE (item 7)
+            const response = await callTieredAI(systemPrompt, fullHistory, 3000, d); // EMR AI UPGRADE (item 7)
 
             updateLoadingProgress(80, 'Saving discharge summary…');
-            const summaries = currentPatientData?.dischargeSummaries || [];
-            summaries.push({
+            await Store().addItem(scopeUid, pid, 'dischargeSummaries', {
                 title: `Discharge Summary - ${new Date().toLocaleDateString()}`,
                 content: stripMarkdown(response),
-                date: new Date().toLocaleDateString()
+                date: new Date().toLocaleDateString(),
+                aiGenerated: true, reviewed: false
             });
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/dischargeSummaries`).set(summaries);
-            currentPatientData.dischargeSummaries = summaries;
 
             updateLoadingProgress(100, 'Done!');
             setTimeout(() => {
@@ -2181,8 +2275,9 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         if (!currentPatientId || !currentUser) return;
         if (!confirm('Are you sure you want to discharge this patient? This will mark them as inactive.')) return;
         try {
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}/active`).set(false);
+            await database.ref(`history/${scopeUid}/patients/${currentPatientId}`).update({ active: false, dischargedAt: new Date().toISOString() });
             currentPatientData.active = false;
+            Store().audit(scopeUid, currentPatientId, 'discharge', 'Patient discharged');
             showToast('Patient discharged successfully', 'success');
             
             const statusBadge = document.getElementById('patientHeroStatusBadge');
@@ -2272,16 +2367,16 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
                 : null;
             const contextText = (ctx && window.RehablixPatientContext)
                 ? window.RehablixPatientContext.toPromptText(ctx)
-                : `Patient: ${currentPatientData.name}\nDiagnosis: ${currentPatientData.primaryDx || ''}`;
+                : patientBrief(currentPatientData);
 
             const systemPrompt = 'You are a rehabilitation clinician reviewing a patient\'s longitudinal record. Using ONLY the recorded information given — never invent examination findings, measurements, interventions, or history not present in it — identify: (1) patterns across sessions/problems, (2) how current findings compare to previous ones where the data allows, (3) progress toward the stated goals, (4) any missing or contradictory information that would materially affect care, (5) a brief longitudinal summary. Clearly separate what is recorded fact from your own interpretation. Do not use markdown formatting. This output is AI interpretation for clinician review — do not phrase it as a confirmed clinical finding.';
-            const response = await callTieredAI(systemPrompt, contextText, 1400); // EMR AI UPGRADE (item 7)
+            const response = await callTieredAI(systemPrompt, contextText, 1400, currentPatientData); // EMR AI UPGRADE (item 7)
             if (body) {
                 body.innerHTML = `
                     <div class="ai-strip" style="align-items:flex-start;">
                         <div class="ai-icon"><i class="bx bx-bulb"></i></div>
                         <div class="ai-text">
-                            <strong>AI Clinical Insights <span class="tag tag-amber" style="margin-left:0.3rem;">Unreviewed — AI interpretation</span></strong>
+                            <strong>AI Clinical Insights <span class="tag tag-amber ai-draft-tag" style="margin-left:0.3rem;">AI draft, review before use.</span></strong>
                             <div style="white-space:pre-wrap;margin-top:0.4rem;">${escapeHtml(stripMarkdown(response))}</div>
                         </div>
                     </div>`;
@@ -2438,7 +2533,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         progressDiv.style.display = 'block';
         progressMsg.textContent = 'Processing files…';
 
-        const fileRefs = currentPatientData?.uploadedFiles || [];
+        const fileRefs = [];
 
         for (const file of files) {
             try {
@@ -2481,8 +2576,9 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
 
         if (currentPatientId && currentUser) {
             try {
-                await database.ref(`history/${scopeUid}/patients/${currentPatientId}/uploadedFiles`).set(fileRefs);
-                currentPatientData.uploadedFiles = fileRefs;
+                if (fileRefs.length) {
+                    await Store().mutateList(scopeUid, currentPatientId, 'uploadedFiles', arr => { fileRefs.forEach(f => arr.push(f)); }, { allowEmpty: true });
+                }
             } catch (err) {
                 console.error('Error saving file references:', err);
             }
@@ -2552,12 +2648,13 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
             // clinician Emmanuel Deoye — NOT the patient's own initials) used
             // across Motion, Presentation, Audio, and Smart EMR. See
             // js/patient-reg.js.
+            // EMR scale pass: allocated through an RTDB transaction on
+            // history/{scope}/regCounters/{prefix} (seeded from existing
+            // numbers), so two clinicians creating patients at the same
+            // moment can never get the same number.
             let regNumber = null;
-            if (window.RehablixPatientReg) {
-                const existingSnap = await database.ref(`history/${scopeUid}/patients`).once('value');
-                const existing = Object.values(existingSnap.val() || {}).map(p => p.regNumber).filter(Boolean);
-                const ownerName = await window.RehablixPatientReg.getOwnerName(scopeUid);
-                regNumber = window.RehablixPatientReg.generateRegNumber(ownerName, existing);
+            if (window.RehablixPatientReg && Store()) {
+                regNumber = await Store().allocateRegNumber(scopeUid);
             }
             const ref = database.ref(`history/${scopeUid}/patients`).push();
             await ref.set({
@@ -2579,6 +2676,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
                 createdAt: firebase.database.ServerValue.TIMESTAMP
             });
             const newId = ref.key;
+            if (Store()) Store().audit(scopeUid, newId, 'create', regNumber ? `Reg #${regNumber}` : 'Patient created');
             await openPatient(newId);
             loadDashboardData();
             clearIntakeForm();
@@ -2605,8 +2703,10 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         if (!currentUser || !editingPatientId) { showToast('No patient to update', 'error'); return; }
         const data = collectIntakeData();
         data.status = isDraft ? 'draft' : 'active';
+        const patientId = editingPatientId;
         try {
-            await database.ref(`history/${scopeUid}/patients/${editingPatientId}`).update(data);
+            await database.ref(`history/${scopeUid}/patients/${patientId}`).update(data);
+            if (Store()) Store().audit(scopeUid, patientId, 'edit', 'Intake details updated');
             showToast(isDraft ? 'Draft updated' : 'Patient updated!', 'success');
             if (window.RehablixCenter) {
                 window.RehablixCenter.logActivity('doc', 'Edited patient', data.name).catch(() => {});
@@ -2617,7 +2717,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
             document.getElementById('intakeCreateBtnText').textContent = 'Create Patient';
             document.getElementById('intakeCreateBtnText2').textContent = 'Create Patient';
             document.getElementById('intakeSubtitle').textContent = 'Quick setup – you can edit all details later';
-            await openPatient(editingPatientId);
+            await openPatient(patientId); // was editingPatientId, already cleared above
             loadDashboardData();
             clearIntakeForm();
         } catch (error) {
@@ -2683,7 +2783,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
             currentPatientData.uploadedFiles.forEach(f => {
                 const chip = document.createElement('span');
                 chip.className = 'attachment-chip';
-                chip.innerHTML = `<i class="bx bx-file"></i> ${f.name}`;
+                chip.innerHTML = `<i class="bx bx-file" aria-hidden="true"></i> ${escapeHtml(f.name)}`;
                 container.appendChild(chip);
             });
         }
@@ -2775,15 +2875,18 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
                 updateLoadingProgress(10 + (80 * i) / pendingRefs.length, `Drafting note ${i + 1} of ${pendingRefs.length}…`);
                 try {
                     const systemPrompt = `You are a rehabilitation clinician writing a session note. Write a concise, professional note based on the patient's diagnosis and goals. Note clearly that this is an AI-drafted note pending clinician review. Do not use markdown formatting.`;
-                    const userPrompt = `Patient: ${patient.name || 'Patient'}\nDiagnosis: ${patient.primaryDx || 'Unknown'}\nChief Complaint: ${patient.chiefComplaint || ''}\nGoals: ${patient.goals || ''}`;
-                    const response = await callDeepSeek(systemPrompt, userPrompt, 800);
+                    const userPrompt = patientBrief(patient);
+                    const response = await callDeepSeek(systemPrompt, userPrompt, 800, patient);
                     const content = stripMarkdown(response);
                     await database.ref(`history/${scopeUid}/patients/${patientId}/sessions/${sessionId}`).update({
                         notes: content,
                         content: content,
                         plainText: content,
-                        aiGenerated: true
+                        aiGenerated: true,
+                        reviewed: false
                     });
+                    const fresh = (await database.ref(`history/${scopeUid}/patients/${patientId}`).once('value')).val();
+                    if (Store()) Store().updateIndex(scopeUid, patientId, fresh);
                 } catch (innerErr) {
                     console.error('[EMR] Failed to draft note for session', sessionId, innerErr);
                 }
@@ -2843,7 +2946,18 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
     // Same call shape as callDeepSeek() but uses the resolved tiered model;
     // falls back to the plain DeepSeek call on any failure so a heavy
     // generation never just breaks outright.
-    async function callTieredAI(systemPrompt, userPrompt, maxTokens) {
+    // Every EMR prompt passes through here: identifiers of the patient the
+    // prompt is about (name parts, reg number, phone, referrer, …) plus
+    // emails/phones/DOBs are scrubbed before anything leaves the browser.
+    function deidentifyPrompts(systemPrompt, userPrompt, patient) {
+        const D = Deid();
+        if (!D) return [systemPrompt, userPrompt];
+        const ids = D.identifiersOf(patient || currentPatientData || {});
+        return [D.scrubText(systemPrompt, ids), D.scrubText(userPrompt, ids)];
+    }
+
+    async function callTieredAI(systemPrompt, userPrompt, maxTokens, patient) {
+        [systemPrompt, userPrompt] = deidentifyPrompts(systemPrompt, userPrompt, patient);
         // EMR AI UPGRADE (item 9): checked here too since a successful
         // tiered call below returns without ever going through
         // callDeepSeek()'s own guard.
@@ -2857,7 +2971,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
             }
         }
         const config = await resolveHeavyModelConfig();
-        if (!config) return callDeepSeek(systemPrompt, userPrompt, maxTokens);
+        if (!config) return callDeepSeek(systemPrompt, userPrompt, maxTokens, patient);
         try {
             const response = await fetch(`${config.endpoint}/chat/completions`, {
                 method: 'POST',
@@ -2870,23 +2984,24 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
                     top_p: config.top_p ?? 0.9
                 })
             });
-            if (!response.ok) return callDeepSeek(systemPrompt, userPrompt, maxTokens);
+            if (!response.ok) return callDeepSeek(systemPrompt, userPrompt, maxTokens, patient);
             const data = await response.json();
             const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-            if (!content) return callDeepSeek(systemPrompt, userPrompt, maxTokens);
+            if (!content) return callDeepSeek(systemPrompt, userPrompt, maxTokens, patient);
             if (currentUser && window.RehabPlanTiers) { // EMR AI UPGRADE (item 9) — weight 4 matches Blix's own weight in js/plan-tiers.js so a heavy model genuinely costs more against the same shared budget
                 window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlan, window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + content), config.weight || 1).catch(() => {});
             }
             return content;
         } catch (e) {
-            return callDeepSeek(systemPrompt, userPrompt, maxTokens);
+            return callDeepSeek(systemPrompt, userPrompt, maxTokens, patient);
         }
     }
 
     // =========================================================================
     // DeepSeek API Call
     // =========================================================================
-    async function callDeepSeek(systemPrompt, userPrompt, maxTokens = 2000) {
+    async function callDeepSeek(systemPrompt, userPrompt, maxTokens = 2000, patient) {
+        [systemPrompt, userPrompt] = deidentifyPrompts(systemPrompt, userPrompt, patient);
         if (!aiConfig.token) {
             throw new Error('AI is not configured yet (no API key loaded). Try again in a moment, or reload the page.');
         }
@@ -2987,8 +3102,6 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
     window.switchScreen = switchScreen;
     window.switchPatientTab = switchPatientTab;
     window.openPatient = openPatient;
-    window.editProgressNote = editProgressNote;
-    window.deleteProgressNote = deleteProgressNote;
 
     console.log('[EMR] Fully loaded');
 

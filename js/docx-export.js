@@ -184,5 +184,64 @@
     URL.revokeObjectURL(url);
   }
 
-  window.RehablixDocx = { buildDocument, buildBlob, download };
+  // Project Maker export: a real Word document (not HTML-in-.doc) with a cover
+  // page, a contents list, each chapter starting on a new page, the project's
+  // headings as Word heading styles, a References section, and "Page X of Y"
+  // page numbers in the footer.
+  // opts: { title, coverLines:[str], toc:[{title, sections:[str]}]|null,
+  //         parts:[{ html, pageBreakBefore }], references:[str], fileBase }
+  function buildProjectDocument(opts) {
+    const children = [];
+    if (opts.coverLines) {
+      children.push(new docx.Paragraph({ text: '', spacing: { before: 2400 } }));
+      children.push(new docx.Paragraph({ text: opts.title || 'Academic Project', heading: docx.HeadingLevel.TITLE, alignment: docx.AlignmentType.CENTER, spacing: { after: 400 } }));
+      opts.coverLines.forEach(line => children.push(new docx.Paragraph({ text: line, alignment: docx.AlignmentType.CENTER, spacing: { after: 120 } })));
+    }
+    if (opts.toc && opts.toc.length) {
+      children.push(new docx.Paragraph({ text: 'Table of Contents', heading: docx.HeadingLevel.HEADING_1, pageBreakBefore: !!opts.coverLines, spacing: { after: 200 } }));
+      opts.toc.forEach(ch => {
+        children.push(new docx.Paragraph({ children: [new docx.TextRun({ text: ch.title, bold: true })], spacing: { before: 120, after: 40 } }));
+        (ch.sections || []).forEach(s => children.push(new docx.Paragraph({ text: s, indent: { left: 480 }, spacing: { after: 20 } })));
+      });
+    }
+    (opts.parts || []).forEach((part, i) => {
+      const container = Object.assign(document.createElement('div'), { innerHTML: part.html || '' });
+      const els = contentElementsFromContainer(container);
+      if (part.pageBreakBefore && (i > 0 || opts.coverLines || (opts.toc && opts.toc.length))) {
+        children.push(new docx.Paragraph({ text: '', pageBreakBefore: true }));
+      }
+      children.push(...els);
+    });
+    if (opts.references && opts.references.length) {
+      children.push(new docx.Paragraph({ text: 'References', heading: docx.HeadingLevel.HEADING_1, pageBreakBefore: true, spacing: { after: 200 } }));
+      // Hanging indent, the usual reference-list layout.
+      opts.references.forEach(r => children.push(new docx.Paragraph({ text: r, indent: { left: 720, hanging: 720 }, spacing: { after: 120 } })));
+    }
+    return new docx.Document({
+      numbering: { config: [{ reference: 'docx-export-numbering', levels: [{ level: 0, format: 'decimal', text: '%1.', alignment: docx.AlignmentType.START }] }] },
+      styles: { default: { document: { run: { font: 'Times New Roman', size: 24 } } } },
+      sections: [{
+        properties: { page: { margin: { top: 1418, bottom: 1418, left: 1134, right: 1134 } } },
+        footers: {
+          default: new docx.Footer({
+            children: [new docx.Paragraph({ alignment: docx.AlignmentType.CENTER, children: [new docx.TextRun({ children: ['Page ', docx.PageNumber.CURRENT, ' of ', docx.PageNumber.TOTAL_PAGES], size: 18 })] })]
+          })
+        },
+        children
+      }]
+    });
+  }
+
+  async function downloadProject(opts) {
+    if (typeof docx === 'undefined') throw new Error('Word export library not loaded');
+    const blob = await docx.Packer.toBlob(buildProjectDocument(opts));
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${opts.fileBase || 'project'}.docx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
+  window.RehablixDocx = { buildDocument, buildBlob, download, buildProjectDocument, downloadProject };
 })();

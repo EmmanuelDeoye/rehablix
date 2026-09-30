@@ -1135,3 +1135,13 @@ body {
 [data-theme="dark"] .drawer-actions .new-chat-btn:hover {
   box-shadow: 0 4px 16px rgba(20, 184, 166, 0.5);
 }
+/* Persistent AI notice under the Lixa composer */
+.ai-disclaimer {
+  margin: 6px auto 0;
+  text-align: center;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  opacity: 0.85;
+  padding: 0 16px;
+}

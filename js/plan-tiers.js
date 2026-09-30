@@ -130,14 +130,17 @@
     const budget = PLAN_TOKEN_BUDGET[plan];
     if (budget === null || budget === undefined || !uid) return;
     const ref = firebase.database().ref(`users/${uid}/quota`);
-    const snap = await ref.once('value');
-    let quota = snap.val();
-    const now = Date.now();
-    if (!quota || !quota.windowStart || now - quota.windowStart >= QUOTA_WINDOW_MS) {
-      quota = { windowStart: now, tokensUsed: 0 };
-    }
-    quota.tokensUsed = (quota.tokensUsed || 0) + Math.ceil((rawTokens || 0) * (weight || 1));
-    await ref.set(quota);
+    const add = Math.ceil((rawTokens || 0) * (weight || 1));
+    // Atomic: concurrent calls can't lose usage, and the only writes are
+    // "add to this window" or "new window after expiry" (what the draft
+    // database rules enforce, so usage can't be reset from DevTools).
+    await ref.transaction(quota => {
+      const now = Date.now();
+      if (!quota || !quota.windowStart || now - quota.windowStart >= QUOTA_WINDOW_MS) {
+        return { windowStart: now, tokensUsed: add };
+      }
+      return { windowStart: quota.windowStart, tokensUsed: (quota.tokensUsed || 0) + add };
+    });
   }
 
   window.RehabPlanTiers = {

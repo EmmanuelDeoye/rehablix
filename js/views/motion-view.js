@@ -323,8 +323,9 @@
           try { uid = (await window.RehablixCenter.getEffectiveScopeUid('doc')) || user.uid; } catch (e) { uid = user.uid; }
         }
         emrScopeUid = uid;
-        const snap = await firebase.database().ref(`history/${uid}/patients`).once('value');
-        emrPatients = Object.entries(snap.val() || {}).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null, heightCm: p && (p.heightCm || p.height) ? Number(p.heightCm || p.height) || null : null })).filter(p => p.name);
+        // Names/reg numbers only — the lightweight index, not full records.
+        const allPatients = window.RehablixEmrStore ? await window.RehablixEmrStore.loadIndex(uid) : (await firebase.database().ref(`history/${uid}/patients`).once('value')).val();
+        emrPatients = Object.entries(allPatients || {}).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null, heightCm: p && (p.heightCm || p.height) ? Number(p.heightCm || p.height) || null : null })).filter(p => p.name);
         // EMR UPGRADE (item 4): `label` shows the reg number alongside the
         // name in the browser's autocomplete list; `value` stays just the
         // name so selecting an option still fills the input the same way.

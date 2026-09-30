@@ -995,3 +995,30 @@
 #audioPrevSessionHint a:hover {
   text-decoration: underline;
 }
+
+/* ---------- Mode tabs + Coach mode ---------- */
+.audio-mode-tabs { margin-bottom: 0.9rem; }
+.source-mode-tab:disabled { opacity: 0.45; cursor: not-allowed; }
+.coach-setup-panel { margin: -0.3rem 0 1.2rem; padding: 0.85rem 1rem; border-radius: var(--radius-md); background: var(--audio-accent-soft); }
+.coach-setup-panel .settings-hint { margin: 0 0 0.6rem; }
+.coach-consent, .coach-speak { display: flex; gap: 0.55rem; align-items: flex-start; font-size: 0.85rem; color: var(--text-primary); cursor: pointer; line-height: 1.4; }
+.coach-consent input, .coach-speak input { margin-top: 0.2rem; accent-color: var(--audio-accent); flex-shrink: 0; }
+.coach-speak input:disabled + * , .coach-speak:has(input:disabled) { opacity: 0.6; cursor: not-allowed; }
+.coach-live-panel { margin: 1rem 0; display: flex; flex-direction: column; gap: 0.8rem; }
+.coach-speaker-row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
+.coach-speaker-label { font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); }
+.coach-speaker-toggle { display: inline-flex; border: 1px solid var(--border-light); border-radius: 2rem; padding: 3px; background: var(--surface); }
+.coach-speaker-toggle button { border: none; background: none; padding: 0.45rem 0.9rem; border-radius: 2rem; font: inherit; font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); cursor: pointer; min-height: 36px; }
+.coach-speaker-toggle button.active { background: var(--audio-accent); color: #fff; }
+.coach-suggestions { border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 0.8rem 0.95rem; background: var(--surface); }
+.coach-suggestions-head { font-size: 0.85rem; font-weight: 700; color: var(--text-primary); display: flex; gap: 0.4rem; align-items: center; }
+.coach-suggestions-head i { color: var(--audio-accent); }
+.coach-disclaimer { font-size: 0.72rem; color: var(--text-secondary); margin: 0.15rem 0 0.6rem; font-style: italic; }
+.coach-suggestion { display: flex; gap: 0.6rem; align-items: flex-start; justify-content: space-between; padding: 0.55rem 0.7rem; border-radius: 0.6rem; background: var(--audio-accent-soft); margin-bottom: 0.45rem; font-size: 0.88rem; color: var(--text-primary); }
+.coach-suggestion .btn-mini { flex-shrink: 0; }
+.coach-empty { font-size: 0.8rem; color: var(--text-secondary); margin: 0 0 0.5rem; }
+.speaker-chip { display: inline-block; margin: 0.45rem 0.35rem 0.15rem 0; padding: 0.1rem 0.55rem; border-radius: 1rem; border: 1px solid var(--audio-accent); background: var(--audio-accent-soft); color: var(--audio-accent); font: inherit; font-size: 0.7rem; font-weight: 700; cursor: pointer; }
+.speaker-chip.speaker-patient { border-color: #d97706; background: rgba(217, 119, 6, 0.12); color: #b45309; }
+.live-transcript-text .speaker-chip:first-child { margin-top: 0; }
+.transcript-pending { color: var(--text-secondary); font-style: italic; opacity: 0.8; }
+.transcript-pending.failed { color: #b45309; }

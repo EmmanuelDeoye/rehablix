@@ -825,7 +825,73 @@
   // PAYMENT FIX (item 5): finishes a subscription write that was reported
   // successful by the gateway but didn't make it to Firebase last time
   // (network blip, tab closed mid-write, etc.) — called once auth is ready.
+  // ===== Server-verified billing (window.REHABLIX_SERVER_BILLING) =====
+  // The browser never writes a paid plan: it hands the gateway reference to
+  // the verifyPayment function, which checks amount, currency, user and
+  // reference with Paystack/Flutterwave (secret key, server-side) and writes
+  // the subscription itself. Success is only shown after the server says so.
+  const PENDING_VERIFICATION_KEY = 'rehablix_pending_verification';
+
+  async function verifyWithServer(pending) {
+    const token = await currentUser.getIdToken();
+    const resp = await fetch(window.REHABLIX_BILLING_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ gateway: pending.gateway, reference: pending.reference, transactionId: pending.transactionId || null, plan: pending.plan, billing: pending.billing })
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) {
+      const err = new Error((data.error && data.error.message) || `Verification failed (${resp.status})`);
+      err.retryable = resp.status >= 500 || resp.status === 0;
+      throw err;
+    }
+    return data.subscription;
+  }
+
+  async function completeServerVerifiedPayment(gateway, response, purchasedPlan, billing) {
+    const pending = {
+      uid: currentUser.uid, gateway, plan: purchasedPlan, billing,
+      reference: response.reference || response.tx_ref || '',
+      transactionId: response.transaction_id || response.transactionId || null
+    };
+    if (!pending.reference) {
+      showToast('Payment could not be confirmed — no transaction reference received. Contact support if you were charged.', 'error', 7000);
+      return;
+    }
+    try { localStorage.setItem(PENDING_VERIFICATION_KEY, JSON.stringify(pending)); } catch (e) {}
+    closePaymentModalHandler();
+    showToast('Confirming your payment with the provider…', 'info', 6000);
+    try {
+      const sub = await verifyWithServer(pending);
+      try { localStorage.removeItem(PENDING_VERIFICATION_KEY); } catch (e) {}
+      // plan.js's live listener also picks up the server's write.
+      document.dispatchEvent(new CustomEvent('planUpdated', { detail: { plan: sub.plan } }));
+      showSuccessCelebration(sub.plan, new Date(sub.ends));
+    } catch (e) {
+      if (e.retryable) {
+        showToast('Payment received — we are still confirming it. It will apply automatically; contact support if it has not within a few minutes.', 'warning', 8000);
+      } else {
+        try { localStorage.removeItem(PENDING_VERIFICATION_KEY); } catch (x) {}
+        showToast(e.message + ' If you were charged, contact support with your reference: ' + pending.reference, 'error', 9000);
+      }
+    }
+  }
+
   async function retryPendingSubscriptionIfAny() {
+    if (window.REHABLIX_SERVER_BILLING) {
+      let pv;
+      try { pv = JSON.parse(localStorage.getItem(PENDING_VERIFICATION_KEY) || 'null'); } catch (e) { pv = null; }
+      if (!pv || !currentUser || currentUser.uid !== pv.uid) return;
+      try {
+        const sub = await verifyWithServer(pv);
+        localStorage.removeItem(PENDING_VERIFICATION_KEY);
+        document.dispatchEvent(new CustomEvent('planUpdated', { detail: { plan: sub.plan } }));
+        showToast('Your previous payment has now been confirmed and applied.', 'success', 6000);
+      } catch (e) {
+        if (!e.retryable) { try { localStorage.removeItem(PENDING_VERIFICATION_KEY); } catch (x) {} }
+      }
+      return;
+    }
     let pending;
     try { pending = JSON.parse(localStorage.getItem(PENDING_SUBSCRIPTION_KEY) || 'null'); } catch (e) { pending = null; }
     if (!pending || !pending.uid || !pending.payload) return;
@@ -850,6 +916,10 @@
     // to null!" in the success modal and sent a broken (plan: null)
     // 'planUpdated' event to every listener elsewhere in the app.
     const purchasedPlan = selectedPlan;
+
+    if (window.REHABLIX_SERVER_BILLING) {
+      return completeServerVerifiedPayment(gateway, response, purchasedPlan, isYearly ? 'yearly' : 'monthly');
+    }
 
     // Minimal sanity check on the transaction reference before we grant
     // access. This does NOT replace real server-side verification (see

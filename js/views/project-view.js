@@ -473,7 +473,8 @@
       }
       grid.innerHTML = entries.map(function (entry) {
         const id = entry[0], proj = entry[1];
-        const progress = computeProgress(proj);
+        // Index entries carry a precomputed progress; full records compute it.
+        const progress = proj.chapters ? computeProgress(proj) : { pct: proj.progressPct || 0 };
         const date = proj.createdAt ? new Date(proj.createdAt).toLocaleDateString() : 'Unknown date';
         const approachLabel = proj.approach === 'qualitative' ? 'Qualitative' : 'Quantitative';
         const isCurrent = id === currentProjectId;
@@ -499,6 +500,8 @@
           if (!confirm('Permanently delete this project? This cannot be undone.')) return;
           try {
             await database.ref('history/' + scopeUid + '/projects/' + id).remove();
+            database.ref('history/' + scopeUid + '/projectIndex/' + id).remove().catch(function () {});
+            database.ref('history/' + scopeUid + '/projectVersions/' + id).remove().catch(function () {});
             delete projects[id];
             if (currentProjectId === id) {
               currentProjectId = null; currentProject = null;
@@ -813,7 +816,7 @@
         await database.ref('history/' + scopeUid + '/projects/' + currentProjectId).update({
           title: currentProject.title, type: currentProject.type, department: currentProject.department, approach: currentProject.approach
         });
-        projects[currentProjectId] = JSON.parse(JSON.stringify(currentProject));
+        updateProjectIndex();
         updateProjectSelector();
         showToast('Project details saved', 'success');
       } catch (err) { reportError(err, 'project details save'); }
@@ -1065,24 +1068,33 @@
       renderChapterFindings();
     }
 
+    // Findings: compact, expandable (<details>) items — the summary line shows
+    // severity/type and the note; expanding reveals the location, the quoted
+    // passage, the suggestion and the actions (Discuss with Project AI / Fix).
     let lastConsistencyFindings = [];
+    let reviewSeverityFilter = 'all';
+
+    function sevOf(f) { const s = String(f.severity || 'medium').toLowerCase(); return ['high', 'medium', 'low'].indexOf(s) >= 0 ? s : 'medium'; }
+
     function renderConsistencyFindings(findings) {
       lastConsistencyFindings = findings;
       const consistencyEl = document.getElementById('reviewConsistencyFindings');
       if (!consistencyEl) return;
       consistencyEl.innerHTML = findings.length
         ? findings.map(function (f, fi) {
-          return '<div class="review-finding review-' + f.severity + ' review-finding-rich">' +
-            '<div class="review-finding-head"><i class="bx bx-error-circle"></i><span>' + escapeHtml(f.note) + '</span></div>' +
-            '<ul class="review-occurrences">' + f.occurrences.map(function (o) {
+          return '<details class="review-finding review-' + sevOf(f) + ' review-finding-rich" data-sev="' + sevOf(f) + '">' +
+            '<summary class="review-finding-head"><span class="review-sev-dot" aria-hidden="true"></span><span class="review-summary-text">' + escapeHtml(f.note) + '</span><i class="bx bx-chevron-down review-chevron" aria-hidden="true"></i></summary>' +
+            '<div class="review-finding-body"><ul class="review-occurrences">' + f.occurrences.map(function (o) {
               return '<li><button type="button" class="review-goto" data-ch="' + o.chapterKey + '" data-sec="' + o.sectionIndex + '" data-quote="' + escapeHtml(o.sentence).replace(/"/g, '&quot;') + '" title="Open this passage">' +
-                '<i class="bx bx-link-external"></i> ' + escapeHtml(locationLabel(o.chapterKey, o.sectionIndex)) + '</button>' +
+                '<i class="bx bx-link-external" aria-hidden="true"></i> ' + escapeHtml(locationLabel(o.chapterKey, o.sectionIndex)) + '</button>' +
                 '<span class="review-value">' + escapeHtml(o.match) + '</span>' +
                 '<blockquote class="review-quote">' + escapeHtml(o.sentence) + '</blockquote></li>';
             }).join('') + '</ul>' +
-            '<div class="review-finding-actions"><button type="button" class="review-fix-btn" data-consistency="' + fi + '"><i class="bx bx-wrench"></i> Fix with AI</button></div></div>';
+            '<div class="review-finding-actions"><button type="button" class="review-discuss-btn" data-discuss-consistency="' + fi + '"><i class="bx bx-message-rounded-dots" aria-hidden="true"></i> Discuss</button>' +
+            '<button type="button" class="review-fix-btn" data-consistency="' + fi + '"><i class="bx bx-wrench" aria-hidden="true"></i> Fix with AI</button></div></div></details>';
         }).join('')
-        : '<div class="review-finding review-ok"><i class="bx bx-check-circle"></i> No sample-size or participant-count conflicts detected.</div>';
+        : '<div class="review-finding review-ok" data-sev="ok"><i class="bx bx-check-circle"></i> No sample-size or participant-count conflicts detected.</div>';
+      applyReviewFilter();
     }
 
     function renderChapterFindings() {
@@ -1091,27 +1103,70 @@
       const cached = (currentProject.reviewFindings || {})[currentChapter];
       const list = cached && cached.findings ? cached.findings : [];
       if (!list.length) {
-        chapterEl.innerHTML = '<div class="review-finding review-empty">No review run yet for this chapter. Click "Review Current Chapter" to check for missing, weak, inconsistent, or unsupported content.</div>';
+        chapterEl.innerHTML = '<div class="review-finding review-empty" data-sev="ok">No review run yet for this chapter. Tap "Review Current Chapter" to check for missing, weak, inconsistent, or unsupported content.</div>';
+        applyReviewFilter();
         return;
       }
       chapterEl.innerHTML = list.map(function (f, i) {
         const loc = (typeof f.sectionIndex === 'number' && f.sectionIndex >= 0) ? locationLabel(currentChapter, f.sectionIndex) : ((getChaptersStructure()[currentChapter] || {}).title || '') + (f.section ? ' › ' + f.section : '');
-        return '<div class="review-finding review-' + escapeHtml(f.severity || 'medium') + ' review-' + escapeHtml(f.type || '') + ' review-finding-rich' + (f.fixed ? ' review-fixed' : '') + '">' +
-          '<div class="review-finding-head"><span class="review-tag">' + escapeHtml(f.type || 'issue') + '</span><span class="review-sev">' + escapeHtml(f.severity || '') + '</span>' +
-          (f.fixed ? '<span class="review-fixed-badge"><i class="bx bx-check"></i> Fixed</span>' : '') + '</div>' +
-          '<button type="button" class="review-goto" data-ch="' + currentChapter + '" data-sec="' + (typeof f.sectionIndex === 'number' && f.sectionIndex >= 0 ? f.sectionIndex : 0) + '" data-quote="' + escapeHtml(f.excerpt || '').replace(/"/g, '&quot;') + '"><i class="bx bx-link-external"></i> ' + escapeHtml(loc) + '</button>' +
+        return '<details class="review-finding review-' + sevOf(f) + ' review-' + escapeHtml(f.type || '') + ' review-finding-rich' + (f.fixed ? ' review-fixed' : '') + '" data-sev="' + sevOf(f) + '">' +
+          '<summary class="review-finding-head"><span class="review-sev-dot" aria-hidden="true"></span><span class="review-tag">' + escapeHtml(f.type || 'issue') + '</span>' +
+          '<span class="review-summary-text">' + escapeHtml(f.note || '') + '</span>' +
+          (f.fixed ? '<span class="review-fixed-badge"><i class="bx bx-check"></i> Fixed</span>' : '') + '<i class="bx bx-chevron-down review-chevron" aria-hidden="true"></i></summary>' +
+          '<div class="review-finding-body">' +
+          '<button type="button" class="review-goto" data-ch="' + currentChapter + '" data-sec="' + (typeof f.sectionIndex === 'number' && f.sectionIndex >= 0 ? f.sectionIndex : 0) + '" data-quote="' + escapeHtml(f.excerpt || '').replace(/"/g, '&quot;') + '"><i class="bx bx-link-external" aria-hidden="true"></i> ' + escapeHtml(loc) + '</button>' +
           (f.excerpt ? '<blockquote class="review-quote">' + escapeHtml(f.excerpt) + '</blockquote>' : '') +
-          '<div class="review-note">' + escapeHtml(f.note || '') + '</div>' +
-          (f.suggestion ? '<div class="review-suggestion"><i class="bx bx-bulb"></i> ' + escapeHtml(f.suggestion) + '</div>' : '') +
-          (f.fixed ? '' : '<div class="review-finding-actions"><button type="button" class="review-fix-btn" data-finding="' + i + '"><i class="bx bx-wrench"></i> Fix with AI</button></div>') +
-          '</div>';
+          (f.suggestion ? '<div class="review-suggestion"><i class="bx bx-bulb" aria-hidden="true"></i> ' + escapeHtml(f.suggestion) + '</div>' : '') +
+          '<div class="review-finding-actions"><button type="button" class="review-discuss-btn" data-discuss-finding="' + i + '"><i class="bx bx-message-rounded-dots" aria-hidden="true"></i> Discuss</button>' +
+          (f.fixed ? '' : '<button type="button" class="review-fix-btn" data-finding="' + i + '"><i class="bx bx-wrench" aria-hidden="true"></i> Fix with AI</button>') +
+          '</div></div></details>';
       }).join('');
+      applyReviewFilter();
     }
 
-    // Delegated clicks for both findings panels: jump to the passage, or open the AI fix flow.
+    // Severity filter + counts.
+    function applyReviewFilter() {
+      const panel = document.getElementById('reviewFindingsPanel');
+      if (!panel) return;
+      const items = Array.from(panel.querySelectorAll('.review-finding-rich[data-sev]'));
+      items.forEach(function (el) { el.hidden = reviewSeverityFilter !== 'all' && el.dataset.sev !== reviewSeverityFilter; });
+      panel.querySelectorAll('.review-filter-count').forEach(function (c) {
+        const k = c.dataset.count;
+        const n = k === 'all' ? items.length : items.filter(function (el) { return el.dataset.sev === k; }).length;
+        c.textContent = n ? String(n) : '';
+      });
+    }
+    document.getElementById('reviewFilterBar')?.addEventListener('click', function (e) {
+      const b = e.target.closest('.review-filter');
+      if (!b) return;
+      reviewSeverityFilter = b.dataset.sev;
+      this.querySelectorAll('.review-filter').forEach(function (x) { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-pressed', String(on)); });
+      applyReviewFilter();
+    });
+
+    // Send one finding back into Project AI for discussion.
+    function discussFinding(text) {
+      setReviewMode('ai');
+      aiMessageInput.value = text;
+      aiSendBtn.click();
+    }
+
+    // Delegated clicks for both findings panels: jump to the passage, discuss, or open the AI fix flow.
     document.getElementById('reviewFindingsPanel')?.addEventListener('click', function (e) {
       const go = e.target.closest('.review-goto');
       if (go) { goToPassage(go.dataset.ch, parseInt(go.dataset.sec, 10) || 0, go.dataset.quote || ''); return; }
+      const discuss = e.target.closest('.review-discuss-btn');
+      if (discuss) {
+        if (discuss.dataset.discussConsistency !== undefined) {
+          const f = lastConsistencyFindings[parseInt(discuss.dataset.discussConsistency, 10)];
+          if (f) discussFinding('Let\'s discuss this consistency issue: ' + f.note + '\n' + f.occurrences.map(function (o) { return '- ' + locationLabel(o.chapterKey, o.sectionIndex) + ': "' + o.sentence + '"'; }).join('\n') + '\nWhich figure is correct, and how should I fix the others?');
+        } else {
+          const cached = (currentProject.reviewFindings || {})[currentChapter];
+          const f = cached && cached.findings ? cached.findings[parseInt(discuss.dataset.discussFinding, 10)] : null;
+          if (f) discussFinding('Let\'s discuss this review finding (' + f.type + ', ' + sevOf(f) + ') in ' + locationLabel(currentChapter, f.sectionIndex >= 0 ? f.sectionIndex : 0) + ': ' + f.note + (f.excerpt ? '\nPassage: "' + f.excerpt + '"' : '') + '\nWhy is this a problem, and how should I improve it?');
+        }
+        return;
+      }
       const fix = e.target.closest('.review-fix-btn');
       if (!fix) return;
       if (fix.dataset.consistency !== undefined) openFixForConsistency(lastConsistencyFindings[parseInt(fix.dataset.consistency, 10)]);
@@ -1365,7 +1420,7 @@
         const r = applyEditToHtml(before, e);
         if (r.ok) { setSectionHtml(e.chapterKey, e.sectionIndex, r.html); applied++; } else missed.push(e);
       });
-      await saveToFirebase();
+      await saveToFirebase({ sections: chosen.map(function (e) { return [e.chapterKey, e.sectionIndex]; }) });
       renderChapters(); updateSectionNav(); displayHumanizationScore();
       logActivity('section_saved', 'Applied ' + applied + ' AI fix' + (applied === 1 ? '' : 'es'));
       document.getElementById('projFixModal').classList.remove('active');
@@ -1485,32 +1540,133 @@
       }
     }
 
+    // Structured export content shared by Word (.docx), PDF and Print: cover
+    // lines, a contents list, the body split into page-broken parts, and the
+    // formatted references.
+    function buildExportParts(scope) {
+      const chStruct = getChaptersStructure();
+      const refStyle = (currentProject && currentProject.referenceStyle) || 'APA 7th';
+      const parts = [];
+      let toc = null, coverLines = null;
+      if (scope === 'section') {
+        const ch = chStruct[currentChapter];
+        const secName = ch && ch.sections && ch.sections.length ? ch.sections[currentSection] : (ch ? ch.title : '');
+        parts.push({ html: '<h2>' + escapeHtml(secName) + '</h2>' + getSectionContent(currentChapter, currentSection), pageBreakBefore: false });
+      } else if (scope === 'chapter') {
+        const ch = chStruct[currentChapter];
+        let html = '<h1>' + escapeHtml(ch ? ch.title : '') + '</h1>';
+        if (ch && ch.sections && ch.sections.length) {
+          ch.sections.forEach(function (sec, i) { const c = getSectionContent(currentChapter, i); if (c && c.trim().length > 10) html += '<h2>' + escapeHtml(sec) + '</h2>' + c; });
+        } else html += getSectionContent(currentChapter, 0);
+        parts.push({ html: html, pageBreakBefore: false });
+        toc = ch ? [{ title: ch.title, sections: ch.sections || [] }] : null;
+      } else {
+        coverLines = [
+          currentProject && currentProject.approach === 'qualitative' ? 'Qualitative Study' : 'Quantitative Study',
+          'Department: ' + ((currentProject && currentProject.department) || ''),
+          'Type: ' + ((currentProject && currentProject.type) || ''),
+          'Date: ' + new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' }),
+          'Reference Style: ' + refStyle
+        ];
+        toc = [];
+        for (const key in chStruct) {
+          if (!chStruct.hasOwnProperty(key)) continue;
+          const ch = chStruct[key];
+          toc.push({ title: ch.title, sections: ch.sections || [] });
+          let html = '';
+          if (!ch.sections || !ch.sections.length) {
+            const c = getSectionContent(key, 0);
+            if (c && c.trim().length > 10) html = '<h1>' + escapeHtml(ch.title) + '</h1>' + c;
+          } else {
+            ch.sections.forEach(function (sec, i) { const c = getSectionContent(key, i); if (c && c.trim().length > 10) html += '<h2>' + escapeHtml(sec) + '</h2>' + c; });
+            if (html) html = '<h1>' + escapeHtml(ch.title) + '</h1>' + html;
+          }
+          if (html) parts.push({ html: html, pageBreakBefore: true }); // each chapter starts on a new page
+        }
+      }
+      const references = scope === 'project' && currentProject && currentProject.references
+        ? Object.values(currentProject.references).map(function (r) { return (r.formatted && r.formatted[refStyle]) || formatReferencePlain(r); })
+        : [];
+      return { coverLines: coverLines, toc: toc, parts: parts, references: references };
+    }
+
+    function exportFileBase(scope) {
+      const title = (currentProject && currentProject.title) || 'Academic Project';
+      return title.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50) + '_' + scope;
+    }
+
+    // REPLACED the HTML-saved-as-.doc export with a real .docx (js/docx-export.js):
+    // Word heading styles, a page break per chapter, page numbers, references.
     document.getElementById('exportWordBtn')?.addEventListener('click', async function () {
       saveCurrentSection(); await saveToFirebase();
       const scope = exportScopeSelect ? exportScopeSelect.value : 'section';
-      const title = currentProject ? currentProject.title : 'Academic Project';
-      const fullHtml = buildExportHtml(scope);
-      const blob = new Blob([fullHtml], { type: 'application/msword' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const safeName = title.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-      a.download = safeName + '_' + scope + '.doc';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      logActivity('exported', scope);
-      showToast((scope === 'section' ? 'Section' : scope === 'chapter' ? 'Chapter' : 'Project') + ' exported as Word', 'success');
+      try {
+        const p = buildExportParts(scope);
+        await window.RehablixDocx.downloadProject(Object.assign({ title: (currentProject && currentProject.title) || 'Academic Project', fileBase: exportFileBase(scope) }, p));
+        logActivity('exported', scope);
+        showToast((scope === 'section' ? 'Section' : scope === 'chapter' ? 'Chapter' : 'Project') + ' exported as Word (.docx)', 'success');
+      } catch (err) {
+        reportError(err, 'export');
+        showToast('Word export failed: ' + (err.message || 'unknown error'), 'error', 5000);
+      }
     });
 
-    document.getElementById('exportPdfBtn')?.addEventListener('click', function () {
+    // PDF without popup windows (blocked on most phones): rendered in-page with
+    // html2pdf.js, with "Page X of Y" stamped on every page, then downloaded.
+    document.getElementById('exportPdfBtn')?.addEventListener('click', async function () {
       saveCurrentSection(); saveToFirebase();
       const scope = exportScopeSelect ? exportScopeSelect.value : 'section';
-      const printWindow = window.open('', '_blank', 'width=800,height=600');
-      printWindow.document.write(buildExportHtml(scope));
-      printWindow.document.close(); printWindow.focus();
-      setTimeout(function () { printWindow.print(); printWindow.onafterprint = function () { printWindow.close(); }; }, 500);
-      logActivity('exported', scope + ' (PDF)');
+      if (typeof html2pdf === 'undefined') { showToast('PDF library is still loading — try again in a moment.', 'info'); return; }
+      const btn = this; btn.disabled = true;
+      const host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:#fff;';
+      host.innerHTML = extractExportBody(buildExportHtml(scope));
+      document.body.appendChild(host);
+      try {
+        await html2pdf().set({
+          margin: [15, 15, 18, 15], filename: exportFileBase(scope) + '.pdf',
+          image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          pagebreak: { mode: ['css', 'legacy'], before: '.content-page, .toc-page, .pdf-page-break' }
+        }).from(host).toPdf().get('pdf').then(function (pdf) {
+          const total = pdf.internal.getNumberOfPages();
+          for (let i = 1; i <= total; i++) {
+            pdf.setPage(i); pdf.setFontSize(9); pdf.setTextColor(120);
+            pdf.text('Page ' + i + ' of ' + total, pdf.internal.pageSize.getWidth() / 2, pdf.internal.pageSize.getHeight() - 8, { align: 'center' });
+          }
+        }).save();
+        logActivity('exported', scope + ' (PDF)');
+        showToast('PDF downloaded', 'success');
+      } catch (err) {
+        reportError(err, 'export');
+        showToast('PDF export failed — try Print instead.', 'error', 5000);
+      } finally { host.remove(); btn.disabled = false; }
     });
+
+    // Print through a hidden iframe (no popup window).
+    document.getElementById('exportPrintBtn')?.addEventListener('click', function () {
+      saveCurrentSection(); saveToFirebase();
+      const scope = exportScopeSelect ? exportScopeSelect.value : 'section';
+      const frame = document.createElement('iframe');
+      frame.setAttribute('aria-hidden', 'true');
+      frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+      document.body.appendChild(frame);
+      const doc = frame.contentWindow.document;
+      doc.open(); doc.write(buildExportHtml(scope)); doc.close();
+      setTimeout(function () {
+        try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch (e) { showToast('Printing is not available in this browser.', 'error'); }
+        setTimeout(function () { frame.remove(); }, 60000);
+      }, 400);
+      logActivity('exported', scope + ' (print)');
+    });
+
+    // The <style> + body of the print document, for the in-page PDF renderer.
+    function extractExportBody(fullHtml) {
+      const d = new DOMParser().parseFromString(fullHtml, 'text/html');
+      const style = d.querySelector('style');
+      return (style ? '<style>' + style.textContent.replace(/@page[^}]*}/g, '').replace(/body\s*\{/g, '.pdf-root{') + '</style>' : '') +
+        '<div class="pdf-root">' + d.body.innerHTML + '</div>';
+    }
 
     // =========================================================================
     // REFERENCE MANAGER — REDESIGN (new): structured source CRUD + AI
@@ -1755,20 +1911,41 @@
       return content || '';
     }
 
-    function appendAIChatMessage(role, content) {
+    // Lixa's message structure (.message > .message-bubble + .message-time) so
+    // Project AI shares Lixa's bubbles, spacing and typography. `.ai-message`
+    // is kept for chat-history compatibility. `opts.openFindings` adds a
+    // clickable "View findings" button that survives save/reload (data attr).
+    function renderMarkdownSafe(md) {
+      const html = typeof marked !== 'undefined' ? marked.parse(md) : escapeHtml(md);
+      return window.RehablixSanitize ? window.RehablixSanitize.html(html) : html;
+    }
+    function buildChatMessage(role, bubbleHtml, timeText) {
+      const div = document.createElement('div');
+      div.className = 'message ai-message ' + role;
+      const bubble = document.createElement('div');
+      bubble.className = 'message-bubble';
+      bubble.innerHTML = bubbleHtml;
+      const time = document.createElement('div');
+      time.className = 'message-time';
+      time.textContent = timeText || '';
+      div.appendChild(bubble); div.appendChild(time);
+      return div;
+    }
+    function appendAIChatMessage(role, content, opts) {
+      opts = opts || {};
       const emptyState = aiChatMessages.querySelector('.ai-empty-state');
       if (emptyState) emptyState.remove();
-      const div = document.createElement('div');
-      div.className = 'ai-message ' + role;
-      div.innerHTML = role === 'assistant' && typeof marked !== 'undefined' ? marked.parse(content) : escapeHtml(content);
-      const time = document.createElement('div');
-      time.style.cssText = 'font-size: 0.65rem; color: var(--text-secondary); margin-top: 0.2rem;';
-      time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      div.appendChild(time);
+      let html = role === 'assistant' ? renderMarkdownSafe(content) : escapeHtml(content);
+      if (opts.openFindings) html += '<button type="button" class="proj-open-findings" data-open-findings="1"><i class="bx bx-check-shield"></i> View findings</button>';
+      const div = buildChatMessage(role, html, new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       aiChatMessages.appendChild(div);
       div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       updateDefaultPromptsBar();
     }
+    // Completed Chapter Review / Consistency results in the chat are clickable.
+    aiChatMessages.addEventListener('click', function (e) {
+      if (e.target.closest('[data-open-findings]')) setReviewMode('findings');
+    });
 
     async function runProjectAIAction(actionKey) {
       if (!currentProject || !currentChapter) { showToast('Select a chapter and section first', 'error'); return; }
@@ -1821,7 +1998,8 @@
           userPrompt = buildFullProjectSummary();
           const result = await callProjectAI(action, systemPrompt, userPrompt);
           hideTypingIndicator();
-          appendAIChatMessage('assistant', (regexFindings.length ? regexFindings.map(function (f) { return '- ' + f.note; }).join('\n') + '\n\n' : '') + result);
+          appendAIChatMessage('assistant', (regexFindings.length ? regexFindings.map(function (f) { return '- ' + f.note; }).join('\n') + '\n\n' : '') + result, { openFindings: regexFindings.length > 0 });
+          renderConsistencyFindings(regexFindings);
         } else if (actionKey === 'addCitations') {
           systemPrompt += ' Find claims in this section that need a citation. If a matching source exists in AVAILABLE SOURCES, insert an in-text citation for it. If no matching source exists, flag the claim as needing one instead of a citation. NEVER invent a source that is not in AVAILABLE SOURCES. Return ONLY the updated section HTML.';
           userPrompt = context + '\n\nSECTION TO ADD CITATIONS TO:\n' + sectionEditor.innerHTML;
@@ -1847,8 +2025,8 @@
           logActivity('chapter_reviewed', ch ? ch.title : currentChapter);
           hideTypingIndicator();
           appendAIChatMessage('assistant', findings.length
-            ? 'Chapter review complete — ' + findings.length + ' specific issue' + (findings.length === 1 ? '' : 's') + ' found. Open **Findings** to see each one and fix it.'
-            : 'Chapter review complete — no real problems found in this chapter.');
+            ? 'Chapter review complete — ' + findings.length + ' specific issue' + (findings.length === 1 ? '' : 's') + ' found.'
+            : 'Chapter review complete — no real problems found in this chapter.', { openFindings: findings.length > 0 });
           renderChapterFindings();
         }
       } catch (err) {
@@ -1860,12 +2038,18 @@
 
     function renderProjectAIActions() {
       if (!projectAIActions) return;
+      // One horizontal strip: the 8 quick actions, then the suggested prompts.
       projectAIActions.innerHTML = Object.keys(PROJECT_AI_ACTIONS).map(function (key) {
         const a = PROJECT_AI_ACTIONS[key];
-        return '<button type="button" class="proj-ai-action-btn" data-action="' + key + '" title="' + a.label + '"><i class="bx ' + a.icon + '"></i> ' + a.label + '</button>';
+        return '<button type="button" class="proj-ai-action-btn" data-action="' + key + '" title="' + a.label + '"><i class="bx ' + a.icon + '" aria-hidden="true"></i> ' + a.label + '</button>';
+      }).join('') + SUGGESTED_PROMPTS.map(function (t) {
+        return '<button type="button" class="proj-ai-action-btn proj-ai-prompt-chip" data-prompt="' + escapeHtml(t) + '"><i class="bx bx-message-rounded-dots" aria-hidden="true"></i> ' + escapeHtml(t) + '</button>';
       }).join('');
       projectAIActions.querySelectorAll('.proj-ai-action-btn').forEach(function (btn) {
-        btn.addEventListener('click', function () { runProjectAIAction(btn.dataset.action); });
+        btn.addEventListener('click', function () {
+          if (btn.dataset.prompt) { aiMessageInput.value = btn.dataset.prompt; aiSendBtn.click(); }
+          else runProjectAIAction(btn.dataset.action);
+        });
       });
     }
 
@@ -1873,44 +2057,70 @@
     // VERSION HISTORY (ported)
     // =========================================================================
     const MAX_VERSIONS = 10;
+    // VERSION HISTORY (reworked): versions no longer ride along inside the
+    // project record (every autosave used to rewrite all of them). They live at
+    // history/{scope}/projectVersions/{projectId}/{chapterKey}/{sectionIndex}
+    // and are only read when the Version History modal (or a restore) needs them.
+    let versionsCache = {};
+    function versionsRef(chKey, sec) { return database.ref('history/' + scopeUid + '/projectVersions/' + currentProjectId + '/' + chKey + '/' + sec); }
+    function toVersionList(v) { return (Array.isArray(v) ? v : Object.values(v || {})).filter(Boolean); }
+    async function loadVersions(chKey, sec) {
+      const key = chKey + '|' + sec;
+      if (versionsCache[key]) return versionsCache[key];
+      let list = [];
+      try { list = toVersionList((await versionsRef(chKey, sec).once('value')).val()); } catch (e) { list = []; }
+      versionsCache[key] = list;
+      return list;
+    }
+
+    // One-time move of a project's legacy `_versions` blob to its own path.
+    async function migrateVersionsOut(id, full) {
+      if (!full || !full._versions || typeof full._versions !== 'object' || !Object.keys(full._versions).length) { if (full) delete full._versions; return; }
+      try {
+        await database.ref('history/' + scopeUid + '/projectVersions/' + id).update(full._versions);
+        await database.ref('history/' + scopeUid + '/projects/' + id + '/_versions').remove();
+      } catch (e) { console.warn('[project] version migration deferred:', e); }
+      delete full._versions;
+    }
 
     async function saveVersion() {
       if (!currentProject || !currentChapter) return;
       saveCurrentSection();
       const ch = getChaptersStructure()[currentChapter];
-      const content = ch && ch.sections && ch.sections.length > 0 ? currentProject.chapters[currentChapter].sections[currentSection] : currentProject.chapters[currentChapter].content;
+      const data = (currentProject.chapters || {})[currentChapter] || {};
+      const content = ch && ch.sections && ch.sections.length > 0 ? (data.sections || {})[currentSection] : data.content;
       if (!content || content.trim().length < 50) return;
-      if (!currentProject._versions) currentProject._versions = {};
-      if (!currentProject._versions[currentChapter]) currentProject._versions[currentChapter] = {};
-      if (!currentProject._versions[currentChapter][currentSection]) currentProject._versions[currentChapter][currentSection] = [];
-      const versions = currentProject._versions[currentChapter][currentSection];
+      const chKey = currentChapter, sec = currentSection;
+      const versions = await loadVersions(chKey, sec);
       if (versions.length > 0 && versions[0].content === content) return;
       versions.unshift({ content: content, timestamp: Date.now(), date: new Date().toLocaleString() });
       if (versions.length > MAX_VERSIONS) versions.length = MAX_VERSIONS;
-      await saveToFirebase();
+      try { await versionsRef(chKey, sec).set(versions); } catch (e) { reportError(e, 'save'); }
       updateVersionList();
     }
 
-    function updateVersionList() {
-      if (!versionList || !currentProject || !currentProject._versions) return;
-      const versions = (currentProject._versions[currentChapter] || {})[currentSection] || [];
+    async function updateVersionList() {
+      if (!versionList || !currentProject || !currentChapter) return;
+      const chKey = currentChapter, sec = currentSection;
+      const versions = await loadVersions(chKey, sec);
+      if (chKey !== currentChapter || sec !== currentSection) return; // moved on while loading
       if (versions.length === 0) { versionList.innerHTML = '<small style="color:var(--text-secondary);">No previous versions</small>'; return; }
-      versionList.innerHTML = versions.map(function (v, i) { return '<div class="version-item"><span>' + v.date + '</span><button class="restore-version-btn" data-index="' + i + '">Restore</button></div>'; }).join('');
-      document.querySelectorAll('.restore-version-btn').forEach(function (btn) {
-        btn.addEventListener('click', function (e) { restoreVersion(parseInt(e.target.dataset.index)); });
+      versionList.innerHTML = versions.map(function (v, i) { return '<div class="version-item"><span>' + escapeHtml(v.date || '') + '</span><button class="restore-version-btn" data-index="' + i + '" aria-label="Restore version from ' + escapeHtml(v.date || '') + '">Restore</button></div>'; }).join('');
+      versionList.querySelectorAll('.restore-version-btn').forEach(function (btn) {
+        btn.addEventListener('click', function (e) { restoreVersion(parseInt(e.currentTarget.dataset.index, 10)); });
       });
     }
 
-    function restoreVersion(index) {
-      const versions = currentProject && currentProject._versions ? (currentProject._versions[currentChapter] || {})[currentSection] : null;
+    async function restoreVersion(index) {
+      const versions = await loadVersions(currentChapter, currentSection);
       if (!versions || !versions[index]) return;
       if (!confirm('Restore this version? Current content will be saved as a new version first.')) return;
-      saveVersion();
-      sectionEditor.innerHTML = versions[index].content;
+      const target = versions[index].content;
+      await saveVersion();
+      sectionEditor.innerHTML = target;
       saveCurrentSection(); saveToFirebase(); displayHumanizationScore(); updateVersionList();
       showToast('Version restored', 'success');
     }
-
     if (saveVersionBtn) saveVersionBtn.addEventListener('click', function () { saveVersion(); showToast('Version saved', 'success'); });
 
     // =========================================================================
@@ -1996,7 +2206,7 @@
           if (scoreFillEl) { scoreFillEl.style.width = deep.score + '%'; scoreFillEl.style.background = deep.score >= 70 ? '#10b981' : deep.score >= 50 ? '#f59e0b' : '#dc2626'; }
           if (scoreSentenceVarEl) scoreSentenceVarEl.textContent = 'Burstiness: ' + deep.details.burstiness;
           if (scorePredictabilityEl) scorePredictabilityEl.textContent = 'Vocabulary: ' + deep.details.ttr;
-          if (scoreAILikelyEl) scoreAILikelyEl.textContent = 'AI Patterns: ' + deep.details.aiCount;
+          if (scoreAILikelyEl) scoreAILikelyEl.textContent = 'Repetitive patterns: ' + deep.details.aiCount;
           if (badgeFree) badgeFree.style.display = 'none'; if (badgePremium) badgePremium.style.display = 'inline-flex';
         } else aiScoreDisplay.style.display = 'none';
       } else {
@@ -2007,7 +2217,7 @@
           if (scoreFillEl) { scoreFillEl.style.width = score.overall + '%'; scoreFillEl.style.background = score.overall >= 70 ? '#10b981' : score.overall >= 50 ? '#f59e0b' : '#dc2626'; }
           if (scoreSentenceVarEl) scoreSentenceVarEl.textContent = 'Sentence Variation: ' + score.variation + '%';
           if (scorePredictabilityEl) scorePredictabilityEl.textContent = 'Predictability: ' + score.predictability + '%';
-          if (scoreAILikelyEl) scoreAILikelyEl.textContent = 'AI-Likelihood: ' + score.aiLikelihood + '%';
+          if (scoreAILikelyEl) scoreAILikelyEl.textContent = 'Repetitive patterns: ' + score.aiLikelihood + '%';
           if (badgeFree) badgeFree.style.display = 'inline-block'; if (badgePremium) badgePremium.style.display = 'none';
         } else aiScoreDisplay.style.display = 'none';
       }
@@ -2041,7 +2251,7 @@
     async function humanizeCurrentSection() {
       if (!currentProject || !currentChapter) { showToast('Select a chapter and section first', 'error'); return; }
       const modelId = pickHumanizeModelId();
-      if (!modelId) { showToast('Humanization requires Student plan or higher.', 'error'); goToSubscription(); return; }
+      if (!modelId) { showToast('Natural voice editing requires Student plan or higher.', 'error'); goToSubscription(); return; }
       const sourceHtml = sectionEditor.innerHTML;
       if (!sourceHtml || extractPlainText(sourceHtml).trim().length < 50) { showToast('Write some content in this section first.', 'error'); return; }
       await saveVersion();
@@ -2051,7 +2261,7 @@
       const humanizationRules = buildHumanizationPrompt();
       const systemPrompt = 'You are an expert at rewriting academic text to sound naturally human-written.\nYour job is to change STYLE and VOICE only, never change facts, numbers, sample sizes, statistics, or citations.\nWrite in first-person student voice.\n' + PUNCTUATION_RULES;
       const userPrompt = 'REWRITE the text below to sound like a real ' + profile + ' healthcare student wrote it.\nThe project is about: "' + currentProject.title + '"\n\nSTRICT RULES:\n- Change ONLY the writing style, voice, and phrasing.\n- Do NOT change any numbers, statistics, sample sizes, participant counts, or citations.\n- Preserve all ' + referenceStyle + ' citations exactly as written.\n\nWRITING PROFILE:\n' + profileGuidance + '\n\n' + humanizationRules + '\n\nTEXT TO REWRITE:\n' + sourceHtml.substring(0, 6000) + '\n\nReturn ONLY the rewritten HTML. No markdown fences. If the source text is empty, respond with "EMPTY_SOURCE".';
-      showToast('Humanizing...', 'info', 2500);
+      showToast('Applying natural voice editing...', 'info', 2500);
       try {
         const config = await window.RehablixAIQuotaCore.resolveModelConfig(modelId);
         if (!config) throw new Error('AI service not configured');
@@ -2064,15 +2274,15 @@
         const data = await response.json();
         const raw = data.choices && data.choices[0] && data.choices[0].message.content;
         const cleaned = raw ? cleanAIResponse(raw) : '';
-        if (!cleaned || cleaned.includes('EMPTY_SOURCE') || cleaned.length < 50) throw new Error('Humanization produced no usable output');
+        if (!cleaned || cleaned.includes('EMPTY_SOURCE') || cleaned.length < 50) throw new Error('Natural voice editing produced no usable output');
         if (currentUser) window.RehablixAIQuotaCore.reportTokenUsage(currentUser.uid, currentPlan, systemPrompt + userPrompt + cleaned, config.weight);
         sectionEditor.innerHTML = cleaned;
         saveCurrentSection(); await saveToFirebase();
         displayHumanizationScore(); updateVersionList();
-        showToast('Section humanized', 'success');
+        showToast('Natural voice editing applied', 'success');
       } catch (err) {
         reportError(err, 'humanize section');
-        showToast('Humanization failed: ' + (err.message || 'Unknown error'), 'error', 5000);
+        showToast('Natural voice editing failed: ' + (err.message || 'Unknown error'), 'error', 5000);
       }
     }
 
@@ -2156,11 +2366,45 @@
     // =========================================================================
     // PROJECT MANAGEMENT (ported)
     // =========================================================================
+    // Lists read the lightweight index only. First run for an account (no index
+    // yet) builds it once from the full projects — transparent migration. A
+    // daily background reconcile picks up projects created by older app
+    // versions that don't maintain the index.
+    const INDEX_RECONCILE_KEY = 'rehab_project_index_reconciled_';
+    async function buildIndexFromFullProjects() {
+      const snap = await database.ref('history/' + scopeUid + '/projects').once('value');
+      const full = snap.val() || {};
+      const idx = {};
+      Object.keys(full).forEach(function (id) { idx[id] = indexEntryFrom(full[id]); });
+      try { localStorage.setItem(INDEX_RECONCILE_KEY + scopeUid, String(Date.now())); } catch (e) {}
+      return idx;
+    }
     async function loadProjects() {
       if (!currentUser) return;
       try {
-        const snap = await database.ref('history/' + scopeUid + '/projects').once('value');
-        projects = snap.val() || {};
+        const idxSnap = await database.ref('history/' + scopeUid + '/projectIndex').once('value');
+        let idx = idxSnap.val();
+        if (!idx) {
+          idx = await buildIndexFromFullProjects();
+          if (Object.keys(idx).length) database.ref('history/' + scopeUid + '/projectIndex').set(idx).catch(function () {});
+        } else {
+          let last = 0;
+          try { last = parseInt(localStorage.getItem(INDEX_RECONCILE_KEY + scopeUid) || '0', 10); } catch (e) {}
+          if (Date.now() - last > 24 * 3600 * 1000) {
+            buildIndexFromFullProjects().then(function (full) {
+              const missing = Object.keys(full).filter(function (id) { return !projects[id]; });
+              const stale = Object.keys(projects).filter(function (id) { return !full[id]; });
+              if (!missing.length && !stale.length) return;
+              const upd = {};
+              missing.forEach(function (id) { upd[id] = full[id]; projects[id] = full[id]; });
+              stale.forEach(function (id) { upd[id] = null; delete projects[id]; });
+              database.ref('history/' + scopeUid + '/projectIndex').update(upd).catch(function () {});
+              updateProjectSelector();
+              if (screens.projects && screens.projects.classList.contains('active')) renderProjectsListScreen();
+            }).catch(function () {});
+          }
+        }
+        projects = idx || {};
         updateProjectSelector();
       } catch (error) { reportError(error, 'project load'); }
     }
@@ -2187,8 +2431,17 @@
       // reassigning them on the next lines does not race with what gets
       // written.
       if (currentProjectId && currentProject) { saveCurrentSection(); saveToFirebase(); }
+      // Full project data is loaded only now (the list holds index entries).
+      let full;
+      try {
+        const snap = await database.ref('history/' + scopeUid + '/projects/' + id).once('value');
+        full = snap.val();
+      } catch (err) { reportError(err, 'project load'); return; }
+      if (!full) { showToast('Project not found', 'error'); delete projects[id]; database.ref('history/' + scopeUid + '/projectIndex/' + id).remove().catch(function () {}); updateProjectSelector(); return; }
+      await migrateVersionsOut(id, full);
+      versionsCache = {};
       currentProjectId = id;
-      currentProject = projects[id];
+      currentProject = full;
       currentChapter = (currentProject.dashboard && currentProject.dashboard.lastOpenedChapter) || 'chapter1';
       currentSection = (currentProject.dashboard && currentProject.dashboard.lastOpenedSection) || 0;
 
@@ -2301,7 +2554,7 @@
         department: projectDeptSelect ? projectDeptSelect.value : 'Occupational Therapy',
         approach: projectApproachSelect ? projectApproachSelect.value : 'quantitative',
         writingProfile: 'undergraduate', wordCountPref: 'auto', customWordCount: 500, referenceStyle: 'APA 7th',
-        chapters: {}, _versions: {}, _supervisorPersonality: supervisorPersonality,
+        chapters: {}, _supervisorPersonality: supervisorPersonality,
         createdAt: firebase.database.ServerValue.TIMESTAMP, updatedAt: firebase.database.ServerValue.TIMESTAMP
       };
       if (projectOutlineType && projectOutlineType.value === 'custom') {
@@ -2312,7 +2565,8 @@
         const ref = await database.ref('history/' + scopeUid + '/projects').push(newProject);
         const id = ref.key;
         newProject.id = id;
-        projects[id] = newProject;
+        newProject.createdAt = Date.now(); newProject.updatedAt = Date.now();
+        updateProjectIndex(id, newProject);
         if (window.RehablixCenter) window.RehablixCenter.logActivity('project', 'Created project', newProject.title || 'Untitled project').catch(function () {});
         currentProjectId = id; currentProject = newProject; currentChapter = 'chapter1'; currentSection = 0;
         incrementProjectCount();
@@ -2532,7 +2786,7 @@
         if (confirm('Delete chapter "' + (ch ? ch.title : '') + '" and all its content?')) {
           ensureCustomOutline(); delete currentProject._customOutline[chKey];
           if (currentProject.chapters && currentProject.chapters[chKey]) delete currentProject.chapters[chKey];
-          await saveToFirebase();
+          await saveToFirebase({ chapterKey: chKey });
           const keys = Object.keys(getChaptersStructure());
           if (currentChapter === chKey) currentChapter = keys[0] || 'chapter1';
           currentSection = 0; renderChapters(); loadSectionContent(); showToast('Chapter deleted', 'success');
@@ -2545,7 +2799,7 @@
         if (confirm('Delete this section and its content?')) {
           ensureCustomOutline(); currentProject._customOutline[chKey].sections.splice(secIndex, 1);
           if (currentProject.chapters && currentProject.chapters[chKey] && currentProject.chapters[chKey].sections) currentProject.chapters[chKey].sections.splice(secIndex, 1);
-          await saveToFirebase();
+          await saveToFirebase({ chapterKey: chKey });
           if (currentSection >= currentProject._customOutline[chKey].sections.length) currentSection = Math.max(0, currentProject._customOutline[chKey].sections.length - 1);
           renderChapters(); loadSectionContent(); showToast('Section deleted', 'success');
         }
@@ -2589,20 +2843,71 @@
       unsavedChanges = false; updateUnsavedIndicator();
     }
 
-    async function saveToFirebase() {
+    // PERSISTENCE (reworked): writes only what changed instead of rewriting the
+    // whole project. By default the open section + the project's settings;
+    // opts.chapterKey rewrites one chapter (outline edits); opts.sections =
+    // [[chapterKey, sectionIndex], …] writes those sections (AI fixes);
+    // opts.fullChapters rewrites every chapter (rarely needed). Versions no
+    // longer live in the project record at all (see VERSION HISTORY).
+    function sectionValue(chKey, secIndex) {
+      const ch = getChaptersStructure()[chKey];
+      const data = (currentProject.chapters || {})[chKey] || {};
+      if (ch && ch.sections && ch.sections.length) {
+        const v = data.sections ? data.sections[secIndex] : undefined;
+        return ['chapters/' + chKey + '/sections/' + secIndex, v === undefined ? null : v];
+      }
+      return ['chapters/' + chKey + '/content', data.content === undefined ? null : data.content];
+    }
+
+    async function saveToFirebase(opts) {
+      opts = opts || {};
       if (!currentUser || !currentProjectId || !currentProject) return;
+      // Captured now: callers may switch projects before this write resolves.
+      const pid = currentProjectId, proj = currentProject;
       try {
         const updateData = {
-          chapters: currentProject.chapters, _versions: currentProject._versions || {},
           writingProfile: currentProject.writingProfile || 'undergraduate', wordCountPref: currentProject.wordCountPref || 'auto',
           customWordCount: currentProject.customWordCount || 500, referenceStyle: currentProject.referenceStyle || 'APA 7th',
           _supervisorPersonality: supervisorPersonality, updatedAt: firebase.database.ServerValue.TIMESTAMP
         };
         if (currentProject._customOutline) updateData._customOutline = currentProject._customOutline;
-        await database.ref('history/' + scopeUid + '/projects/' + currentProjectId).update(updateData);
-        projects[currentProjectId] = JSON.parse(JSON.stringify(currentProject));
-        unsavedChanges = false; updateUnsavedIndicator();
+        if (opts.fullChapters) updateData.chapters = currentProject.chapters || {};
+        else {
+          if (opts.chapterKey) updateData['chapters/' + opts.chapterKey] = (currentProject.chapters || {})[opts.chapterKey] || null;
+          const targets = (opts.sections || []).slice();
+          if (currentChapter && opts.chapterKey !== currentChapter) targets.push([currentChapter, currentSection]);
+          targets.forEach(function (t) {
+            if (opts.chapterKey && t[0] === opts.chapterKey) return;
+            const kv = sectionValue(t[0], t[1]);
+            updateData[kv[0]] = kv[1];
+          });
+        }
+        await database.ref('history/' + scopeUid + '/projects/' + pid).update(updateData);
+        updateProjectIndex(pid, proj);
+        if (pid === currentProjectId) { unsavedChanges = false; updateUnsavedIndicator(); }
       } catch (error) { reportError(error, 'save'); }
+    }
+
+    // Lightweight list index: history/{scope}/projectIndex/{id} — the project
+    // list and selector read only this; full data loads when a project opens.
+    function indexEntryFrom(p) {
+      const saved = currentProject; currentProject = p;
+      let pct = 0;
+      try { pct = computeProgress(p).pct; } catch (e) { pct = 0; }
+      currentProject = saved;
+      return {
+        title: p.title || '', type: p.type || '', department: p.department || '', approach: p.approach || 'quantitative',
+        createdAt: typeof p.createdAt === 'number' ? p.createdAt : null,
+        updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : (typeof p.createdAt === 'number' ? p.createdAt : null),
+        progressPct: pct
+      };
+    }
+    function updateProjectIndex(id, p) {
+      id = id || currentProjectId; p = p || currentProject;
+      if (!id || !p || !scopeUid) return;
+      const entry = indexEntryFrom(p);
+      projects[id] = Object.assign({}, entry, { updatedAt: Date.now() });
+      database.ref('history/' + scopeUid + '/projectIndex/' + id).update(Object.assign({}, entry, { updatedAt: firebase.database.ServerValue.TIMESTAMP })).catch(function () {});
     }
 
     // =========================================================================
@@ -2817,21 +3122,34 @@
     }
     function hideTypingIndicator() { if (typingIndicator) { typingIndicator.remove(); typingIndicator = null; } }
 
-    function updateDefaultPromptsBar() {
-      const hasMessages = aiChatMessages.querySelectorAll('.ai-message').length > 0;
-      if (hasMessages) {
-        defaultPromptsBar.style.display = 'block';
-        if (defaultPromptsScroll.children.length === 0) {
-          const prompts = ['Review my current section for clarity', 'Suggest improvements for this chapter', 'Help me with my methodology approach', 'What key points should I cover in this section?'];
-          defaultPromptsScroll.innerHTML = prompts.map(function (t) { return '<span class="suggested-prompt-chip">' + t + '</span>'; }).join('');
-          defaultPromptsScroll.querySelectorAll('.suggested-prompt-chip').forEach(function (chip) { chip.addEventListener('click', function () { aiMessageInput.value = chip.textContent; aiSendBtn.click(); }); });
-        }
-      } else defaultPromptsBar.style.display = 'none';
-    }
+    // The suggested prompts now live in the same horizontal strip as the
+    // quick actions (see renderProjectAIActions) — the old separate bar stays hidden.
+    const SUGGESTED_PROMPTS = ['Review my current section for clarity', 'Suggest improvements for this chapter', 'Help me with my methodology approach', 'What key points should I cover in this section?'];
+    function updateDefaultPromptsBar() { if (defaultPromptsBar) defaultPromptsBar.style.display = 'none'; }
 
     function clearChatHistory() {
-      aiChatMessages.innerHTML = '<div class="ai-empty-state"><i class="fas fa-robot"></i><p>Project AI is ready</p><small>Ask about this project, or use the quick actions above for common tasks</small></div>';
+      aiChatMessages.innerHTML = '<div class="ai-empty-state empty-chat"><i class="fas fa-robot"></i><p>Project AI is ready</p><small>Ask about this project, or tap a quick action below</small></div>';
       updateDefaultPromptsBar();
+    }
+
+    // Strictness / Profession live in a compact settings popover.
+    const projAISettingsBtn = document.getElementById('projAISettingsBtn');
+    const supervisorPersonalityEl = document.getElementById('supervisorPersonality');
+    if (projAISettingsBtn && supervisorPersonalityEl) {
+      projAISettingsBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        const open = supervisorPersonalityEl.hidden;
+        supervisorPersonalityEl.hidden = !open;
+        projAISettingsBtn.setAttribute('aria-expanded', String(open));
+        if (open && supervisorStrictness) supervisorStrictness.focus();
+      });
+      const closeSettings = function (e) {
+        if (supervisorPersonalityEl.hidden || supervisorPersonalityEl.contains(e.target) || projAISettingsBtn.contains(e.target)) return;
+        supervisorPersonalityEl.hidden = true; projAISettingsBtn.setAttribute('aria-expanded', 'false');
+      };
+      document.addEventListener('click', closeSettings);
+      cleanupFns.push(function () { document.removeEventListener('click', closeSettings); });
+      supervisorPersonalityEl.addEventListener('keydown', function (e) { if (e.key === 'Escape') { supervisorPersonalityEl.hidden = true; projAISettingsBtn.setAttribute('aria-expanded', 'false'); projAISettingsBtn.focus(); } });
     }
 
     async function loadChatHistory() {
@@ -2842,14 +3160,10 @@
         if (data && data.messages && data.messages.length > 0) {
           aiChatMessages.innerHTML = '';
           data.messages.forEach(function (msg) {
-            const div = document.createElement('div');
-            div.className = 'ai-message ' + msg.role;
-            div.innerHTML = msg.role === 'assistant' && typeof marked !== 'undefined' ? marked.parse(msg.content) : msg.content;
-            const time = document.createElement('div');
-            time.style.cssText = 'font-size: 0.65rem; color: var(--text-secondary); margin-top: 0.2rem;';
-            time.textContent = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-            div.appendChild(time);
-            aiChatMessages.appendChild(div);
+            // Stored content is the bubble's HTML — sanitized before it is shown again.
+            const raw = msg.role === 'assistant' && typeof marked !== 'undefined' ? marked.parse(msg.content || '') : (msg.content || '');
+            const html = window.RehablixSanitize ? window.RehablixSanitize.html(raw) : raw;
+            aiChatMessages.appendChild(buildChatMessage(msg.role, html, msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''));
           });
           aiChatMessages.scrollTop = aiChatMessages.scrollHeight;
           updateDefaultPromptsBar();
@@ -2865,10 +3179,16 @@
         const messages = [];
         aiChatMessages.querySelectorAll('.ai-message').forEach(function (el) {
           const isUser = el.classList.contains('user');
-          const clone = el.cloneNode(true);
-          const timeEl = clone.querySelector('div[style*="font-size: 0.65rem"]');
-          if (timeEl) timeEl.remove();
-          messages.push({ role: isUser ? 'user' : 'assistant', content: clone.innerHTML || clone.textContent, timestamp: Date.now() });
+          const bubble = el.querySelector('.message-bubble');
+          let content;
+          if (bubble) content = bubble.innerHTML;
+          else { // pre-redesign markup (time div inline)
+            const clone = el.cloneNode(true);
+            const timeEl = clone.querySelector('div[style*="font-size: 0.65rem"]');
+            if (timeEl) timeEl.remove();
+            content = clone.innerHTML || clone.textContent;
+          }
+          messages.push({ role: isUser ? 'user' : 'assistant', content: content, timestamp: Date.now() });
         });
         if (messages.length > 0 && !aiChatMessages.querySelector('.ai-empty-state')) {
           await database.ref('history/' + scopeUid + '/projects/' + currentProjectId + '/chatHistory').set({ messages: messages.slice(-100), updatedAt: firebase.database.ServerValue.TIMESTAMP });

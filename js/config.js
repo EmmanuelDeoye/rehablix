@@ -91,3 +91,10 @@ async function fetchTokens() {
 window.fetchTokens = fetchTokens;
 
 console.log('Firebase config loaded');
+
+// Server-side subscription billing (security pass, item 7). While false the
+// existing client-side flow runs unchanged. Set to true only AFTER the
+// verifyPayment / webhook functions (rehablix-android/backend/functions) and
+// the draft database rules are deployed — both need owner approval first.
+window.REHABLIX_SERVER_BILLING = false;
+window.REHABLIX_BILLING_ENDPOINT = 'https://us-central1-rehablix-ai.cloudfunctions.net/verifyPayment';

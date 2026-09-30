@@ -470,7 +470,7 @@ If the user's message includes content extracted from an uploaded file, an image
     const visionUrl = await downscaleImage(dataUrl).catch(() => dataUrl);
     let ocrText = '';
     try {
-      await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
+      await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js');
       const { data } = await window.Tesseract.recognize(dataUrl, 'eng');
       ocrText = (data.text || '').trim();
     } catch (e) { /* OCR is best-effort */ }
@@ -730,7 +730,8 @@ If the user's message includes content extracted from an uploaded file, an image
     recognition = new SpeechRecognitionAPI();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = 'en-US';
+    // Device/browser language instead of a hardcoded en-US.
+    recognition.lang = navigator.language || 'en-US';
 
     let baseText = '';
 
@@ -1377,9 +1378,12 @@ Given the user's latest message, return ONLY a compact JSON object (no markdown,
           if (resolved) scopeUid = resolved;
         } catch (e) { /* fall back to own account */ }
       }
-      const snap = await database.ref(`history/${scopeUid}/patients`).once('value');
-      const patients = snap.val();
-      if (!patients) return null;
+      // Name matching only needs the lightweight index; the full record is
+      // read for the one matched patient.
+      const patients = window.RehablixEmrStore
+        ? await window.RehablixEmrStore.loadIndex(scopeUid)
+        : (await database.ref(`history/${scopeUid}/patients`).once('value')).val();
+      if (!patients || !Object.keys(patients).length) return null;
       const lower = text.toLowerCase();
       let matchId = null, match = null;
       Object.entries(patients).forEach(([id, p]) => {
@@ -1388,11 +1392,11 @@ Given the user's latest message, return ONLY a compact JSON object (no markdown,
       });
       if (!match) return null;
       if (window.RehablixPatientContext) {
-        const ctx = await window.RehablixPatientContext.build(scopeUid, matchId, match).catch(() => null);
+        const ctx = await window.RehablixPatientContext.build(scopeUid, matchId, null).catch(() => null);
         if (ctx) return ctx;
       }
-      // Defensive fallback if the shared module didn't load in time.
-      return { name: match.name, diagnosis: match.primaryDx || '', assessment: (match.assessment || '').slice(0, 2000) };
+      // Defensive fallback if the shared module didn't load in time — never the name.
+      return { diagnosis: match.primaryDx || '' };
     } catch (e) {
       return null;
     }
@@ -1762,7 +1766,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       // wasn't loaded in time (see findPatientContext's fallback).
       const contextText = window.RehablixPatientContext
         ? window.RehablixPatientContext.toPromptText(patientContext)
-        : `Name: ${patientContext.name}\nDiagnosis: ${patientContext.diagnosis || 'not recorded'}\nRecorded notes/history: ${patientContext.assessment || 'none recorded'}`;
+        : `Diagnosis: ${patientContext.diagnosis || 'not recorded'}\nRecorded notes/history: ${patientContext.assessment || 'none recorded'}`;
       systemPrompt += `\n\nRECORDED PATIENT CONTEXT (from Smart EMR — factual background only, may be incomplete; do not assume anything beyond it):\n${contextText}\n\nClearly separate, in your answer: (1) facts drawn from this recorded context, (2) any measured/clinician-entered results it contains, and (3) your own interpretation or suggestions. Never present your own interpretation as a confirmed clinical finding.`;
     }
     if (plan && plan.clinicalRequest) {

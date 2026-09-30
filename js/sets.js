@@ -826,15 +826,48 @@
   }
 
   // ==================== DELETE ACCOUNT ====================
+  // Removes everything this account owns: its own records (history/{uid} —
+  // patients, sessions, projects, audio, …), profile + subscription
+  // (users/{uid}), partner/feedback records and its center memberships.
+  // A center OWNER's shared patient records live under their own history
+  // node and are removed with it; a center MEMBER's access to someone else's
+  // center data is only unlinked, never deleted.
+  async function deleteAllUserData(uid) {
+    const memberships = (await db.ref(`users/${uid}/memberships`).once('value')).val() || {};
+    const updates = {};
+    Object.keys(memberships).forEach(centerUid => { updates[`users/${centerUid}/centers/members/${uid}`] = null; });
+    if (Object.keys(updates).length) await db.ref().update(updates).catch(() => {});
+    await db.ref(`history/${uid}`).remove();
+    await Promise.all([
+      db.ref(`feedback/${uid}`).remove().catch(() => {}),
+      db.ref(`partners/${uid}`).remove().catch(() => {})
+    ]);
+    try {
+      await db.ref(`users/${uid}`).remove();
+    } catch (e) {
+      // Stricter rules: clear each child the user may write instead.
+      const keys = Object.keys((await db.ref(`users/${uid}`).once('value')).val() || {}).filter(k => k !== 'banned' && k !== 'partner');
+      const u = {};
+      keys.forEach(k => { u[k] = null; });
+      if (keys.length) await db.ref(`users/${uid}`).update(u);
+    }
+    try { localStorage.clear(); } catch (e) {}
+  }
   if (deleteAccountBtn) {
     deleteAccountBtn.addEventListener('click', () => {
       openConfirmModal(
-        "⚠️ PERMANENT ACTION: All your data including profile, analyses, and subscription history will be deleted forever. This cannot be undone. Are you absolutely sure?",
+        "⚠️ PERMANENT ACTION: All your data — profile, patient records, projects, analyses, recordings and subscription history — will be deleted forever. This cannot be undone. Are you absolutely sure?",
         async () => {
           if (!currentUser) return;
           try {
-            // Delete user data from database
-            await db.ref(`users/${currentUser.uid}`).remove();
+            // Firebase only deletes an account after a recent sign-in. Check
+            // that FIRST, so data is never wiped while the account survives.
+            const lastSignIn = Date.parse((currentUser.metadata && currentUser.metadata.lastSignInTime) || 0);
+            if (!lastSignIn || Date.now() - lastSignIn > 5 * 60 * 1000) {
+              showToast("For your security, please log out and log back in, then delete your account within 5 minutes.", 'error');
+              return;
+            }
+            await deleteAllUserData(currentUser.uid);
             // Delete the auth account
             await currentUser.delete();
             showToast("Account deleted successfully. Redirecting...", 'success');

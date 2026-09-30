@@ -675,3 +675,17 @@ input:checked + .slider:before {
         padding: 0;
     }
 }
+
+/* EMR security pass: "AI draft, review before use." banner */
+.doc-ai-draft-banner {
+    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+    margin: 0 0 0.75rem; padding: 0.55rem 0.85rem;
+    border-radius: 12px; font-size: 0.85rem; font-weight: 600;
+    background: rgba(245, 158, 11, 0.12); color: #b45309;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+}
+.doc-ai-draft-banner .doc-review-btn {
+    margin-left: auto; border: 1px solid currentColor; background: transparent; color: inherit;
+    border-radius: 999px; padding: 0.2rem 0.75rem; font-size: 0.78rem; font-weight: 600; cursor: pointer;
+}
+[data-theme="dark"] .doc-ai-draft-banner { color: #fbbf24; }

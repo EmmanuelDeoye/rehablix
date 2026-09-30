@@ -62,6 +62,7 @@
     let isSaving = false;
     let currentIsOwner = true;
     let isNewDocument = false;
+    let pendingSaveExtra = null;
 
     // Get URL parameters
     const urlParams = new URLSearchParams(window.location.search);
@@ -86,7 +87,8 @@
             warning: 'fa-exclamation-triangle',
             info: 'fa-info-circle'
         };
-        toast.innerHTML = `<i class="fas ${icons[type] || icons.info}"></i><span>${message}</span>`;
+        toast.innerHTML = `<i class="fas ${icons[type] || icons.info}"></i><span></span>`;
+        toast.querySelector('span').textContent = String(message == null ? '' : message);
         toastContainer.appendChild(toast);
         setTimeout(() => toast.remove(), duration);
     }
@@ -268,10 +270,25 @@
         }
     }
 
+    function currentPlanId() {
+        try { return (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free'; } catch (e) { return 'free'; }
+    }
+
     async function callDeepSeek(systemPrompt, userPrompt, maxTokens = 2000) {
         if (!aiConfig.token) {
             const ok = await fetchTokens();
             if (!ok) throw new Error('AI service not available');
+        }
+        // Same shared quota as every other AI feature (was unmetered here).
+        if (currentUser && window.RehabPlanTiers) {
+            const plan = currentPlanId();
+            const quota = window.RehablixQuotaModal
+                ? await window.RehablixQuotaModal.checkAndWarn(currentUser.uid, plan)
+                : await window.RehabPlanTiers.hasQuota(currentUser.uid, plan);
+            if (!quota.allowed) {
+                const resetMins = Math.max(1, Math.ceil((quota.resetAt - Date.now()) / 60000));
+                throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
+            }
         }
         const url = `${aiConfig.endpoint}/chat/completions`;
         const response = await fetch(url, {
@@ -296,7 +313,43 @@
             throw new Error(errData?.error?.message || `API error: ${response.status}`);
         }
         const data = await response.json();
-        return data.choices[0].message.content;
+        const content = data?.choices?.[0]?.message?.content;
+        if (!content) throw new Error('AI service returned an unexpected response format.');
+        if (currentUser && window.RehabPlanTiers) {
+            window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlanId(), window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + content), 1).catch(() => {});
+        }
+        return content;
+    }
+
+    // Saves the open list document (summaries, plans, notes, …) inside a
+    // transaction: appends when new, otherwise patches the same item (found
+    // by id, or by position + content for legacy items without ids).
+    async function saveListDoc(field, makeNew, htmlContent, plainText, extra) {
+        const S = window.RehablixEmrStore;
+        const edited = { content: htmlContent, plainText: plainText, lastEdited: new Date().toLocaleString() };
+        const isReportNew = docType === 'report' && !reportId;
+        if (isNewDocument || isReportNew || (docType !== 'report' && docIndex === null)) {
+            let pos = -1;
+            const item = Object.assign(makeNew(), { content: htmlContent, plainText: plainText, id: S.newId() }, extra || {});
+            await S.mutateList(scopeUid, docId, field, arr => { arr.push(item); pos = arr.length - 1; }, { allowEmpty: true });
+            docIndex = pos;
+            isNewDocument = false;
+            S.audit(scopeUid, docId, 'create', item.title || field);
+            return item;
+        }
+        const target = documentData && documentData.id ? { id: documentData.id } : { index: docIndex, item: documentData };
+        let pos = -1;
+        const saved = await S.mutateList(scopeUid, docId, field, arr => {
+            const i = S.locate(arr, target);
+            if (i < 0) return false;
+            pos = i;
+            arr[i] = Object.assign({}, arr[i], edited, extra || {});
+            if (!arr[i].id) arr[i].id = S.newId();
+            return arr[i];
+        });
+        if (!saved) throw new Error('This document was changed or removed elsewhere — reload it before saving.');
+        docIndex = pos;
+        return saved;
     }
 
     // =========================================================================
@@ -316,60 +369,32 @@
             const htmlContent = editor.innerHTML;
             const plainText = editor.innerText || '';
             const path = `history/${scopeUid}/patients/${docId}`;
-            let ref, snap, data;
+            let data;
+            // Anything a regeneration asked to stamp on this save (AI draft flags).
+            const extra = pendingSaveExtra || {};
+            pendingSaveExtra = null;
 
+            // EMR scale pass: list documents are saved through RTDB
+            // transactions (js/emr-store.js) — a teammate's concurrent
+            // addition or edit to the same list is never overwritten.
             switch (docType) {
                 case 'summary':
-                    ref = database.ref(`${path}/summaries`);
-                    snap = await ref.once('value');
-                    let summaries = snap.val() || [];
-                    if (isNewDocument || docIndex === null || docIndex >= summaries.length) {
-                        summaries.push({
-                            title: `Summary - ${new Date().toLocaleDateString()}`,
-                            content: htmlContent,
-                            plainText: plainText,
-                            date: new Date().toLocaleDateString()
-                        });
-                        docIndex = summaries.length - 1;
-                        isNewDocument = false;
-                    } else {
-                        summaries[docIndex].content = htmlContent;
-                        summaries[docIndex].plainText = plainText;
-                        summaries[docIndex].lastEdited = new Date().toLocaleString();
-                    }
-                    await ref.set(summaries);
-                    documentData = summaries[docIndex];
+                    documentData = await saveListDoc('summaries', () => ({
+                        title: `Summary - ${new Date().toLocaleDateString()}`, date: new Date().toLocaleDateString()
+                    }), htmlContent, plainText, extra);
                     break;
 
                 case 'treatment':
-                    ref = database.ref(`${path}/treatmentPlans`);
-                    snap = await ref.once('value');
-                    let plans = snap.val() || [];
-                    if (isNewDocument || docIndex === null || docIndex >= plans.length) {
-                        plans.push({
-                            title: `Treatment Plan - ${new Date().toLocaleDateString()}`,
-                            content: htmlContent,
-                            plainText: plainText,
-                            date: new Date().toLocaleDateString(),
-                            category: documentData?.category || '',
-                            profession: documentData?.profession || '',
-                            state: documentData?.state || ''
-                        });
-                        docIndex = plans.length - 1;
-                        isNewDocument = false;
-                    } else {
-                        plans[docIndex].content = htmlContent;
-                        plans[docIndex].plainText = plainText;
-                        plans[docIndex].lastEdited = new Date().toLocaleString();
-                    }
-                    await ref.set(plans);
-                    documentData = plans[docIndex];
+                    documentData = await saveListDoc('treatmentPlans', () => ({
+                        title: `Treatment Plan - ${new Date().toLocaleDateString()}`, date: new Date().toLocaleDateString(),
+                        category: documentData?.category || '', profession: documentData?.profession || '', state: documentData?.state || ''
+                    }), htmlContent, plainText, extra);
                     break;
 
                 case 'session':
                     if (isNewDocument || !sessionId) {
                         const newRef = database.ref(`${path}/sessions`).push();
-                        data = {
+                        data = Object.assign({
                             id: newRef.key,
                             date: new Date().toISOString().split('T')[0],
                             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -380,122 +405,55 @@
                             plainText: plainText,
                             signed: false,
                             timestamp: firebase.database.ServerValue.TIMESTAMP
-                        };
+                        }, extra);
                         await newRef.set(data);
                         sessionId = newRef.key;
-                        
-                        // Update session count
-                        const countRef = database.ref(`${path}/sessionCount`);
-                        const countSnap = await countRef.once('value');
-                        const count = (countSnap.val() || 0) + 1;
-                        await countRef.set(count);
-                        
+                        await window.RehablixEmrStore.incrementSessionCount(scopeUid, docId, 1);
+                        window.RehablixEmrStore.audit(scopeUid, docId, 'create', 'Session note');
                         documentData = data;
                         isNewDocument = false;
                     } else {
-                        ref = database.ref(`${path}/sessions/${sessionId}`);
-                        snap = await ref.once('value');
-                        const existing = snap.val() || {};
-                        existing.id = existing.id || sessionId; // self-heal older sessions saved before the id fix
-                        existing.notes = htmlContent;
-                        existing.content = htmlContent;
-                        existing.plainText = plainText;
-                        existing.lastEdited = new Date().toLocaleString();
-                        await ref.set(existing);
-                        documentData = existing;
+                        // Field-level update: never rewrites the rest of the session.
+                        const patch = Object.assign({ id: sessionId, notes: htmlContent, content: htmlContent, plainText: plainText, lastEdited: new Date().toLocaleString() }, extra);
+                        await database.ref(`${path}/sessions/${sessionId}`).update(patch);
+                        documentData = Object.assign({}, documentData, patch);
                     }
                     break;
 
                 case 'report':
-                    ref = database.ref(`${path}/reports`);
-                    snap = await ref.once('value');
-                    let reports = snap.val() || [];
-                    if (isNewDocument || !reportId) {
-                        const newReport = {
-                            id: Date.now().toString(),
-                            title: `Report - ${new Date().toLocaleDateString()}`,
-                            content: htmlContent,
-                            plainText: plainText,
-                            date: new Date().toLocaleDateString(),
-                            status: 'Draft'
-                        };
-                        reports.push(newReport);
-                        reportId = newReport.id;
-                        docIndex = reports.length - 1;
-                        isNewDocument = false;
-                    } else {
-                        const idx = reports.findIndex(r => r.id === reportId);
-                        if (idx >= 0) {
-                            reports[idx].content = htmlContent;
-                            reports[idx].plainText = plainText;
-                            reports[idx].lastEdited = new Date().toLocaleString();
-                        }
-                    }
-                    await ref.set(reports);
-                    documentData = reports.find(r => r.id === reportId) || null;
+                    documentData = await saveListDoc('reports', () => ({
+                        title: `Report - ${new Date().toLocaleDateString()}`, date: new Date().toLocaleDateString(), status: 'Draft'
+                    }), htmlContent, plainText, extra);
+                    reportId = documentData.id;
                     break;
 
                 case 'progress':
-                    ref = database.ref(`${path}/progressNotes`);
-                    snap = await ref.once('value');
-                    let notes = snap.val() || [];
-                    if (isNewDocument || docIndex === null || docIndex >= notes.length) {
-                        const newNote = {
-                            id: Date.now().toString(),
-                            title: `Progress Note - ${new Date().toLocaleDateString()}`,
-                            content: htmlContent,
-                            plainText: plainText,
-                            date: new Date().toLocaleDateString()
-                        };
-                        notes.push(newNote);
-                        docIndex = notes.length - 1;
-                        isNewDocument = false;
-                    } else {
-                        notes[docIndex].content = htmlContent;
-                        notes[docIndex].plainText = plainText;
-                        notes[docIndex].lastEdited = new Date().toLocaleString();
-                    }
-                    await ref.set(notes);
-                    documentData = notes[docIndex];
+                    documentData = await saveListDoc('progressNotes', () => ({
+                        title: `Progress Note - ${new Date().toLocaleDateString()}`, date: new Date().toLocaleDateString()
+                    }), htmlContent, plainText, extra);
                     break;
 
                 case 'discharge':
-                    ref = database.ref(`${path}/dischargeSummaries`);
-                    snap = await ref.once('value');
-                    let dischargeSummaries = snap.val() || [];
-                    if (isNewDocument || docIndex === null || docIndex >= dischargeSummaries.length) {
-                        dischargeSummaries.push({
-                            title: `Discharge Summary - ${new Date().toLocaleDateString()}`,
-                            content: htmlContent,
-                            plainText: plainText,
-                            date: new Date().toLocaleDateString()
-                        });
-                        docIndex = dischargeSummaries.length - 1;
-                        isNewDocument = false;
-                    } else {
-                        dischargeSummaries[docIndex].content = htmlContent;
-                        dischargeSummaries[docIndex].plainText = plainText;
-                        dischargeSummaries[docIndex].lastEdited = new Date().toLocaleString();
-                    }
-                    await ref.set(dischargeSummaries);
-                    documentData = dischargeSummaries[docIndex];
+                    documentData = await saveListDoc('dischargeSummaries', () => ({
+                        title: `Discharge Summary - ${new Date().toLocaleDateString()}`, date: new Date().toLocaleDateString()
+                    }), htmlContent, plainText, extra);
                     break;
 
-                case 'nextsession':
-                    ref = database.ref(`${path}/nextSessionPlan`);
-                    data = {
-                        title: `Next Session - ${new Date().toLocaleDateString()}`,
+                case 'nextsession': {
+                    data = Object.assign({}, {
+                        title: documentData?.title && !isNewDocument ? documentData.title : `Next Session - ${new Date().toLocaleDateString()}`,
                         content: htmlContent,
                         plainText: plainText,
-                        date: new Date().toLocaleDateString(),
+                        date: documentData?.date || new Date().toLocaleDateString(),
                         completed: false,
                         lastEdited: new Date().toLocaleString()
-                    };
-                    await ref.set(data);
-                    documentData = data;
+                    }, extra);
+                    // update(), not set(): keeps activities/review stamps written by Smart EMR.
+                    await database.ref(`${path}/nextSessionPlan`).update(data);
+                    documentData = Object.assign({}, documentData, data);
                     isNewDocument = false;
                     break;
-
+                }
                 default:
                     throw new Error('Unknown document type: ' + docType);
             }
@@ -537,6 +495,46 @@
             });
             metaRow.appendChild(div);
         } catch (e) { /* non-critical display item */ }
+    }
+
+    // "AI draft, review before use." banner for AI-generated documents, with
+    // Mark as reviewed (reviewer + time are stamped on the document).
+    function renderAiDraftBanner() {
+        let banner = document.getElementById('docAiDraftBanner');
+        const needs = documentData && documentData.aiGenerated && !documentData.reviewed && !documentData.signed;
+        if (!needs) { if (banner) banner.remove(); return; }
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'docAiDraftBanner';
+            banner.className = 'doc-ai-draft-banner';
+            banner.setAttribute('role', 'status');
+            banner.innerHTML = '<i class="fas fa-robot" aria-hidden="true"></i> <span>AI draft, review before use.</span> <button type="button" class="doc-review-btn">Mark as reviewed</button>';
+            editor.parentNode.insertBefore(banner, editor);
+            banner.querySelector('.doc-review-btn').addEventListener('click', markDocumentReviewed);
+        }
+    }
+
+    async function markDocumentReviewed() {
+        const S = window.RehablixEmrStore;
+        if (!S || !documentData || !currentIsOwner) return;
+        const stamp = S.reviewStamp();
+        const LIST_FIELD = { summary: 'summaries', treatment: 'treatmentPlans', report: 'reports', progress: 'progressNotes', discharge: 'dischargeSummaries' };
+        try {
+            const path = `history/${scopeUid}/patients/${docId}`;
+            if (docType === 'session' && sessionId) await database.ref(`${path}/sessions/${sessionId}`).update(stamp);
+            else if (docType === 'nextsession') await database.ref(`${path}/nextSessionPlan`).update(stamp);
+            else if (LIST_FIELD[docType]) {
+                const target = documentData.id ? { id: documentData.id } : { index: docIndex, item: documentData };
+                const saved = await S.updateItem(scopeUid, docId, LIST_FIELD[docType], target, stamp);
+                if (!saved) throw new Error('document changed elsewhere — reload it');
+            }
+            Object.assign(documentData, stamp);
+            S.audit(scopeUid, docId, 'review', docType || 'document');
+            renderAiDraftBanner();
+            showToast('Marked as reviewed', 'success');
+        } catch (e) {
+            showToast('Could not mark as reviewed: ' + (e.message || 'unknown error'), 'error');
+        }
     }
 
     async function loadDocument() {
@@ -712,8 +710,10 @@
                 content = markdownToHtml(content);
             }
 
-            editor.innerHTML = content;
+            // Stored HTML is sanitized before it touches the DOM.
+            editor.innerHTML = window.RehablixSanitize ? window.RehablixSanitize.html(content) : content;
             updateWordAndCharCount();
+            renderAiDraftBanner();
 
             // Enable editing
             setEditorReadOnly(false);
@@ -721,7 +721,8 @@
         } catch (error) {
             console.error('Load error:', error);
             showToast('Failed to load document: ' + error.message, 'error');
-            editor.innerHTML = `<div class="loading-editor"><i class="fas fa-exclamation-circle"></i> Error: ${error.message}</div>`;
+            editor.innerHTML = `<div class="loading-editor"><i class="fas fa-exclamation-circle"></i> Error: </div>`;
+            editor.querySelector('.loading-editor').append(String(error.message || 'unknown error'));
         }
     }
 
@@ -741,6 +742,12 @@
             return;
         }
 
+        // Reviewed / signed content is never overwritten by AI.
+        if (documentData && (documentData.reviewed || documentData.signed)) {
+            showToast('This document has been reviewed' + (documentData.signed ? ' and signed' : '') + ', so AI regeneration is turned off to protect it. Create a new document for an AI draft.', 'warning', 6000);
+            return;
+        }
+
         let patientData = null;
         try {
             const snap = await database.ref(`history/${scopeUid}/patients/${docId}`).once('value');
@@ -754,8 +761,10 @@
             return;
         }
 
+        // De-identified: age band + sex stand in for the patient's name/DOB.
+        const D = window.RehablixDeidentify;
         const context = {
-            name: patientData.name || 'Patient',
+            name: [D ? D.ageBand(patientData.dob, patientData.age) : null, patientData.gender].filter(Boolean).join(', ') || 'details withheld',
             diagnosis: patientData.primaryDx || 'Unknown',
             chiefComplaint: patientData.chiefComplaint || '',
             goals: patientData.goals || '',
@@ -806,15 +815,19 @@
         showLoading('Regenerating document with AI…', 10);
         try {
             updateLoadingProgress(30, 'Analyzing patient context…');
-            const response = await callDeepSeek(systemPrompt, userPrompt, 2000);
+            const ids = D ? D.identifiersOf(patientData) : [];
+            const scrub = (t) => (D ? D.scrubText(t, ids) : t);
+            const response = await callDeepSeek(scrub(systemPrompt), scrub(userPrompt), 2000);
             
             updateLoadingProgress(80, 'Formatting document…');
             const newHtml = markdownToHtml(response);
-            editor.innerHTML = newHtml;
+            editor.innerHTML = window.RehablixSanitize ? window.RehablixSanitize.html(newHtml) : newHtml;
             updateWordAndCharCount();
             
             updateLoadingProgress(90, 'Saving changes…');
+            pendingSaveExtra = { aiGenerated: true, reviewed: false };
             await saveToFirebase();
+            renderAiDraftBanner();
             
             updateLoadingProgress(100, 'Done!');
             setTimeout(() => {
@@ -845,69 +858,28 @@
 
         try {
             const path = `history/${scopeUid}/patients/${docId}`;
-            let ref, snap;
+            const S = window.RehablixEmrStore;
+            const target = documentData && documentData.id ? { id: documentData.id } : { index: docIndex, item: documentData };
+            const LIST_FIELD = { summary: 'summaries', treatment: 'treatmentPlans', report: 'reports', progress: 'progressNotes', discharge: 'dischargeSummaries' };
 
             switch (docType) {
                 case 'summary':
-                    ref = database.ref(`${path}/summaries`);
-                    snap = await ref.once('value');
-                    let summaries = snap.val() || [];
-                    if (docIndex !== null && docIndex < summaries.length) {
-                        summaries.splice(docIndex, 1);
-                        await ref.set(summaries);
-                    }
-                    break;
-
                 case 'treatment':
-                    ref = database.ref(`${path}/treatmentPlans`);
-                    snap = await ref.once('value');
-                    let plans = snap.val() || [];
-                    if (docIndex !== null && docIndex < plans.length) {
-                        plans.splice(docIndex, 1);
-                        await ref.set(plans);
-                    }
+                case 'report':
+                case 'progress':
+                case 'discharge':
+                    // Transactional delete of exactly this item (by id / content),
+                    // never a positional splice of a possibly-stale array.
+                    if (docType === 'report' && reportId) target.id = reportId;
+                    if (target.id || target.item) await S.removeItem(scopeUid, docId, LIST_FIELD[docType], target);
                     break;
 
                 case 'session':
                     if (sessionId) {
                         await database.ref(`${path}/sessions/${sessionId}`).remove();
-                        
-                        // Update session count
-                        const countRef = database.ref(`${path}/sessionCount`);
-                        const countSnap = await countRef.once('value');
-                        const count = Math.max(0, (countSnap.val() || 1) - 1);
-                        await countRef.set(count);
+                        await S.incrementSessionCount(scopeUid, docId, -1);
                     }
                     break;
-
-                case 'report':
-                    ref = database.ref(`${path}/reports`);
-                    snap = await ref.once('value');
-                    let reports = snap.val() || [];
-                    reports = reports.filter(r => r.id !== reportId);
-                    await ref.set(reports);
-                    break;
-
-                case 'progress':
-                    ref = database.ref(`${path}/progressNotes`);
-                    snap = await ref.once('value');
-                    let notes = snap.val() || [];
-                    if (docIndex !== null && docIndex < notes.length) {
-                        notes.splice(docIndex, 1);
-                        await ref.set(notes);
-                    }
-                    break;
-
-                case 'discharge':
-                    ref = database.ref(`${path}/dischargeSummaries`);
-                    snap = await ref.once('value');
-                    let dischargeSummaries = snap.val() || [];
-                    if (docIndex !== null && docIndex < dischargeSummaries.length) {
-                        dischargeSummaries.splice(docIndex, 1);
-                        await ref.set(dischargeSummaries);
-                    }
-                    break;
-
                 case 'nextsession':
                     await database.ref(`${path}/nextSessionPlan`).remove();
                     break;
@@ -918,6 +890,7 @@
             }
 
             showToast('Document deleted successfully', 'success');
+            window.RehablixEmrStore.audit(scopeUid, docId, 'delete', docType || 'document');
             setTimeout(() => {
                 // SPA: was a hard navigation to doc.html — Smart EMR is now
                 // the "emr" SPA route (js/views/emr-view.js). A plain go()

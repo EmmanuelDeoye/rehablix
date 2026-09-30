@@ -15,9 +15,20 @@ function mount() {
   // CONSTANTS
   // =========================================================================
   const DB_NAME = 'rehablix_audio_db';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2; // v2: + live transcription segments
   const STORE_SESSIONS = 'sessions';
   const STORE_CHUNKS = 'chunks';
+  const STORE_SEGMENTS = 'segments';
+  // Live transcription: short self-contained clips cut from the SAME mic
+  // stream the recording uses (no browser SpeechRecognition, so no second
+  // capture session, no listening beeps and no restart loops on mobile).
+  const LIVE_TARGET_MS = 6000;   // aim for ~6s clips…
+  const LIVE_MAX_MS = 9000;      // …never longer than this
+  const LIVE_MIN_MS = 2500;      // …and never shorter than this (except on stop/pause)
+  const SILENCE_RMS = 0.012;     // below this the room is treated as quiet
+  const SILENCE_HOLD_MS = 300;   // cut once it has been quiet this long
+  const LIVE_MAX_RETRIES = 3;
+  const LIVE_CONCURRENCY = 2;
   const CHUNK_INTERVAL_MS = 20000;
   const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
   const CLEANUP_CHUNK_CHARS = 6000;
@@ -96,6 +107,16 @@ function mount() {
   const uploadWaveformCanvas = $('uploadWaveformCanvas');
   const cancelProcessingBtn = $('cancelProcessingBtn');
 
+  // Coach mode (setup + live panel)
+  const audioModeTabs = $('audioModeTabs');
+  const coachSetupPanel = $('coachSetupPanel');
+  const coachConsentInput = $('coachConsent');
+  const coachLivePanel = $('coachLivePanel');
+  const coachSpeakerToggle = $('coachSpeakerToggle');
+  const coachSuggestionsList = $('coachSuggestionsList');
+  const coachSpeakToggle = $('coachSpeakToggle');
+  const coachSpeakHint = $('coachSpeakHint');
+
   // History lives in the shell's single global drawer (js/history-drawer.js) —
   // this view registers its data source as a provider (see the History section).
 
@@ -106,7 +127,9 @@ function mount() {
   let scopeUid = null;
   let emrPatientsForLink = []; // EMR UPGRADE (item 4)
   let matchedEmrPatient = null;
-  let aiConfig = { token: null, endpoint: null, model: 'openai/gpt-4.1' };
+  // FIX: was 'openai/gpt-4.1' — not a valid OpenAI model id, so the narrative
+  // pass always failed and silently fell back to the raw transcript.
+  let aiConfig = { token: null, endpoint: null, model: 'gpt-4.1' };
   let idb = null;
 
   let sourceMode = 'live';
@@ -127,8 +150,17 @@ function mount() {
   let currentView = 'cleaned';
   let recordedMimeType = 'audio/webm';
   let interimEl = null;
-  let hasReceivedAnyResult = false;
-  let noResultWatchdog = null;
+  // Live transcription engine state (see "LIVE TRANSCRIPTION" below).
+  let liveSegments = [];          // index -> { status, text, speaker, tries }
+  let segRecorder = null, segParts = [], segStartedAt = 0, segPeak = 0, segSpeaker = 'therapist';
+  let segStopResolve = null, liveMonitorTimer = null, quietSince = null;
+  let liveInFlight = 0, liveQueue = [], liveQuotaBlocked = false, liveAbort = null;
+  // Coach mode
+  let audioMode = 'transcribe';   // 'transcribe' | 'coach'
+  let currentSpeaker = 'therapist';
+  let coachSuggestions = [];      // { id, text, askedAt, afterIndex }
+  let lastSuggestAt = 0, suggestTimer = null, suggestInFlight = false;
+  let headphonesDetected = false, speakSuggestions = false;
   let currentPlan = 'free';
   let selectedDeviceId = localStorage.getItem('rehablix_audio_input_device') || '';
   let transcriptionAbortController = null;
@@ -160,7 +192,37 @@ function mount() {
         const d = e.target.result;
         if (!d.objectStoreNames.contains(STORE_SESSIONS)) d.createObjectStore(STORE_SESSIONS, { keyPath: 'id' });
         if (!d.objectStoreNames.contains(STORE_CHUNKS)) d.createObjectStore(STORE_CHUNKS, { keyPath: 'key' });
+        if (!d.objectStoreNames.contains(STORE_SEGMENTS)) d.createObjectStore(STORE_SEGMENTS, { keyPath: 'key' });
       };
+    });
+  }
+
+  // Live-transcription clips: { key, sessionId, index, blob, status, text, speaker }.
+  async function idbPutSegment(sessionId, index, rec) {
+    if (!idb) await openIDB();
+    return new Promise((resolve, reject) => {
+      const tx = idb.transaction([STORE_SEGMENTS], 'readwrite');
+      tx.objectStore(STORE_SEGMENTS).put(Object.assign({ key: `${sessionId}_${index}`, sessionId, index }, rec));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function idbGetSegmentsForSession(sessionId) {
+    if (!idb) await openIDB();
+    return new Promise((resolve, reject) => {
+      const tx = idb.transaction([STORE_SEGMENTS], 'readonly');
+      const req = tx.objectStore(STORE_SEGMENTS).getAll();
+      req.onsuccess = () => resolve((req.result || []).filter(s => s.sessionId === sessionId).sort((a, b) => a.index - b.index));
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbDeleteSegmentsForSession(sessionId) {
+    const segs = await idbGetSegmentsForSession(sessionId);
+    return new Promise((resolve, reject) => {
+      const tx = idb.transaction([STORE_SEGMENTS], 'readwrite');
+      segs.forEach(s => tx.objectStore(STORE_SEGMENTS).delete(s.key));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
     });
   }
 
@@ -246,6 +308,46 @@ function mount() {
       uploadSetupPanel.style.display = sourceMode === 'upload' ? 'block' : 'none';
     });
   });
+
+  // Transcribe (default) / Coach
+  if (audioModeTabs) {
+    audioModeTabs.querySelectorAll('[data-mode]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        audioModeTabs.querySelectorAll('[data-mode]').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+        audioMode = btn.dataset.mode;
+        if (coachSetupPanel) coachSetupPanel.style.display = audioMode === 'coach' ? 'block' : 'none';
+        // Coach works on a live conversation; uploads stay plain transcription.
+        const uploadTab = sourceModeTabs.querySelector('[data-source="upload"]');
+        if (uploadTab) {
+          uploadTab.disabled = audioMode === 'coach';
+          if (audioMode === 'coach' && sourceMode === 'upload') sourceModeTabs.querySelector('[data-source="live"]').click();
+        }
+        if (audioMode === 'coach') detectHeadphones();
+      });
+    });
+  }
+  if (coachSpeakerToggle) {
+    coachSpeakerToggle.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-speaker]');
+      if (b) setSpeaker(b.dataset.speaker);
+    });
+  }
+  if (coachSuggestionsList) {
+    coachSuggestionsList.addEventListener('click', (e) => {
+      const b = e.target.closest('.coach-asked-btn');
+      if (!b) return;
+      const s = coachSuggestions.find(x => x.id === b.dataset.id);
+      if (s) { s.askedAt = new Date().toISOString(); saveSuggestionState(); renderCoachPanel(); }
+    });
+  }
+  if (coachSpeakToggle) coachSpeakToggle.addEventListener('change', () => { speakSuggestions = coachSpeakToggle.checked && headphonesDetected; });
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+    const onDevices = () => { if (audioMode === 'coach') detectHeadphones(); };
+    navigator.mediaDevices.addEventListener('devicechange', onDevices);
+    cleanupFns.push(() => navigator.mediaDevices.removeEventListener('devicechange', onDevices));
+  }
 
   uploadDropzone.addEventListener('click', () => audioFileInput.click());
   uploadDropzone.addEventListener('dragover', (e) => { e.preventDefault(); uploadDropzone.classList.add('dragover'); });
@@ -377,13 +479,21 @@ function mount() {
       showToast('This browser can\'t record audio (no MediaRecorder support). Please try an up-to-date Chrome or Safari.', 'error', 7000);
       return;
     }
+    // Coach mode records the patient/caregiver and sends de-identified turns
+    // to AI for question suggestions — explicit consent is required first.
+    if (audioMode === 'coach' && !(coachConsentInput && coachConsentInput.checked)) {
+      showToast('Coach mode needs consent: confirm the patient/caregiver agreed to recording and AI assistance.', 'error', 6000);
+      if (coachConsentInput) coachConsentInput.focus();
+      return;
+    }
+    try { await checkQuotaOrThrow(); } catch (err) { showToast(err.message, 'error', 6000); return; }
 
     localSessionId = newSessionId();
     chunkIndex = 0;
     rawSegments = [];
     isPaused = false;
     interimEl = null;
-    hasReceivedAnyResult = false;
+    resetLiveState();
 
     try {
       // AUDIO UPGRADE: browser-native noise suppression/echo cancellation/
@@ -428,17 +538,6 @@ function mount() {
       : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4'
       : '';
 
-    // AUDIO FIX (mobile): live captions now start only AFTER the actual
-    // recording stream above is confirmed working, instead of concurrently
-    // with it — many mobile browsers don't multiplex two simultaneous
-    // capture sessions cleanly, and starting the Web Speech API's own
-    // internal mic capture first used to risk starving/killing this one.
-    if (SpeechRecognitionAPI) {
-      startLiveTranscription();
-    } else {
-      showToast('Live captions aren\'t supported in this browser — your words will be transcribed once you tap Stop.', 'info', 6000);
-    }
-
     sessionMeta = {
       id: localSessionId,
       title: sessionTitleInput.value.trim() || defaultTitle(),
@@ -450,7 +549,11 @@ function mount() {
       elapsedSeconds: 0,
       rawSegments: [],
       cleanedTranscript: '',
-      mimeType: recordedMimeType || 'audio/webm'
+      mimeType: recordedMimeType || 'audio/webm',
+      mode: audioMode,
+      consent: audioMode === 'coach' ? { recordingAndAI: true, at: new Date().toISOString() } : null,
+      turns: [],
+      suggestions: []
     };
     await idbPutSession(sessionMeta);
 
@@ -482,16 +585,16 @@ function mount() {
     requestWakeLock();
     setupWaveform();
     startTimer();
-    // Live transcription is already running by this point — started in
-    // startNewRecording() right after the recording stream itself was
-    // confirmed (see the mobile-ordering fix there); no need to start it
-    // again here.
+    // Live transcription runs off the same stream (and the same analyser the
+    // waveform uses for silence detection).
+    startLiveTranscription();
 
     recIndicator.classList.remove('paused');
     recStatusText.textContent = 'Recording';
     pauseResumeBtn.innerHTML = '<i class="fas fa-pause"></i>';
     pauseResumeBtn.setAttribute('aria-label', 'Pause recording');
-    liveTranscriptText.innerHTML = '<span class="transcript-placeholder">Your words will appear here as you speak…</span>';
+    liveTranscriptText.innerHTML = '<span class="transcript-placeholder">Your words will appear here a few seconds after you speak…</span>';
+    renderCoachPanel();
 
     setStage(2);
     showToast('Recording started — you can switch tabs, it keeps going.', 'info', 3500);
@@ -499,7 +602,9 @@ function mount() {
     // Registered so unmount() (navigating to another view mid-recording)
     // stops the mic/recorder instead of leaving it running in the background.
     activeSessionStopper = () => {
-      try { stopTimer(); stopWaveform(); stopLiveTranscription(); releaseWakeLock(); } catch (e) {}
+      try { stopTimer(); stopLiveMonitor(); stopWaveform(); releaseWakeLock(); } catch (e) {}
+      try { if (segRecorder && segRecorder.state !== 'inactive') segRecorder.stop(); } catch (e) {}
+      try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
       try { if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop(); } catch (e) {}
       try { if (mediaStream) mediaStream.getTracks().forEach(t => t.stop()); } catch (e) {}
     };
@@ -520,6 +625,8 @@ function mount() {
       startTimer();
       requestWakeLock();
       if (mediaRecorder.state === 'paused') mediaRecorder.resume();
+      sessionMeta.status = 'recording';
+      idbPutSession(sessionMeta);
       startLiveTranscription();
     } else {
       isPaused = true;
@@ -533,6 +640,8 @@ function mount() {
       idbPutSession(sessionMeta);
       releaseWakeLock();
       if (mediaRecorder.state === 'recording') mediaRecorder.pause();
+      // Flush what was said before the pause as its own clip (no new clip
+      // starts until Resume), so nothing is lost or merged across the pause.
       stopLiveTranscription();
     }
   });
@@ -541,8 +650,10 @@ function mount() {
     if (!mediaRecorder) return;
     activeSessionStopper = null;
     stopTimer();
+    // Flush the final clip BEFORE the analyser/stream go away.
+    const finalClip = stopLiveTranscription();
     stopWaveform();
-    stopLiveTranscription();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     sessionMeta.status = 'transcribing';
     await idbPutSession(sessionMeta);
 
@@ -554,11 +665,20 @@ function mount() {
       ? Promise.resolve()
       : new Promise((resolve) => { recorderStoppedResolve = resolve; mediaRecorder.stop(); });
 
-    showProcessing('Finishing up transcription…', 'Wrapping up.', 40);
+    showProcessing('Finishing up transcription…', 'Transcribing the last few seconds.', 40);
     setStage(3);
-    await stopped;
+    await Promise.all([stopped, finalClip]);
+    // Every live clip must be done (or definitively failed) before the
+    // transcript is assembled — in order.
+    await drainLiveQueue((done, total) => updateProcessingProgress(40 + Math.round((done / Math.max(1, total)) * 25), `Transcribing segment ${done} of ${total}…`));
+    rebuildRawFromSegments();
 
+    const failed = liveSegments.filter(s => s && s.status === 'failed').length;
     let hasText = rawSegments.some(s => s && s.trim());
+    // Some clips never made it (network/quota): transcribe the full recording
+    // instead so the final transcript is complete. Coach mode keeps its
+    // labelled turns and only falls back when nothing was transcribed at all.
+    if (failed && audioMode !== 'coach') hasText = false;
 
     if (!hasText) {
       try {
@@ -569,7 +689,7 @@ function mount() {
           await checkQuotaOrThrow();
           const text = await transcribeBlob(fullBlob);
           recordQuotaUsage(text, 1);
-          if (text) { rawSegments = [text]; appendLiveTranscript(text); }
+          if (text) { rawSegments = [text]; sessionMeta.turns = []; appendLiveTranscript(text); }
         }
       } catch (err) {
         if (err.name === 'AbortError') { return; } // cancelled — resetToSetup() already ran
@@ -709,85 +829,372 @@ function mount() {
   document.addEventListener('visibilitychange', onVisibilityChange);
   cleanupFns.push(() => document.removeEventListener('visibilitychange', onVisibilityChange));
 
-  const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let recognition = null;
-  let recognitionShouldRun = false;
-  // AUDIO FIX (mobile live captions): mobile browsers commonly fire
-  // audio-capture/network/aborted errors and keep failing in a loop that
-  // used to retry forever silently (only console.warn'd). Give up quietly
-  // after a few in a row — the Whisper-on-stop fallback runs independently
-  // off the actual MediaRecorder stream either way, so nothing is lost.
-  let consecutiveRecognitionErrors = 0;
-  const MAX_CONSECUTIVE_RECOGNITION_ERRORS = 3;
-
-  if (SpeechRecognitionAPI) {
-    recognition = new SpeechRecognitionAPI();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-
-    recognition.onresult = (event) => {
-      hasReceivedAnyResult = true;
-      consecutiveRecognitionErrors = 0;
-      clearTimeout(noResultWatchdog);
-      let interim = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          const clean = transcript.trim();
-          if (clean) {
-            rawSegments.push(clean);
-            sessionMeta.rawSegments = rawSegments;
-            idbPutSession(sessionMeta);
-            appendLiveTranscript(clean);
-          }
-        } else {
-          interim += transcript;
-        }
-      }
-      setInterimTranscript(interim);
-    };
-
-    recognition.onerror = (event) => {
-      console.warn('Speech recognition error:', event.error);
-      if (!recognitionShouldRun) return; // an intentional stop — nothing to react to
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        recognitionShouldRun = false;
-        showToast('Microphone permission is needed for live captions.', 'error', 5000);
-        return;
-      }
-      consecutiveRecognitionErrors++;
-      if (consecutiveRecognitionErrors >= MAX_CONSECUTIVE_RECOGNITION_ERRORS) {
-        recognitionShouldRun = false; // stop the onend retry loop — rely on the Whisper fallback instead
-      }
-    };
-
-    recognition.onend = () => {
-      if (recognitionShouldRun) {
-        try { recognition.start(); } catch (e) { /* already running */ }
-      }
-    };
+  // =========================================================================
+  // LIVE TRANSCRIPTION — chunked Whisper over the recording's own stream.
+  //
+  // Replaces the browser Web Speech API, which on mobile opened a second mic
+  // capture (starving the recorder), played start/stop beeps and looped
+  // through restarts. A second MediaRecorder on the SAME MediaStream cuts
+  // self-contained clips (~6s, at a quiet moment when possible); each clip is
+  // persisted to IndexedDB, transcribed with retries, and rendered strictly
+  // in recording order. Quota: each clip's text is charged exactly like the
+  // old whole-file transcription (weight 1).
+  // =========================================================================
+  function resetLiveState() {
+    liveSegments = []; segRecorder = null; segParts = []; segPeak = 0; quietSince = null;
+    liveQueue = []; liveInFlight = 0; liveQuotaBlocked = false;
+    if (liveAbort) { try { liveAbort.abort(); } catch (e) {} }
+    liveAbort = new AbortController();
+    coachSuggestions = []; lastSuggestAt = 0; clearTimeout(suggestTimer); suggestInFlight = false;
+    currentSpeaker = 'therapist';
   }
+
+  function currentRms() {
+    if (!analyser) return null;
+    const buf = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    return Math.sqrt(sum / buf.length);
+  }
+
+  function startSegment() {
+    if (!mediaStream || isPaused) return;
+    const opts = recordedMimeType ? { mimeType: recordedMimeType } : undefined;
+    let rec;
+    try { rec = opts ? new MediaRecorder(mediaStream, opts) : new MediaRecorder(mediaStream); } catch (e) { console.warn('[audio] segment recorder unavailable', e); return; }
+    const parts = [];
+    const index = liveSegments.length;
+    const speaker = currentSpeaker;
+    liveSegments[index] = { status: 'recording', text: '', speaker, tries: 0 };
+    let peak = 0;
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) parts.push(e.data); };
+    rec.onstop = () => {
+      const blob = new Blob(parts, { type: recordedMimeType || 'audio/webm' });
+      onSegmentComplete(index, blob, peak);
+      if (rec._resolve) rec._resolve();
+    };
+    rec._trackPeak = (v) => { if (v > peak) peak = v; };
+    rec.start();
+    segRecorder = rec;
+    segStartedAt = Date.now();
+    quietSince = null;
+  }
+
+  // Stops the current clip; resolves once its data has been handed off.
+  function stopSegment() {
+    const rec = segRecorder;
+    segRecorder = null;
+    if (!rec || rec.state === 'inactive') return Promise.resolve();
+    return new Promise((resolve) => { rec._resolve = resolve; try { rec.stop(); } catch (e) { resolve(); } });
+  }
+
+  // Start the next clip first, then stop the previous one — no gap between clips.
+  function rotateSegment() {
+    const prev = segRecorder;
+    segRecorder = null;
+    startSegment();
+    if (prev && prev.state !== 'inactive') { try { prev.stop(); } catch (e) {} }
+  }
+
+  function startLiveMonitor() {
+    stopLiveMonitor();
+    liveMonitorTimer = setInterval(() => {
+      if (!segRecorder || isPaused) return;
+      const now = Date.now();
+      const age = now - segStartedAt;
+      const rms = currentRms();
+      if (rms != null && segRecorder._trackPeak) segRecorder._trackPeak(rms);
+      if (rms != null && rms < SILENCE_RMS) { if (!quietSince) quietSince = now; } else quietSince = null;
+      const quietLongEnough = quietSince && (now - quietSince >= SILENCE_HOLD_MS);
+      // Silence-aware boundary: cut at the first quiet moment after ~6s; if the
+      // speaker never pauses, cut anyway at the hard cap. Without an analyser,
+      // fall back to fixed ~6s clips.
+      if (age >= LIVE_MAX_MS || (age >= LIVE_TARGET_MS && (rms == null || quietLongEnough))) {
+        if (age >= LIVE_MIN_MS) rotateSegment();
+      }
+    }, 100);
+  }
+  function stopLiveMonitor() { if (liveMonitorTimer) { clearInterval(liveMonitorTimer); liveMonitorTimer = null; } }
 
   function startLiveTranscription() {
-    if (!recognition) return;
-    recognitionShouldRun = true;
-    consecutiveRecognitionErrors = 0;
-    try { recognition.start(); } catch (e) { /* already started */ }
-
-    clearTimeout(noResultWatchdog);
-    noResultWatchdog = setTimeout(() => {
-      if (recognitionShouldRun && !hasReceivedAnyResult) {
-        showToast('Live captions aren\'t picking up audio on this device — no problem, the full recording will still be transcribed once you tap Stop.', 'info', 7000);
-      }
-    }, 15000);
+    if (!liveAbort) liveAbort = new AbortController();
+    startSegment();
+    startLiveMonitor();
   }
 
+  // Pause/Stop: flush the in-progress clip (no new clip until Resume).
   function stopLiveTranscription() {
-    recognitionShouldRun = false;
-    clearTimeout(noResultWatchdog);
-    if (recognition) { try { recognition.stop(); } catch (e) { /* ignore */ } }
+    stopLiveMonitor();
     setInterimTranscript('');
+    return stopSegment();
+  }
+
+  async function onSegmentComplete(index, blob, peak) {
+    const seg = liveSegments[index];
+    if (!seg) return;
+    // Near-silent or tiny clips are skipped: Whisper tends to hallucinate
+    // ("Thank you.") on silence, and they cost quota for nothing.
+    if (blob.size < 1200 || (peak > 0 && peak < SILENCE_RMS * 1.4)) {
+      seg.status = 'silent';
+      renderLiveTranscript();
+      return;
+    }
+    seg.status = 'pending';
+    seg.blob = blob;
+    renderLiveTranscript();
+    // Queue immediately (so Stop's drain can never miss the last clip); the
+    // IndexedDB copy is written in the background and awaited before the
+    // 'done' record overwrites it.
+    seg.persisted = localSessionId
+      ? idbPutSegment(localSessionId, index, { blob, status: 'pending', text: '', speaker: seg.speaker }).catch(e => console.warn('[audio] could not persist clip', e))
+      : Promise.resolve();
+    liveQueue.push(index);
+    pumpLiveQueue();
+  }
+
+  function pumpLiveQueue() {
+    while (liveInFlight < LIVE_CONCURRENCY && liveQueue.length) {
+      const index = liveQueue.shift();
+      liveInFlight++;
+      transcribeSegment(index).finally(() => { liveInFlight--; pumpLiveQueue(); });
+    }
+  }
+
+  const HALLUCINATIONS = /^(thank you\.?|thanks for watching!?|you|bye\.?|\.+)$/i;
+
+  async function transcribeSegment(index) {
+    const seg = liveSegments[index];
+    if (!seg || !seg.blob) return;
+    if (liveQuotaBlocked) { seg.status = 'failed'; renderLiveTranscript(); return; }
+    // Previous text as a Whisper prompt keeps names/terms consistent across clips.
+    const prev = liveSegments.slice(0, index).filter(s => s && s.status === 'done' && s.text).map(s => s.text).join(' ').slice(-200);
+    while (seg.tries < LIVE_MAX_RETRIES) {
+      seg.tries++;
+      try {
+        if (window.RehabPlanTiers && currentUser) {
+          const q = await window.RehabPlanTiers.hasQuota(currentUser.uid, currentPlan);
+          if (!q.allowed) {
+            liveQuotaBlocked = true;
+            showToast('Token budget reached — live transcription paused. Your recording continues and is kept on this device.', 'error', 7000);
+            seg.status = 'failed'; renderLiveTranscript(); return;
+          }
+        }
+        let text = await transcribeBlob(seg.blob, { prompt: prev, signal: liveAbort ? liveAbort.signal : undefined });
+        text = (text || '').trim();
+        if (HALLUCINATIONS.test(text)) text = '';
+        seg.text = text;
+        seg.status = 'done';
+        if (text) recordQuotaUsage(text, 1);
+        if (seg.persisted) await seg.persisted;
+        if (localSessionId) idbPutSegment(localSessionId, index, { blob: seg.blob, status: 'done', text, speaker: seg.speaker }).catch(() => {});
+        rebuildRawFromSegments();
+        renderLiveTranscript();
+        if (audioMode === 'coach' && seg.speaker === 'patient' && text) scheduleSuggestions();
+        return;
+      } catch (err) {
+        if (err && err.name === 'AbortError') { seg.status = 'failed'; return; }
+        console.warn('[audio] clip ' + index + ' attempt ' + seg.tries + ' failed:', err);
+        if (seg.tries < LIVE_MAX_RETRIES) await new Promise(r => setTimeout(r, 1500 * seg.tries));
+      }
+    }
+    seg.status = 'failed';
+    renderLiveTranscript();
+  }
+
+  // Waits for every queued/in-flight clip, retrying failed ones once more.
+  async function drainLiveQueue(onProgress) {
+    const total = () => liveSegments.filter(s => s && s.status !== 'silent').length;
+    const settled = () => liveSegments.filter(s => s && (s.status === 'done' || s.status === 'failed')).length;
+    const deadline = Date.now() + 120000;
+    const busy = () => liveQueue.length || liveInFlight || liveSegments.some(s => s && (s.status === 'pending' || s.status === 'recording'));
+    while (busy() && Date.now() < deadline) {
+      if (onProgress) onProgress(settled(), total());
+      await new Promise(r => setTimeout(r, 300));
+    }
+    const failed = liveSegments.map((s, i) => (s && s.status === 'failed' && s.blob ? i : -1)).filter(i => i >= 0);
+    if (failed.length && !liveQuotaBlocked) {
+      failed.forEach(i => { liveSegments[i].tries = LIVE_MAX_RETRIES - 1; liveSegments[i].status = 'pending'; liveQueue.push(i); });
+      pumpLiveQueue();
+      while (busy() && Date.now() < deadline) await new Promise(r => setTimeout(r, 300));
+    }
+    if (onProgress) onProgress(settled(), total());
+  }
+
+  function speakerLabel(s) { return s === 'patient' ? 'Patient/Caregiver' : 'Therapist'; }
+
+  // Ordered transcript from the clips: plain text in Transcribe mode,
+  // "Therapist:/Patient/Caregiver:" labelled turns in Coach mode.
+  function rebuildRawFromSegments() {
+    const done = liveSegments.map((s, i) => ({ s, i })).filter(x => x.s && x.s.status === 'done' && x.s.text);
+    if (audioMode === 'coach') {
+      const turns = [];
+      done.forEach(({ s, i }) => {
+        const last = turns[turns.length - 1];
+        if (last && last.speaker === s.speaker) { last.text += ' ' + s.text; last.segments.push(i); }
+        else turns.push({ speaker: s.speaker, text: s.text, segments: [i] });
+      });
+      if (sessionMeta) sessionMeta.turns = turns;
+      rawSegments = turns.map(t => speakerLabel(t.speaker) + ': ' + t.text);
+    } else {
+      rawSegments = done.map(x => x.s.text);
+    }
+    if (sessionMeta) { sessionMeta.rawSegments = rawSegments; idbPutSession(sessionMeta).catch(() => {}); }
+  }
+
+  function renderLiveTranscript() {
+    if (!liveTranscriptText) return;
+    const html = [];
+    let lastSpeaker = null;
+    liveSegments.forEach((s, i) => {
+      if (!s || s.status === 'silent') return;
+      if (s.status === 'done' && !s.text) return;
+      const coach = audioMode === 'coach';
+      if (coach && s.speaker !== lastSpeaker) {
+        html.push(`<button type="button" class="speaker-chip speaker-${s.speaker}" data-seg="${i}" aria-label="Speaker: ${speakerLabel(s.speaker)}. Tap to change">${speakerLabel(s.speaker)}</button>`);
+        lastSpeaker = s.speaker;
+      }
+      if (s.status === 'done') html.push(`<span class="transcript-segment" data-seg="${i}">${escapeHtml(s.text)} </span>`);
+      else if (s.status === 'failed') html.push(`<span class="transcript-pending failed" data-seg="${i}">[segment will be transcribed at the end] </span>`);
+      else if (s.status === 'pending') html.push(`<span class="transcript-pending" data-seg="${i}">… </span>`);
+    });
+    liveTranscriptText.innerHTML = html.length ? html.join('') : '<span class="transcript-placeholder">Your words will appear here a few seconds after you speak…</span>';
+    interimEl = null;
+    liveTranscriptText.scrollTop = liveTranscriptText.scrollHeight;
+  }
+
+  // Coach: tap a speaker chip to correct the label for that whole turn.
+  liveTranscriptText.addEventListener('click', (e) => {
+    const chip = e.target.closest('.speaker-chip');
+    if (!chip) return;
+    const start = parseInt(chip.dataset.seg, 10);
+    const from = liveSegments[start] && liveSegments[start].speaker;
+    const to = from === 'patient' ? 'therapist' : 'patient';
+    for (let i = start; i < liveSegments.length; i++) {
+      const s = liveSegments[i];
+      if (!s || s.status === 'silent' || (s.status === 'done' && !s.text)) continue;
+      if (s.speaker !== from) break;
+      s.speaker = to;
+      if (localSessionId && s.blob) idbPutSegment(localSessionId, i, { blob: s.blob, status: s.status, text: s.text, speaker: to }).catch(() => {});
+    }
+    rebuildRawFromSegments();
+    renderLiveTranscript();
+  });
+
+  // =========================================================================
+  // COACH MODE — speaker labels + suggested next questions
+  // =========================================================================
+  function setSpeaker(sp) {
+    if (sp === currentSpeaker) return;
+    currentSpeaker = sp;
+    // Speaker changed: end the current clip here so it keeps one label.
+    if (segRecorder && !isPaused && Date.now() - segStartedAt > 800) rotateSegment();
+    else if (segRecorder) liveSegments[liveSegments.length - 1].speaker = sp;
+    renderCoachPanel();
+  }
+
+  function renderCoachPanel() {
+    if (!coachLivePanel) return;
+    const coach = audioMode === 'coach';
+    coachLivePanel.style.display = coach ? 'block' : 'none';
+    if (!coach) return;
+    coachSpeakerToggle.querySelectorAll('[data-speaker]').forEach(b => {
+      const on = b.dataset.speaker === currentSpeaker;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    const open = coachSuggestions.filter(s => !s.askedAt).slice(-2);
+    coachSuggestionsList.innerHTML = open.length
+      ? open.map(s => `<div class="coach-suggestion"><span>${escapeHtml(s.text)}</span><button type="button" class="btn-mini coach-asked-btn" data-id="${s.id}" aria-label="Mark as asked">Asked</button></div>`).join('')
+      : `<p class="coach-empty">${suggestInFlight ? 'Thinking of a follow-up…' : 'Suggestions appear after the patient or caregiver speaks.'}</p>`;
+    coachSpeakToggle.disabled = !headphonesDetected;
+    coachSpeakHint.textContent = headphonesDetected ? '' : 'Connect headphones or earphones to enable spoken suggestions.';
+    if (!headphonesDetected) { coachSpeakToggle.checked = false; speakSuggestions = false; }
+  }
+
+  function scheduleSuggestions() {
+    clearTimeout(suggestTimer);
+    suggestTimer = setTimeout(requestSuggestions, 1500);
+  }
+
+  // De-identified: the linked patient's name and any names/DOB/phone numbers
+  // in the transcript are stripped locally before anything is sent.
+  function deidentify(text) {
+    const D = window.RehablixDeidentify;
+    const ids = [];
+    if (audioPatientName && audioPatientName.value.trim()) ids.push(...audioPatientName.value.trim().split(/\s+/), audioPatientName.value.trim());
+    if (matchedEmrPatient && matchedEmrPatient.regNumber) ids.push(matchedEmrPatient.regNumber);
+    return D ? D.scrubText(text, ids) : text;
+  }
+
+  async function requestSuggestions() {
+    if (audioMode !== 'coach' || isPaused || !sessionMeta || suggestInFlight) return;
+    if (Date.now() - lastSuggestAt < 15000) { scheduleSuggestions(); return; }
+    const turns = (sessionMeta.turns || []).slice(-10);
+    if (!turns.length || turns[turns.length - 1].speaker !== 'patient') return;
+    const core = window.RehablixAIQuotaCore;
+    if (!core) return;
+    suggestInFlight = true; lastSuggestAt = Date.now(); renderCoachPanel();
+    try {
+      const config = await core.resolveModelConfig('basal100');
+      if (!config) return;
+      await core.checkQuotaOrThrow(currentUser && currentUser.uid, currentPlan);
+      const professional = PROFESSIONAL_LABELS[sessionMeta.professional] || 'clinician';
+      const system = `You support a ${professional} during a live ${sessionMeta.sessionType || 'therapy'} session. Based on the conversation so far, suggest ONE or TWO short, open, respectful follow-up questions the ${professional} could ask the patient or caregiver next. Stay within the ${professional}'s scope; do not diagnose, do not give treatment advice, do not repeat questions already asked. Return ONLY JSON: {"questions":["..."]}`;
+      const convo = turns.map(t => speakerLabel(t.speaker) + ': ' + deidentify(t.text)).join('\n');
+      const asked = coachSuggestions.filter(s => s.askedAt).map(s => '- ' + s.text).join('\n');
+      const user = 'Conversation (de-identified):\n' + convo + (asked ? '\n\nAlready asked from earlier suggestions:\n' + asked : '');
+      const res = await fetch(config.endpoint + '/chat/completions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token },
+        body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], max_tokens: 200, temperature: 0.4 }),
+        signal: liveAbort ? liveAbort.signal : undefined
+      });
+      if (!res.ok) throw new Error('Suggestion request failed');
+      const data = await res.json();
+      const content = (data.choices && data.choices[0] && data.choices[0].message.content) || '';
+      core.reportTokenUsage(currentUser && currentUser.uid, currentPlan, system + user + content, config.weight);
+      let qs = [];
+      try { const m = content.match(/\{[\s\S]*\}/); qs = (JSON.parse(m ? m[0] : content).questions || []); } catch (e) { qs = content.split('\n').map(l => l.replace(/^[-*\d.)\s]+/, '').trim()).filter(Boolean); }
+      qs = qs.map(q => String(q).trim()).filter(q => q && q.length < 240).slice(0, 2);
+      const afterIndex = liveSegments.length - 1;
+      qs.forEach(q => coachSuggestions.push({ id: 's' + Date.now() + Math.random().toString(36).slice(2, 6), text: q, askedAt: null, afterIndex }));
+      saveSuggestionState();
+      if (speakSuggestions && headphonesDetected && qs.length) speak(qs[0]);
+    } catch (err) {
+      if (!err || err.name !== 'AbortError') console.warn('[audio] coach suggestions failed:', err);
+    } finally {
+      suggestInFlight = false;
+      renderCoachPanel();
+    }
+  }
+
+  function speak(text) {
+    if (!window.speechSynthesis || !text) return;
+    const u = new SpeechSynthesisUtterance(text);
+    const lang = (navigator.language || 'en').toLowerCase();
+    const voices = window.speechSynthesis.getVoices().filter(v => v.lang && v.lang.toLowerCase().startsWith(lang.slice(0, 2)));
+    // Prefer the natural-sounding neural/online voices where the browser offers them.
+    u.voice = voices.find(v => /natural|neural|online|premium|enhanced|google/i.test(v.name)) || voices[0] || null;
+    u.rate = 1; u.pitch = 1; u.volume = 0.9;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  }
+
+  // Spoken suggestions only through headphones — never out of the speaker,
+  // where the patient would hear them and the mic would re-record them.
+  async function detectHeadphones() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      headphonesDetected = devices.some(d => (d.kind === 'audiooutput' || d.kind === 'audioinput') &&
+        /head(phone|set)|ear(phone|bud|piece)|airpods|buds|bluetooth|wired/i.test(d.label || '') && !/default - speaker/i.test(d.label || ''));
+    } catch (e) { headphonesDetected = false; }
+    renderCoachPanel();
+  }
+
+  function saveSuggestionState() {
+    if (!sessionMeta) return;
+    sessionMeta.suggestions = coachSuggestions.map(s => ({ text: s.text, askedAt: s.askedAt, afterIndex: s.afterIndex }));
+    idbPutSession(sessionMeta).catch(() => {});
   }
 
   function setInterimTranscript(text) {
@@ -816,7 +1223,11 @@ function mount() {
     liveTranscriptText.scrollTop = liveTranscriptText.scrollHeight;
   }
 
-  async function transcribeBlob(blob) {
+  // opts.prompt: preceding transcript text (keeps terms consistent across live
+  // clips); opts.signal: a caller-owned abort signal. No language is forced —
+  // Whisper detects it (the app has no language setting to honour).
+  async function transcribeBlob(blob, opts) {
+    opts = opts || {};
     if (!aiConfig.token) await loadAiConfig();
     if (!aiConfig.token) throw new Error('Transcription service is not configured right now.');
 
@@ -824,13 +1235,14 @@ function mount() {
     const filename = blob.name || `audio.${(blob.type || 'audio/webm').split('/')[1]?.split(';')[0] || 'webm'}`;
     formData.append('file', blob, filename);
     formData.append('model', 'whisper-1');
+    if (opts.prompt) formData.append('prompt', opts.prompt);
 
     if (!transcriptionAbortController) transcriptionAbortController = new AbortController();
     const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${aiConfig.token}` },
       body: formData,
-      signal: transcriptionAbortController.signal
+      signal: opts.signal || transcriptionAbortController.signal
     });
 
     if (!response.ok) {
@@ -928,7 +1340,8 @@ Output ONLY the narrative text, as flowing paragraphs.`;
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiConfig.token}` },
           body: JSON.stringify({
             model: aiConfig.model,
-            messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: pieces[i] }],
+            // Linked patient's name / DOB / phone numbers are stripped locally first.
+            messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: deidentify(pieces[i]) }],
             max_tokens: 4000, temperature: 0.3
           }),
           signal: transcriptionAbortController.signal
@@ -950,7 +1363,11 @@ Output ONLY the narrative text, as flowing paragraphs.`;
   }
 
   async function finalizeSession() {
-    const rawText = rawSegments.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    // Coach transcripts keep one labelled turn per line.
+    const isCoach = sessionMeta && sessionMeta.mode === 'coach' && (sessionMeta.turns || []).length > 0;
+    const rawText = isCoach
+      ? rawSegments.filter(Boolean).map(s => s.replace(/\s+/g, ' ').trim()).join('\n')
+      : rawSegments.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
     const professionalKey = sessionMeta.professional || professionalSelect.value;
     const professionalLabel = PROFESSIONAL_LABELS[professionalKey] || 'Clinician';
 
@@ -987,10 +1404,19 @@ Output ONLY the narrative text, as flowing paragraphs.`;
         // time so it reflects whatever's currently in the field.
         patientName: (audioPatientName && audioPatientName.value.trim()) || null,
         regNumber: (matchedEmrPatient && matchedEmrPatient.regNumber) || null,
-        emrPatientId: (matchedEmrPatient && matchedEmrPatient.id) || null
+        emrPatientId: (matchedEmrPatient && matchedEmrPatient.id) || null,
+        // Coach mode: the mode, the (correctable) speaker-labelled turns, the
+        // suggestions shown/asked, and the consent that was recorded.
+        mode: sessionMeta.mode || 'transcribe'
       };
+      if (sessionMeta.mode === 'coach') {
+        payload.turns = (sessionMeta.turns || []).map(t => ({ speaker: t.speaker, text: t.text }));
+        payload.suggestions = (coachSuggestions.length ? coachSuggestions : (sessionMeta.suggestions || [])).map(s => ({ text: s.text, askedAt: s.askedAt || null }));
+        payload.consent = sessionMeta.consent || null;
+      }
       const ref = await database.ref(`history/${scopeUid}/audio`).push(payload);
       firebaseAudioId = ref.key;
+      if (localSessionId) idbDeleteSegmentsForSession(localSessionId).catch(() => {});
       if (window.RehablixCenter) window.RehablixCenter.logActivity('audio', 'Transcribed session', sessionMeta.title).catch(() => {});
     } catch (err) {
       console.error('Could not save transcript to history:', err);
@@ -1100,6 +1526,8 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     localSessionId = null; sessionMeta = null; rawSegments = []; cleanedTranscript = '';
     uploadedFile = null; firebaseAudioId = null; chunkIndex = 0;
     stopLiveTranscription();
+    resetLiveState();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     transcriptionAbortController = null;
     uploadFileInfo.style.display = 'none';
     if (uploadWaveformCanvas) uploadWaveformCanvas.style.display = 'none';
@@ -1129,11 +1557,36 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     resumeBanner.style.display = 'none';
     showProcessing('Picking up where you left off…', 'Finishing transcription of what was already recorded.', 30);
     setStage(3);
-    try { await finalizeSession(); } catch (err) { if (err.name !== 'AbortError') { console.error(err); showToast('Could not finish transcription: ' + err.message, 'error', 5000); } }
+    try {
+      audioMode = sessionMeta.mode || 'transcribe';
+      // Live clips saved before the interruption: transcribe any still pending.
+      const segs = await idbGetSegmentsForSession(localSessionId);
+      if (segs.length) {
+        resetLiveState();
+        coachSuggestions = (sessionMeta.suggestions || []).map((s, i) => ({ id: 'r' + i, text: s.text, askedAt: s.askedAt || null, afterIndex: s.afterIndex }));
+        segs.forEach(s => { liveSegments[s.index] = { status: s.status === 'done' ? 'done' : 'pending', text: s.text || '', speaker: s.speaker || 'therapist', tries: 0, blob: s.blob }; });
+        liveSegments.forEach((s, i) => { if (s && s.status === 'pending') liveQueue.push(i); });
+        pumpLiveQueue();
+        await drainLiveQueue((done, total) => updateProcessingProgress(30 + Math.round((done / Math.max(1, total)) * 30), `Transcribing segment ${done} of ${total}…`));
+        rebuildRawFromSegments();
+      }
+      // Nothing transcribed live: transcribe the whole saved recording instead.
+      if (!rawSegments.some(s => s && s.trim())) {
+        const chunks = await idbGetChunksForSession(localSessionId);
+        if (chunks.length) {
+          updateProcessingProgress(55, 'Transcribing the recording…');
+          await checkQuotaOrThrow();
+          const text = await transcribeBlob(new Blob(chunks.map(c => c.blob), { type: sessionMeta.mimeType || 'audio/webm' }));
+          recordQuotaUsage(text, 1);
+          if (text) { rawSegments = [text]; sessionMeta.turns = []; sessionMeta.rawSegments = rawSegments; }
+        }
+      }
+      await finalizeSession();
+    } catch (err) { if (err.name !== 'AbortError') { console.error(err); showToast('Could not finish transcription: ' + err.message, 'error', 5000); } }
   });
 
   discardSessionBtn.addEventListener('click', async () => {
-    if (sessionMeta) { await idbDeleteChunksForSession(sessionMeta.id); await idbDeleteSession(sessionMeta.id); }
+    if (sessionMeta) { await idbDeleteChunksForSession(sessionMeta.id); await idbDeleteSegmentsForSession(sessionMeta.id).catch(() => {}); await idbDeleteSession(sessionMeta.id); }
     resumeBanner.style.display = 'none';
     resetToSetup();
     showToast('Discarded', 'info');
@@ -1255,8 +1708,9 @@ Output ONLY the narrative text, as flowing paragraphs.`;
       if (window.RehablixCenter && typeof window.RehablixCenter.getEffectiveScopeUid === 'function') {
         try { uid = (await window.RehablixCenter.getEffectiveScopeUid('doc')) || user.uid; } catch (e) { uid = user.uid; }
       }
-      const snap = await firebase.database().ref(`history/${uid}/patients`).once('value');
-      emrPatientsForLink = Object.entries(snap.val() || {}).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null })).filter(p => p.name);
+      // Names/reg numbers only — the lightweight index, not full records.
+        const allPatients = window.RehablixEmrStore ? await window.RehablixEmrStore.loadIndex(uid) : (await firebase.database().ref(`history/${uid}/patients`).once('value')).val();
+      emrPatientsForLink = Object.entries(allPatients || {}).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null })).filter(p => p.name);
       audioPatientList.innerHTML = emrPatientsForLink.map(p => `<option value="${escapeHtml(p.name)}" label="${escapeHtml(p.name)}${p.regNumber ? ' (' + escapeHtml(p.regNumber) + ')' : ''}"></option>`).join('');
     } catch (err) { console.warn('[audio] could not load Smart EMR patients', err); }
   }

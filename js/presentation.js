@@ -1591,8 +1591,9 @@ ${combinedText || 'No notes provided.'}`;
                 try { uid = (await window.RehablixCenter.getEffectiveScopeUid('doc')) || user.uid; } catch (e) { uid = user.uid; }
             }
             emrLinkScopeUid = uid;
-            const snap = await firebase.database().ref(`history/${uid}/patients`).once('value');
-            emrPatientsForLink = Object.entries(snap.val() || {}).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null })).filter(p => p.name);
+            // Names/reg numbers only — the lightweight index, not full records.
+        const allPatients = window.RehablixEmrStore ? await window.RehablixEmrStore.loadIndex(uid) : (await firebase.database().ref(`history/${uid}/patients`).once('value')).val();
+            emrPatientsForLink = Object.entries(allPatients || {}).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null })).filter(p => p.name);
             presentationPatientList.innerHTML = emrPatientsForLink.map(p => `<option value="${escapeHtml(p.name)}" label="${escapeHtml(p.name)}${p.regNumber ? ' (' + escapeHtml(p.regNumber) + ')' : ''}"></option>`).join('');
         } catch (err) { console.warn('[presentation] could not load Smart EMR patients', err); }
     }
