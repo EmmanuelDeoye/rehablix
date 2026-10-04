@@ -1112,38 +1112,66 @@
       filesList.insertAdjacentHTML('beforeend', `<div class="empty-state"><i class="bx ${iconClass}"></i><p>${text}</p></div>`);
     }
 
-    async function loadFilesList() {
+    // The Files list is paged. It used to download EVERY saved record of every
+    // tool (full documents included) before showing anything; now each tool's
+    // newest ${FILES_PAGE_SIZE} are fetched in parallel, rows appear as each tool answers,
+    // and "Load more" fetches the next page.
+    const FILES_PAGE_SIZE = 12;
+    let fileCursors = {};          // source path -> { oldestKey, done }
+    let filesBusy = false;
+    const filesHaveMore = () => FILE_SOURCES.some(src => !(fileCursors[src.path] && fileCursors[src.path].done));
+
+    async function fetchFilesPage(src, uid) {
+      const cur = fileCursors[src.path] || (fileCursors[src.path] = { oldestKey: null, done: false });
+      if (cur.done) return [];
+      let q = core.getDatabase().ref(`history/${uid}/${src.path}`).orderByKey();
+      if (cur.oldestKey) q = q.endBefore(cur.oldestKey);
+      let data;
+      try { data = (await q.limitToLast(FILES_PAGE_SIZE).once('value')).val() || {}; }
+      catch (err) { cur.done = true; return []; }
+      const keys = Object.keys(data).sort();
+      if (keys.length < FILES_PAGE_SIZE) cur.done = true;
+      if (keys.length) cur.oldestKey = keys[0];
+      return keys.map((id) => {
+        const item = data[id] || {};
+        return {
+          id, type: src.type, label: src.label, icon: src.icon, path: src.path,
+          title: (src.titleOf && src.titleOf(item)) || item.title || item.toolName || item.topic || item.subject || 'Untitled',
+          createdAt: item.createdAt || item.updatedAt || item.timestamp || 0,
+          raw: item
+        };
+      });
+    }
+
+    async function loadFilesPage(first) {
       const user = core.getCurrentUser();
-      if (!user) {
-        showFilesMessage('bx-lock-alt', 'Log in to see your files');
-        return;
-      }
-      const database = core.getDatabase();
-      clearFilesRows();
-      if (filesLoading) filesLoading.hidden = false;
+      if (!user) { showFilesMessage('bx-lock-alt', 'Log in to see your files'); return; }
+      if (filesBusy) return;
+      filesBusy = true;
+      if (first) { fileCursors = {}; allFiles = []; clearFilesRows(); }
+      if (filesLoading) filesLoading.hidden = !first;
+      const moreBtn = document.getElementById('filesLoadMoreBtn');
+      if (moreBtn) { moreBtn.disabled = true; moreBtn.textContent = 'Loading…'; }
       try {
-        const results = await Promise.all(FILE_SOURCES.map(src =>
-          database.ref(`history/${user.uid}/${src.path}`).once('value').then(snap => {
-            const data = snap.val();
-            if (!data) return [];
-            return Object.entries(data).map(([id, item]) => ({
-              id, type: src.type, label: src.label, icon: src.icon, path: src.path,
-              title: (src.titleOf && src.titleOf(item)) || item.title || item.toolName || item.topic || item.subject || 'Untitled',
-              createdAt: item.createdAt || item.updatedAt || item.timestamp || 0,
-              raw: item
-            }));
-          }).catch(() => [])
-        ));
-        allFiles = results.flat().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        // Rows are shown as soon as each tool's page arrives.
+        await Promise.all(FILE_SOURCES.map(src => fetchFilesPage(src, user.uid).then((rows) => {
+          if (!rows.length) return;
+          allFiles = allFiles.concat(rows).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+          if (filesLoading) filesLoading.hidden = true;
+          renderFileFilterOptions();
+          renderFilesList();
+        })));
         renderFileFilterOptions();
         renderFilesList();
       } catch (err) {
         console.error('[lixa] failed to load files', err);
-        showFilesMessage('bx-error', 'Could not load files');
+        if (!allFiles.length) showFilesMessage('bx-error', 'Could not load files');
       } finally {
+        filesBusy = false;
         if (filesLoading) filesLoading.hidden = true;
       }
     }
+    function loadFilesList() { return loadFilesPage(true); }
 
     function renderFileFilterOptions() {
       if (!fileFilterSelect) return;
@@ -1170,7 +1198,11 @@
         (!term || f.title.toLowerCase().includes(term))
       );
       if (filtered.length === 0) {
-        showFilesMessage('bx-file-blank', 'No files yet');
+        showFilesMessage('bx-file-blank', filesBusy ? 'Loading…' : (filesHaveMore() ? 'Nothing here yet in what is loaded' : 'No files yet'));
+        if (!filesBusy && filesHaveMore()) {
+          filesList.insertAdjacentHTML('beforeend', '<button type="button" class="files-load-more" id="filesLoadMoreBtn">Load more</button>');
+          document.getElementById('filesLoadMoreBtn').addEventListener('click', () => loadFilesPage(false));
+        }
         return;
       }
       clearFilesRows();
@@ -1184,6 +1216,10 @@
           <button type="button" class="file-delete-btn" aria-label="Delete ${core.escapeHtml(f.title)}" title="Delete"><i class="fas fa-trash"></i></button>
         </div>
       `).join(''));
+      if (filesHaveMore()) {
+        filesList.insertAdjacentHTML('beforeend', '<button type="button" class="files-load-more" id="filesLoadMoreBtn">Load more</button>');
+        document.getElementById('filesLoadMoreBtn').addEventListener('click', () => loadFilesPage(false));
+      }
       filesList.querySelectorAll('.history-file-item').forEach(el => {
         el.addEventListener('click', (e) => {
           if (e.target.closest('.file-delete-btn')) { e.stopPropagation(); deleteFile(el); return; }

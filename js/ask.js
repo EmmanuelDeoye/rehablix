@@ -237,6 +237,56 @@
     return s;
   }
 
+  // =========================================================================
+  // Question forms. When Lixa needs several details it sends a "lixa-form"
+  // block (JSON) instead of a wall of questions; the chat shows a short form
+  // to fill in — with recommended and suggested answers where Lixa gave them —
+  // and the answers go back as one message.
+  // =========================================================================
+  const LIXA_FORM_OPEN_RE = /```\s*lixa-form\s*\n?/i;
+  function normalizeLixaForm(raw) {
+    if (!raw || !Array.isArray(raw.fields)) return null;
+    const TYPES = ['text', 'number', 'textarea', 'select', 'multiselect'];
+    const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+    const fields = raw.fields.slice(0, 8).map((f, i) => {
+      if (!f || !str(f.label, 140)) return null;
+      let type = TYPES.includes(f.type) ? f.type : 'text';
+      const options = Array.isArray(f.options) ? f.options.map(o => str(o, 80)).filter(Boolean).slice(0, 8) : [];
+      if ((type === 'select' || type === 'multiselect') && options.length < 2) type = 'text';
+      const recommended = Array.isArray(f.recommended) ? f.recommended.map(o => str(o, 160)).filter(Boolean) : (str(f.recommended, 160) ? [str(f.recommended, 160)] : []);
+      return {
+        id: str(f.id, 40) || 'f' + i, label: str(f.label, 140), type, options,
+        recommended: (type === 'select' || type === 'multiselect') ? recommended.filter(r => options.includes(r)) : recommended.slice(0, 1),
+        suggestions: Array.isArray(f.suggestions) ? f.suggestions.map(o => str(o, 120)).filter(Boolean).slice(0, 5) : [],
+        placeholder: str(f.placeholder, 100), required: f.required !== false
+      };
+    }).filter(Boolean);
+    if (fields.length < 1) return null;
+    return { title: str(raw.title, 80) || 'A few details', intro: str(raw.intro, 240), fields };
+  }
+  // -> { text (the message without the block), form (or null), pending (block still streaming in) }
+  function splitLixaForm(content) {
+    const src = String(content || '');
+    const m = LIXA_FORM_OPEN_RE.exec(src);
+    if (!m) return { text: src, form: null, pending: false };
+    const before = src.slice(0, m.index).trimEnd();
+    const rest = src.slice(m.index + m[0].length);
+    const close = rest.indexOf('```');
+    if (close < 0) return { text: before, form: null, pending: true };
+    const after = rest.slice(close + 3).trim();
+    let form = null;
+    try { form = normalizeLixaForm(JSON.parse(rest.slice(0, close).trim())); } catch (e) { form = null; }
+    return { text: (before + (after ? '\n\n' + after : '')).trim(), form, pending: false };
+  }
+  function lixaFormCardHtml(split) {
+    if (split.pending) return '<p class="lixa-qform-pending"><span class="lixa-status-spinner"></span> Preparing a few quick questions…</p>';
+    if (!split.form) return '';
+    const data = btoa(unescape(encodeURIComponent(JSON.stringify(split.form))));
+    const n = split.form.fields.length;
+    return '<div class="lixa-qform-card"><div class="lixa-qform-card-text"><strong>' + escapeHtml(split.form.title) + '</strong><span>' + n + ' quick question' + (n === 1 ? '' : 's') + '</span></div>' +
+      '<button type="button" class="lixa-qform-open" data-form="' + data + '"><i class="fas fa-pen-to-square"></i> Answer</button></div>';
+  }
+
   function renderStreamingHtml(text) {
     try { return renderAssistantHtml(balanceStreamingMarkdown(text)); }
     catch (e) { const d = document.createElement('div'); d.textContent = text; return d.innerHTML; }
@@ -244,8 +294,10 @@
 
   // Render markdown for AI messages, style + classify links, and make
   // internal tool-page links hand off context instead of navigating cold.
-  function renderAssistantHtml(content) {
-    const html = marked.parse(content || '');
+  function renderAssistantHtml(rawContent) {
+    const formSplit = splitLixaForm(rawContent);
+    const content = formSplit.text;
+    const html = marked.parse(content || '') + lixaFormCardHtml(formSplit);
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html;
     wrapper.querySelectorAll('a[href]').forEach(a => {
@@ -324,6 +376,12 @@ You should also know about two related businesses and point users to them when r
 - **rehabace.com** — for sensory room construction/design or therapy equipment and supplies. Link: [rehabace.com](https://rehabace.com)
 
 Only mention rehabverve.com.ng or rehabace.com when the user's request genuinely matches (e.g. "I need to hire a therapist", "who can build a sensory room", "where can I buy therapy equipment") — don't force them into unrelated answers.
+
+ASKING THE USER FOR DETAILS (strict): if you need TWO OR MORE pieces of information from the user before you can do what they asked, do NOT write the questions out as a list for them to answer by typing. Write ONE short sentence saying you need a few details, then output a form block exactly in this shape, as the last thing in your message (valid JSON, double quotes, nothing after the block):
+\`\`\`lixa-form
+{"title":"A few details","fields":[{"id":"age","label":"Patient's age","type":"number"},{"id":"setting","label":"Care setting","type":"select","options":["Acute ward","Outpatient clinic","Home"],"recommended":"Outpatient clinic"},{"id":"goals","label":"Main goals","type":"textarea","suggestions":["Walk independently","Reduce pain"],"required":false}]}
+\`\`\`
+Form rules: 2 to 6 fields. "type" is one of text, number, textarea, select (one choice), multiselect (several choices). select and multiselect need "options" (2 to 6 short choices). Add "recommended" ONLY when one answer is clearly the sensible default for most users (for select it must be one of the options). Add "suggestions" (2 to 4 short examples) ONLY on text or textarea fields where examples genuinely help the user answer faster. Use "required": false for details that are merely nice to have. Keep labels short and plain. A single simple question is still asked normally in a sentence, without a form. Never use the form block for anything other than collecting the details you need, and never mention the form block or JSON to the user. When the user's next message contains their answers, carry on with the task; do not ask again for what they already answered.
 
 If the user's message includes content extracted from an uploaded file, an image, video frames, or a URL they shared (you'll see it clearly marked, e.g. "[Attached file: ...]" or "[Content from URL: ...]"), use that content as context to answer their actual question — don't just describe it back to them unless asked to.
 ${window.RehablixKnowledge ? window.RehablixKnowledge.text('web') : ''}`;
@@ -994,6 +1052,7 @@ ${window.RehablixKnowledge ? window.RehablixKnowledge.text('web') : ''}`;
   }
 
   function renderMessages() {
+    maybeAutoOpenLixaForm();
     chatMessages.innerHTML = '';
     if (messages.length === 0) {
       chatMessages.innerHTML = `
@@ -1224,6 +1283,127 @@ ${window.RehablixKnowledge ? window.RehablixKnowledge.text('web') : ''}`;
       window.LixaOrchestrator.handleFileAction(fileActionBtn.dataset.fileAction, card);
     }
   });
+
+  // ---- the form itself ----
+  let lixaFormEl = null;
+  function closeLixaForm() { if (lixaFormEl) { lixaFormEl.remove(); lixaFormEl = null; } }
+
+  function openLixaForm(form) {
+    closeLixaForm();
+    const attr = (s) => escapeHtml(s).replace(/"/g, '&quot;');
+    const fieldHtml = (f, i) => {
+      const id = 'lixaQ' + i;
+      const label = '<label class="lixa-qform-label" ' + (f.type === 'select' || f.type === 'multiselect' ? 'id="' + id + 'l"' : 'for="' + id + '"') + '>' + escapeHtml(f.label) + (f.required ? '' : ' <span class="lixa-qform-optional">optional</span>') + '</label>';
+      if (f.type === 'select' || f.type === 'multiselect') {
+        const chips = f.options.map(o => {
+          const rec = f.recommended.includes(o);
+          return '<button type="button" class="lixa-qform-chip' + (rec ? ' on' : '') + '" role="' + (f.type === 'select' ? 'radio' : 'checkbox') + '" aria-checked="' + rec + '" data-value="' + attr(o) + '">' + escapeHtml(o) + (rec ? ' <span class="lixa-qform-rec">Recommended</span>' : '') + '</button>';
+        }).join('');
+        return '<div class="lixa-qform-field" data-i="' + i + '">' + label + '<div class="lixa-qform-chips" role="' + (f.type === 'select' ? 'radiogroup' : 'group') + '" aria-labelledby="' + id + 'l">' + chips + '</div>' +
+          '<input type="text" class="lixa-qform-input lixa-qform-other" placeholder="Something else? Type it here" aria-label="Other answer for ' + attr(f.label) + '"></div>';
+      }
+      const rec = f.recommended[0] || '';
+      const hints = (rec ? [[rec, true]] : []).concat(f.suggestions.filter(s => s !== rec).map(s => [s, false]));
+      const hintHtml = hints.length ? '<div class="lixa-qform-chips lixa-qform-hints">' + hints.map(([s, r]) => '<button type="button" class="lixa-qform-chip lixa-qform-fill" data-value="' + attr(s) + '">' + escapeHtml(s) + (r ? ' <span class="lixa-qform-rec">Recommended</span>' : '') + '</button>').join('') + '</div>' : '';
+      const input = f.type === 'textarea'
+        ? '<textarea id="' + id + '" class="lixa-qform-input" rows="3" placeholder="' + attr(f.placeholder) + '"></textarea>'
+        : '<input id="' + id + '" class="lixa-qform-input" type="' + (f.type === 'number' ? 'number' : 'text') + '" ' + (f.type === 'number' ? 'inputmode="decimal" ' : '') + 'placeholder="' + attr(f.placeholder) + '">';
+      return '<div class="lixa-qform-field" data-i="' + i + '">' + label + input + hintHtml + '</div>';
+    };
+    const el = document.createElement('div');
+    el.className = 'lixa-qform-overlay';
+    el.innerHTML = '<div class="lixa-qform" role="dialog" aria-modal="true" aria-labelledby="lixaQformTitle">' +
+      '<div class="lixa-qform-head"><h3 id="lixaQformTitle">' + escapeHtml(form.title) + '</h3><button type="button" class="lixa-qform-x" aria-label="Close"><i class="fas fa-xmark"></i></button></div>' +
+      (form.intro ? '<p class="lixa-qform-intro">' + escapeHtml(form.intro) + '</p>' : '') +
+      '<div class="lixa-qform-body">' + form.fields.map(fieldHtml).join('') + '</div>' +
+      '<p class="lixa-qform-error" role="alert"></p>' +
+      '<div class="lixa-qform-actions"><button type="button" class="lixa-qform-cancel">I\'ll type instead</button><button type="button" class="lixa-qform-submit"><i class="fas fa-paper-plane"></i> Send answers</button></div></div>';
+    document.body.appendChild(el);
+    lixaFormEl = el;
+
+    el.addEventListener('click', (e) => {
+      if (e.target === el || e.target.closest('.lixa-qform-x') || e.target.closest('.lixa-qform-cancel')) { closeLixaForm(); if (e.target.closest('.lixa-qform-cancel')) messageInput.focus(); return; }
+      const chip = e.target.closest('.lixa-qform-chip');
+      if (chip) {
+        const field = chip.closest('.lixa-qform-field');
+        const f = form.fields[parseInt(field.dataset.i, 10)];
+        if (chip.classList.contains('lixa-qform-fill')) {          // suggested / recommended text: fills the box (still editable)
+          const input = field.querySelector('.lixa-qform-input');
+          input.value = f.type === 'textarea' && input.value.trim() && !input.value.includes(chip.dataset.value) ? input.value.trim() + '; ' + chip.dataset.value : chip.dataset.value;
+          input.focus();
+        } else if (f.type === 'select') {
+          const was = chip.classList.contains('on');
+          field.querySelectorAll('.lixa-qform-chip').forEach(c => { c.classList.remove('on'); c.setAttribute('aria-checked', 'false'); });
+          if (!was) { chip.classList.add('on'); chip.setAttribute('aria-checked', 'true'); field.querySelector('.lixa-qform-other').value = ''; }
+        } else {
+          const on = chip.classList.toggle('on'); chip.setAttribute('aria-checked', String(on));
+        }
+        return;
+      }
+      if (e.target.closest('.lixa-qform-submit')) submit();
+    });
+    el.addEventListener('input', (e) => {
+      // Typing a custom answer for a single-choice question deselects the chips.
+      if (!e.target.classList.contains('lixa-qform-other')) return;
+      const field = e.target.closest('.lixa-qform-field');
+      const f = form.fields[parseInt(field.dataset.i, 10)];
+      if (f.type === 'select' && e.target.value.trim()) field.querySelectorAll('.lixa-qform-chip').forEach(c => { c.classList.remove('on'); c.setAttribute('aria-checked', 'false'); });
+    });
+    el.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLixaForm(); });
+
+    function submit() {
+      const lines = []; let firstMissing = null;
+      el.querySelectorAll('.lixa-qform-field').forEach((field) => {
+        const f = form.fields[parseInt(field.dataset.i, 10)];
+        let value;
+        if (f.type === 'select' || f.type === 'multiselect') {
+          const picked = Array.from(field.querySelectorAll('.lixa-qform-chip.on')).map(c => c.dataset.value);
+          const other = field.querySelector('.lixa-qform-other').value.trim();
+          value = (f.type === 'select' ? (other ? [other] : picked.slice(0, 1)) : picked.concat(other ? [other] : [])).join(', ');
+        } else value = field.querySelector('.lixa-qform-input').value.trim();
+        field.classList.toggle('missing', !value && f.required);
+        if (!value && f.required && !firstMissing) firstMissing = field;
+        if (value) lines.push('- ' + f.label.replace(/[:?]\s*$/, '') + ': ' + value);
+      });
+      if (firstMissing) {
+        el.querySelector('.lixa-qform-error').textContent = 'Please answer the highlighted question' + (el.querySelectorAll('.lixa-qform-field.missing').length > 1 ? 's' : '') + '.';
+        firstMissing.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        const focusable = firstMissing.querySelector('.lixa-qform-input, .lixa-qform-chip'); if (focusable) focusable.focus({ preventScroll: true });
+        return;
+      }
+      if (isWaiting) { el.querySelector('.lixa-qform-error').textContent = 'Please wait for the current response to finish.'; return; }
+      closeLixaForm();
+      sendFormAnswers('Here are the details:\n' + lines.join('\n'));
+    }
+    setTimeout(() => { const first = el.querySelector('.lixa-qform-input, .lixa-qform-chip'); if (first) first.focus({ preventScroll: true }); }, 60);
+  }
+
+  // The answers continue THIS conversation: they go straight to the chat
+  // model (not through tool-intent detection, which could misread an answer
+  // such as "presentation" as a new request).
+  async function sendFormAnswers(text) {
+    messages.push({ role: 'user', content: text, displayContent: text, timestamp: Date.now() });
+    renderMessages();
+    if (currentUser) await saveConversation();
+    await runAssistantTurn(text);
+  }
+
+  chatMessages.addEventListener('click', (e) => {
+    const btn = e.target.closest('.lixa-qform-open');
+    if (!btn) return;
+    try { const form = normalizeLixaForm(JSON.parse(decodeURIComponent(escape(atob(btn.dataset.form))))); if (form) openLixaForm(form); } catch (err) { /* malformed: the text version stays */ }
+  });
+
+  // A form that has just arrived opens by itself (once); older ones wait for the Answer button.
+  function maybeAutoOpenLixaForm() {
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== 'assistant' || last._formSeen || lixaFormEl) return;
+    if (Date.now() - (last.timestamp || 0) > 90000) return;
+    const split = splitLixaForm(last.content);
+    if (!split.form) return;
+    last._formSeen = true;
+    setTimeout(() => { if (messages[messages.length - 1] === last && document.body.dataset.route === 'lixa') openLixaForm(split.form); }, 450);
+  }
 
   async function editAndResend(index, newText) {
     if (isWaiting) { showToast('Please wait for the current response to finish', 'error'); return; }

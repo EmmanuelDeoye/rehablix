@@ -1163,3 +1163,42 @@ body {
 .lixa-typing-dots span:nth-child(3) { animation-delay: 0.32s; }
 @keyframes lixaDot { 0%, 70%, 100% { opacity: 0.3; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .lixa-typing-dots span { animation: none; opacity: 0.6; } }
+
+/* ===== Lixa question form (several details asked as a form, not as text) ===== */
+.lixa-qform-pending { display: inline-flex; align-items: center; gap: 0.5rem; margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--text-secondary); }
+.lixa-qform-card { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin-top: 0.7rem; padding: 0.7rem 0.8rem 0.7rem 0.95rem; border: 1px solid var(--accent); border-radius: 0.9rem; background: var(--accent-soft); max-width: 460px; }
+.lixa-qform-card-text { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.lixa-qform-card-text strong { font-size: 0.9rem; color: var(--text-primary); }
+.lixa-qform-card-text span { font-size: 0.76rem; color: var(--text-secondary); }
+.lixa-qform-open { flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.45rem; min-height: 40px; padding: 0.45rem 0.95rem; border: none; border-radius: 0.7rem; background: var(--accent); color: #fff; font: inherit; font-size: 0.84rem; font-weight: 700; cursor: pointer; }
+.lixa-qform-overlay { position: fixed; inset: 0; z-index: 5000; background: rgba(8, 14, 18, 0.55); display: flex; align-items: flex-end; justify-content: center; animation: lixaQformFade 0.15s ease; }
+.lixa-qform { width: 100%; max-width: 520px; max-height: 92vh; display: flex; flex-direction: column; background: var(--surface); border-radius: 1.3rem 1.3rem 0 0; box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.3); padding: 1rem 1rem calc(0.9rem + env(safe-area-inset-bottom)); animation: lixaQformUp 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.lixa-qform-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+.lixa-qform-head h3 { margin: 0; font-size: 1.08rem; font-weight: 700; color: var(--text-primary); }
+.lixa-qform-x { flex: 0 0 38px; width: 38px; height: 38px; border: none; border-radius: 50%; background: var(--bg-page); color: var(--text-secondary); cursor: pointer; }
+.lixa-qform-intro { margin: 0.3rem 0 0; font-size: 0.86rem; color: var(--text-secondary); line-height: 1.45; }
+.lixa-qform-body { overflow-y: auto; margin-top: 0.8rem; padding-right: 0.15rem; display: flex; flex-direction: column; gap: 1rem; }
+.lixa-qform-field { display: flex; flex-direction: column; gap: 0.45rem; }
+.lixa-qform-label { font-size: 0.86rem; font-weight: 700; color: var(--text-primary); }
+.lixa-qform-optional { font-weight: 500; font-size: 0.72rem; color: var(--text-secondary); margin-left: 0.3rem; }
+.lixa-qform-input { width: 100%; box-sizing: border-box; font: inherit; font-size: 0.95rem; color: var(--text-primary); background: var(--bg-page); border: 1px solid var(--border-light); border-radius: 0.75rem; padding: 0.65rem 0.8rem; min-height: 44px; outline: none; }
+textarea.lixa-qform-input { resize: vertical; line-height: 1.45; }
+.lixa-qform-input:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.lixa-qform-other { font-size: 0.85rem; min-height: 40px; }
+.lixa-qform-chips { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.lixa-qform-chip { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 38px; padding: 0.35rem 0.8rem; border-radius: 2rem; border: 1px solid var(--border-light); background: var(--surface); color: var(--text-primary); font: inherit; font-size: 0.84rem; cursor: pointer; text-align: left; }
+.lixa-qform-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.lixa-qform-chip:focus-visible, .lixa-qform-open:focus-visible, .lixa-qform-submit:focus-visible, .lixa-qform-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lixa-qform-hints .lixa-qform-chip { border-style: dashed; color: var(--text-secondary); font-size: 0.8rem; min-height: 34px; }
+.lixa-qform-rec { font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.08rem 0.4rem; border-radius: 1rem; background: var(--accent); color: #fff; }
+.lixa-qform-field.missing .lixa-qform-label { color: #dc2626; }
+.lixa-qform-field.missing .lixa-qform-input { border-color: #dc2626; }
+.lixa-qform-error { margin: 0.6rem 0 0; min-height: 1.1em; font-size: 0.82rem; color: #dc2626; }
+.lixa-qform-error:empty { display: none; }
+.lixa-qform-actions { display: flex; gap: 0.6rem; margin-top: 0.8rem; }
+.lixa-qform-cancel { flex: 0 0 auto; min-height: 46px; padding: 0.5rem 0.9rem; border-radius: 0.8rem; border: 1px solid var(--border-light); background: var(--surface); color: var(--text-secondary); font: inherit; font-size: 0.86rem; font-weight: 600; cursor: pointer; }
+.lixa-qform-submit { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 46px; border: none; border-radius: 0.8rem; background: var(--accent); color: #fff; font: inherit; font-size: 0.95rem; font-weight: 700; cursor: pointer; }
+@keyframes lixaQformFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lixaQformUp { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (min-width: 640px) { .lixa-qform-overlay { align-items: center; } .lixa-qform { border-radius: 1.3rem; padding: 1.2rem; } }
+@media (prefers-reduced-motion: reduce) { .lixa-qform-overlay, .lixa-qform { animation: none; } }

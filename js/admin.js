@@ -1238,6 +1238,17 @@ document.addEventListener('DOMContentLoaded', function() {
         };
       });
 
+      // What users send from inside the app is NOT under "reviews": the
+      // Workspace star rating + comment is saved at feedback/{uid}/{id} and
+      // "Report this response" at feedback/{uid}/aiReports/{id}. Without this
+      // the admin never saw either of them.
+      try {
+        allReviews = allReviews.concat(await loadUserFeedbackEntries());
+      } catch (e) {
+        console.warn('Could not load user feedback (feedback/…):', e);
+        showToast('User ratings and reports could not be loaded (database rules may be blocking "feedback").', 'error', 6000);
+      }
+
       // Average rating summary (user feedback entries only)
       const ratingEntries = allReviews.filter(r => r.type === 'user_feedback' && r.rating > 0);
       const avgRatingEl = document.getElementById('avgRatingValue');
@@ -1319,7 +1330,7 @@ document.addEventListener('DOMContentLoaded', function() {
     filteredReviews.forEach(r => {
       const rowClass = r.resolved ? 'resolved-row' : '';
       const isFeedback = r.type === 'user_feedback';
-      const typeLabel = isFeedback ? 'User Rating' : (r.type === 'insufficient_funds' ? 'Insufficient Funds' : 'API Error');
+      const typeLabel = isFeedback ? 'User Rating' : (r.type === 'ai_content_report' ? 'AI Response Report' : (r.type === 'insufficient_funds' ? 'Insufficient Funds' : 'API Error'));
       const dateStr = r.timestamp ? new Date(r.timestamp).toLocaleDateString('en-GB', {
         day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
       }) : 'Unknown';
@@ -1454,11 +1465,52 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
+  // feedback/{uid}/{id} = { rating, comment, createdAt }
+  // feedback/{uid}/aiReports/{id} = { type: 'ai_content_report', reason, note, excerpt, model, platform, at }
+  async function loadUserFeedbackEntries() {
+    const snap = await database.ref('feedback').once('value');
+    const all = snap.val() || {};
+    const out = [];
+    const who = {};
+    await Promise.all(Object.keys(all).map(async (uid) => {
+      try {
+        const [e, n] = await Promise.all([database.ref('users/' + uid + '/email').once('value'), database.ref('users/' + uid + '/name').once('value')]);
+        who[uid] = { email: e.val() || '', name: n.val() || '' };
+      } catch (err) { who[uid] = { email: '', name: '' }; }
+    }));
+    const ms = (v) => (typeof v === 'number' ? v : (Date.parse(v) || 0));
+    Object.keys(all).forEach((uid) => {
+      const node = all[uid] || {};
+      Object.keys(node).forEach((id) => {
+        const d = node[id];
+        if (id === 'aiReports' || !d || typeof d !== 'object' || d.rating === undefined) return;
+        out.push({
+          key: 'fb__' + uid + '__' + id, path: 'feedback/' + uid + '/' + id,
+          type: 'user_feedback', tool: 'feedback', context: d.comment || '', status: null, detail: '', comment: '', page: '', userAgent: '',
+          userId: uid, userEmail: who[uid].email, resolved: d.resolved === true, timestamp: ms(d.createdAt),
+          rating: Number(d.rating) || 0, emoji: '', feedback: d.comment || '', userName: who[uid].name
+        });
+      });
+      const reports = node.aiReports || {};
+      Object.keys(reports).forEach((id) => {
+        const d = reports[id] || {};
+        out.push({
+          key: 'fr__' + uid + '__' + id, path: 'feedback/' + uid + '/aiReports/' + id,
+          type: d.type || 'ai_content_report', tool: 'lixa', context: d.reason || 'Reported AI response', status: null,
+          detail: d.excerpt || '', comment: d.note || '', page: d.platform || '', userAgent: d.model ? 'model: ' + d.model : '',
+          userId: uid, userEmail: who[uid].email, resolved: d.resolved === true, timestamp: ms(d.at),
+          rating: null, emoji: '', feedback: '', userName: who[uid].name
+        });
+      });
+    });
+    return out;
+  }
+
   async function toggleReviewResolved(key) {
     const review = allReviews.find(r => r.key === key);
     if (!review) return;
     try {
-      await database.ref(`reviews/${key}/resolved`).set(!review.resolved);
+      await database.ref(`${review.path || 'reviews/' + key}/resolved`).set(!review.resolved);
       showToast(review.resolved ? 'Marked as unresolved.' : 'Marked as resolved.');
       loadReviews(true);
     } catch (error) {
@@ -1500,7 +1552,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="review-detail-row"><span class="review-detail-label">Submitted</span><span class="review-detail-value">${dateStr}</span></div>
       `;
     } else {
-      const typeLabel = review.type === 'insufficient_funds' ? 'Insufficient Funds' : 'Other API Error';
+      const typeLabel = review.type === 'ai_content_report' ? 'AI Response Report' : (review.type === 'insufficient_funds' ? 'Insufficient Funds' : 'Other API Error');
       body.innerHTML = `
         <div class="review-detail-row"><span class="review-detail-label">Type</span><span class="review-detail-value">${escapeHtml(typeLabel)}</span></div>
         <div class="review-detail-row"><span class="review-detail-label">Tool</span><span class="review-detail-value">${escapeHtml(review.tool)}</span></div>
@@ -2117,7 +2169,8 @@ document.addEventListener('DOMContentLoaded', function() {
       const key = confirmData;
 
       try {
-        await database.ref(`reviews/${key}`).remove();
+        const target = (typeof allReviews !== 'undefined' && allReviews.find(r => r.key === key)) || null;
+        await database.ref((target && target.path) || `reviews/${key}`).remove();
         showToast('✅ Review deleted successfully.');
         modal.classList.remove('show');
         loadReviews(true);

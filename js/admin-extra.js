@@ -35,6 +35,28 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // =====================================================================
+  // Dashboard: all-time visits (only counted when the admin switches it on)
+  // =====================================================================
+  const allTimeToggle = $('allTimeToggle');
+  if (allTimeToggle) allTimeToggle.addEventListener('change', async () => {
+    const value = $('statVisitsAllTime'), hint = $('allTimeHint');
+    if (!allTimeToggle.checked) { value.textContent = '—'; hint.textContent = 'Show'; return; }
+    hint.textContent = 'Counting…'; value.textContent = '…';
+    allTimeToggle.disabled = true;
+    try {
+      const count = (v) => (Array.isArray(v) ? v.filter(Boolean).length : (v && typeof v === 'object' ? Object.keys(v).length : 0));
+      const [usersSnap, anonSnap] = await Promise.all([db.ref('users').once('value'), db.ref('anonymous-visits').once('value')]);
+      let signedIn = 0;
+      usersSnap.forEach((u) => { signedIn += count((u.val() || {}).visits); });
+      const anonymous = count(anonSnap.val());
+      value.textContent = (signedIn + anonymous).toLocaleString();
+      hint.textContent = signedIn.toLocaleString() + ' signed-in · ' + anonymous.toLocaleString() + ' anonymous';
+    } catch (e) {
+      value.textContent = '—'; hint.textContent = 'Could not count'; allTimeToggle.checked = false;
+    } finally { allTimeToggle.disabled = false; }
+  });
+
+  // =====================================================================
   // App & Versions
   // =====================================================================
   const APP_FIELDS = { latestVersionName: 'appLatestName', latestVersionCode: 'appLatestCode', minVersionCode: 'appMinCode', updateUrl: 'appUpdateUrl', releaseNotes: 'appReleaseNotes' };

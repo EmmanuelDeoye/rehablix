@@ -247,7 +247,9 @@
     // 5. grain + vignette
     grain(ctx, w, h, t.dark ? 10 : 7, r);
     if (t.dark) { const v = ctx.createRadialGradient(w / 2, h / 2, h * 0.3, w / 2, h / 2, h * 1.05); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.45)'); ctx.fillStyle = v; ctx.fillRect(0, 0, w, h); }
-    const out = dataOf(c, 'image/jpeg');
+    // JPEG keeps a deck small; fixMediaNames() then gives the file its true extension.
+    // Without JSZip that repair cannot run, so fall back to real PNG data.
+    const out = dataOf(c, root.JSZip ? 'image/jpeg' : 'image/png');
     bgCache.set(key, out);
     return out;
   }
@@ -653,12 +655,50 @@
 
   // Slide transitions: PptxGenJS doesn't write them, so they're injected
   // into each slide's XML (valid OOXML; PowerPoint, Keynote, Google Slides).
-  async function addTransitions(blob, slides) {
+  //
+  // The same pass repairs image file names. PptxGenJS stores every slide
+  // BACKGROUND as "….png" whatever the data is, and the backgrounds here are
+  // JPEG (PNG would be several MB per slide). A JPEG labelled .png makes
+  // PowerPoint for Android refuse the whole file and other apps drop the
+  // image, so each media file is renamed to match its real content and every
+  // relationship that points at it is updated.
+  async function fixMediaNames(zip) {
+    const renames = [];
+    const media = zip.file(/^ppt\/media\/[^/]+$/);
+    for (const f of media) {
+      const head = await f.async('uint8array');
+      const real = head[0] === 0x89 && head[1] === 0x50 ? 'png' : (head[0] === 0xFF && head[1] === 0xD8 ? 'jpg' : (head[0] === 0x47 && head[1] === 0x49 ? 'gif' : null));
+      const dot = f.name.lastIndexOf('.');
+      const ext = f.name.slice(dot + 1).toLowerCase();
+      const same = real === ext || (real === 'jpg' && ext === 'jpeg');
+      if (!real || same) continue;
+      const to = f.name.slice(0, dot + 1) + real;
+      zip.file(to, head, { binary: true });
+      zip.remove(f.name);
+      renames.push([f.name.split('/').pop(), to.split('/').pop()]);
+    }
+    if (!renames.length) return;
+    for (const rel of zip.file(/\.rels$/)) {
+      let xml = await rel.async('string');
+      let changed = false;
+      renames.forEach(([from, to]) => { if (xml.includes('/' + from + '"')) { xml = xml.split('/' + from + '"').join('/' + to + '"'); changed = true; } });
+      if (changed) zip.file(rel.name, xml);
+    }
+    // jpg / jpeg / png / gif are all declared as Default types by PptxGenJS; make sure of jpg.
+    const ctFile = zip.file('[Content_Types].xml');
+    if (ctFile) {
+      let ct = await ctFile.async('string');
+      if (!/Extension="jpg"/i.test(ct)) { ct = ct.replace('<Default ', '<Default Extension="jpg" ContentType="image/jpeg"/><Default '); zip.file('[Content_Types].xml', ct); }
+    }
+  }
+
+  async function addTransitions(blob, slides, withTransitions) {
     const JSZipLib = root.JSZip;
     if (!JSZipLib) return blob;
     try {
       const zip = await JSZipLib.loadAsync(blob);
-      await Promise.all(slides.map(async (s, i) => {
+      await fixMediaNames(zip);
+      if (withTransitions !== false) await Promise.all(slides.map(async (s, i) => {
         const path = `ppt/slides/slide${i + 1}.xml`;
         const f = zip.file(path); if (!f) return;
         let xml = await f.async('string');
@@ -745,7 +785,7 @@ Rules: ${count} slides total including cover and closing. Tell a story: hook →
     renderer(pptx, t, spec, seed)(opts.onProgress);
     if (opts.onProgress) opts.onProgress(0.93, 'Adding transitions…');
     let blob = await pptx.write({ outputType: 'blob' });
-    if (opts.transitions !== false) blob = await addTransitions(blob, spec.slides);
+    blob = await addTransitions(blob, spec.slides, opts.transitions);   // also repairs image file names (see fixMediaNames)
     const fileName = (spec.title.replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'Rehablix deck') + '.pptx';
     return { blob, fileName, spec, theme: themeId, slides: spec.slides.map(s => ({ layout: s.layout, title: s.title || s.quote || '' })) };
   }

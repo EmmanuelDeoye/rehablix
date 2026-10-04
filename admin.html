@@ -537,6 +537,15 @@
 
                     <!-- Stats cards -->
                     <div class="stats-grid" id="statsGrid">
+                        <!-- All-time visits: counted only when the admin asks (it reads every visit record) -->
+                        <div class="stat-card glass-card" id="statAllTimeCard" style="order: 99;">
+                            <span class="stat-icon">🌍</span>
+                            <div class="stat-content">
+                                <span class="stat-label">All-time visits</span>
+                                <span class="stat-value" id="statVisitsAllTime">—</span>
+                                <label class="extra-switch" style="margin-top:0.35rem;font-size:0.78rem !important;"><input type="checkbox" id="allTimeToggle" /> <span id="allTimeHint">Show</span></label>
+                            </div>
+                        </div>
                         <div class="stat-card glass-card clickable" data-target="users" id="statTotalUsersCard">
                             <div class="stat-icon">👤</div>
                             <div class="stat-info">

@@ -2145,3 +2145,6 @@ body[data-route]:not([data-route="lixa"]):not([data-route="workspace"]) #themeTo
 .empty-chat .empty-chat-greeting { font-weight: 700; }
 .tool-title { font-weight: 700; }
 .bottom-nav-item.active .bottom-nav-label, .bottom-nav-item.active span { font-weight: 700; }
+/* The Rehablix brand typeface (Outfit, SIL Open Font License): the "rehablix" wordmark. */
+@font-face { font-family: 'Rehablix Brand'; src: url('../fonts/outfit.ttf') format('truetype'); font-weight: 100 900; font-display: swap; }
+.logo-lop { font-family: 'Rehablix Brand', system-ui, sans-serif; font-weight: 800; font-size: 1.15rem; letter-spacing: -0.01em; line-height: 1.15; }
