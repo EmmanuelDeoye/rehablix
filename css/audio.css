@@ -1019,6 +1019,7 @@
 .coach-empty { font-size: 0.8rem; color: var(--text-secondary); margin: 0 0 0.5rem; }
 .speaker-chip { display: inline-block; margin: 0.45rem 0.35rem 0.15rem 0; padding: 0.1rem 0.55rem; border-radius: 1rem; border: 1px solid var(--audio-accent); background: var(--audio-accent-soft); color: var(--audio-accent); font: inherit; font-size: 0.7rem; font-weight: 700; cursor: pointer; }
 .speaker-chip.speaker-patient { border-color: #d97706; background: rgba(217, 119, 6, 0.12); color: #b45309; }
+.speaker-chip.speaker-pending { border-style: dashed; border-color: var(--border-light); background: transparent; color: var(--text-secondary); cursor: default; font-weight: 600; }
 .live-transcript-text .speaker-chip:first-child { margin-top: 0; }
 .transcript-pending { color: var(--text-secondary); font-style: italic; opacity: 0.8; }
 .transcript-pending.failed { color: #b45309; }

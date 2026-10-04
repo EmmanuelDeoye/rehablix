@@ -518,8 +518,14 @@
       }
       try {
         const data = config.pptExportData(resultData, editor.innerHTML, editor.innerText);
-        localStorage.setItem('pptExportData', JSON.stringify(data));
-        window.open('ppt-export.html', '_blank');
+        // Deck Studio (in-app) takes it from here — the old standalone
+        // ppt-export.html page is no longer used.
+        if (window.RehablixDeckService) {
+          window.RehablixDeckService.openStudioWith({ title: data.modeLabel || data.title || document.title, html: data.content || editor.innerHTML });
+        } else {
+          localStorage.setItem('pptExportData', JSON.stringify(data));
+          window.open('ppt-export.html', '_blank');
+        }
       } catch (err) {
         console.error('Export error:', err);
         showToast('Failed to export: ' + err.message, 'error');

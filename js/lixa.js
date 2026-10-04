@@ -98,6 +98,7 @@
     { toolId: 'format', re: /\b(assessment\s+format|format)\b/i },
     { toolId: 'standardized', re: /\bstandardi[sz]ed\s+(tool|assessment)\b/i },
     { toolId: 'presentation', re: /\b(presentation|case\s+report|clinical\s+report|documentation)\b/i },
+    { toolId: 'deck', re: /\b(deck|slides)\b/i },
     { toolId: 'audio', re: /\b(transcript|audio|recording)\b/i },
     { toolId: 'study', re: /\b(study\s+set|flashcards|quiz)\b/i },
     { toolId: 'assignment', re: /\b(assignment|essay|coursework)\b/i }
@@ -163,6 +164,7 @@
     { type: 'format', label: 'Formats', path: 'formats', icon: '📋', titleOf: (item) => (item.assessmentType && item.diagnosis) ? `${item.assessmentType} — ${item.diagnosis}` : (item.diagnosis || item.assessmentType) },
     { type: 'standardized', label: 'Standardized Tools', path: 'standardizedTools', icon: '⚖️', titleOf: (item) => item.toolName },
     { type: 'presentation', label: 'Presentations/Reports', path: 'caseHistory', icon: '📑', titleOf: (item) => item.fileName || item.documentType },
+    { type: 'deck', label: 'Slide decks', path: 'decks', icon: '🎞️', titleOf: (item) => item.title },
     { type: 'audio', label: 'Audio', path: 'audio', icon: '🎧', titleOf: (item) => item.title },
     { type: 'assignment', label: 'Assignments', path: 'assignments', icon: '📝', titleOf: (item) => item.topic },
     { type: 'study', label: 'Study Sets', path: 'study/sets', icon: '🧠', titleOf: (item) => item.title },
@@ -930,6 +932,27 @@
       return true;
     }
 
+    // "Turn this into a PowerPoint" builds a designed deck FROM what is
+    // already in the chat (an attachment, a named earlier file, or the last
+    // real answer); "make a PowerPoint about X" starts a new deck on X.
+    const DECK_REFERS_BACK_RE = /\b(this|that|it|these|those|above|previous|last|earlier|the\s+(?:answer|response|report|format|transcript|assignment|notes?|document|summary|essay|plan|study\s+set))\b/i;
+    async function startDeck(text, attachedFiles) {
+      const hasAttachment = !!(attachedFiles && attachedFiles.length);
+      if (hasAttachment || DECK_REFERS_BACK_RE.test(text)) {
+        const target = await resolveExportTarget(text, attachedFiles, core.getMessages());
+        if (target && window.RehablixDeckService) {
+          const tool = TOOLS.deck;
+          if (target.deckRecordId) return await startTool('deck', text, text, attachedFiles, { confirmed: true });
+          pushUserText(text);
+          const source = window.RehablixDeckService.stripHtml(target.html || '');
+          const data = Object.assign({}, tool.extractFromText(text), { content: target.title && target.title !== 'Lixa Response' ? target.title : text, source, additionalInstructions: text });
+          await runGeneration('deck', data);
+          return true;
+        }
+      }
+      return await startTool('deck', text, text, attachedFiles, { confirmed: true });
+    }
+
     // =====================================================================
     // Inline audio recorder
     // =====================================================================
@@ -1013,6 +1036,7 @@
       // it fires regardless of whether the message matches any of the six
       // registered tools' keywords/patterns (feature: generic export).
       const exportFormat = detectExportIntent(text);
+      if (exportFormat === 'pptx' && TOOLS.deck) return await startDeck(text, attachedFiles);
       if (exportFormat) return await startExport(exportFormat, text, attachedFiles);
 
       const editTarget = detectEditTarget(text, core.getMessages());
@@ -1176,6 +1200,7 @@
         format: `index.html?id=${id}#/formatview`,
         standardized: `index.html?openId=${id}#/standardized`,
         presentation: `index.html?type=case&id=${id}#/result`,
+        deck: `index.html?deck=${id}#/deck`,
         audio: `index.html?id=${id}#/audioview`,
         assignment: `index.html?type=answer&id=${id}#/result`,
         // A study record in Files is a SET id, not a subject id — the tool

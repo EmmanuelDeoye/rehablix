@@ -110,6 +110,7 @@
   <link rel="stylesheet" href="css/history-migration.css">
   <!-- Project Maker (route "project", js/views/project-view.js) — migrated off the old standalone project.html. -->
   <link rel="stylesheet" href="css/project.css">
+<link rel="stylesheet" href="css/deck.css">
 
   <script>
     if ('serviceWorker' in navigator) {
@@ -285,6 +286,10 @@
   <script src="js/lixa-generators/standardized-gen.js" defer></script>
   <script src="js/lixa-generators/audio-gen.js" defer></script>
   <script src="js/lixa-generators/presentation-gen.js" defer></script>
+<!-- Deck Studio: AI presentation designer (engine draws the slides locally; PptxGenJS is lazy-loaded on export) -->
+<script src="js/deck/deck-engine.js" defer></script>
+<script src="js/deck/deck-service.js" defer></script>
+<script src="js/lixa-generators/deck-gen.js" defer></script>
   <script src="js/lixa-generators/study-gen.js" defer></script>
   <script src="js/lixa-generators/assign-gen.js" defer></script>
   <script src="js/ask.js" defer></script>
@@ -321,6 +326,7 @@
   <script src="js/views/emr-view.js" defer></script>
   <!-- Project Maker — migrated off the old standalone project.html/js/project.js. -->
   <script src="js/views/project-view.js" defer></script>
+<script src="js/views/deck-view.js" defer></script>
 
   <!-- Shell chrome + router (router boots last, after every view has registered) -->
   <script src="js/tools.js" defer></script>

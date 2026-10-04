@@ -112,7 +112,6 @@ function mount() {
   const coachSetupPanel = $('coachSetupPanel');
   const coachConsentInput = $('coachConsent');
   const coachLivePanel = $('coachLivePanel');
-  const coachSpeakerToggle = $('coachSpeakerToggle');
   const coachSuggestionsList = $('coachSuggestionsList');
   const coachSpeakToggle = $('coachSpeakToggle');
   const coachSpeakHint = $('coachSpeakHint');
@@ -151,13 +150,12 @@ function mount() {
   let recordedMimeType = 'audio/webm';
   let interimEl = null;
   // Live transcription engine state (see "LIVE TRANSCRIPTION" below).
-  let liveSegments = [];          // index -> { status, text, speaker, tries }
-  let segRecorder = null, segParts = [], segStartedAt = 0, segPeak = 0, segSpeaker = 'therapist';
+  let liveSegments = [];          // index -> { status, text, speaker, parts, tries }
+  let segRecorder = null, segParts = [], segStartedAt = 0, segPeak = 0;
   let segStopResolve = null, liveMonitorTimer = null, quietSince = null;
   let liveInFlight = 0, liveQueue = [], liveQuotaBlocked = false, liveAbort = null;
   // Coach mode
   let audioMode = 'transcribe';   // 'transcribe' | 'coach'
-  let currentSpeaker = 'therapist';
   let coachSuggestions = [];      // { id, text, askedAt, afterIndex }
   let lastSuggestAt = 0, suggestTimer = null, suggestInFlight = false;
   let headphonesDetected = false, speakSuggestions = false;
@@ -344,7 +342,7 @@ function mount() {
     auModeToggleBtn.classList.toggle('active', audioMode === 'coach');
     auModeToggleBtn.setAttribute('aria-pressed', String(audioMode === 'coach'));
     applySourceMode();
-    showToast(audioMode === 'coach' ? 'Coach mode: speaker labels + suggested questions' : 'Transcribe mode', 'info', 2200);
+    showToast(audioMode === 'coach' ? 'Coach mode: automatic speaker labels + a suggested question' : 'Transcribe mode', 'info', 2200);
   });
 
   function openDetails() { if (!auDetailsModal) return; auDetailsModal.hidden = false; setTimeout(() => sessionTitleInput && sessionTitleInput.focus(), 30); }
@@ -374,12 +372,6 @@ function mount() {
         }
         if (audioMode === 'coach') detectHeadphones();
       });
-    });
-  }
-  if (coachSpeakerToggle) {
-    coachSpeakerToggle.addEventListener('click', (e) => {
-      const b = e.target.closest('[data-speaker]');
-      if (b) setSpeaker(b.dataset.speaker);
     });
   }
   if (coachSuggestionsList) {
@@ -740,6 +732,7 @@ function mount() {
     // Every live clip must be done (or definitively failed) before the
     // transcript is assembled — in order.
     await drainLiveQueue((done, total) => updateProcessingProgress(40 + Math.round((done / Math.max(1, total)) * 25), `Transcribing segment ${done} of ${total}…`));
+    await settleSpeakers();
     rebuildRawFromSegments();
 
     const failed = liveSegments.filter(s => s && s.status === 'failed').length;
@@ -915,7 +908,7 @@ function mount() {
     if (liveAbort) { try { liveAbort.abort(); } catch (e) {} }
     liveAbort = new AbortController();
     coachSuggestions = []; lastSuggestAt = 0; clearTimeout(suggestTimer); suggestInFlight = false;
-    currentSpeaker = 'therapist';
+    lastCoachAt = 0; coachFailures = 0; coachDirty = false;
   }
 
   function currentRms() {
@@ -934,8 +927,7 @@ function mount() {
     try { rec = opts ? new MediaRecorder(mediaStream, opts) : new MediaRecorder(mediaStream); } catch (e) { console.warn('[audio] segment recorder unavailable', e); return; }
     const parts = [];
     const index = liveSegments.length;
-    const speaker = currentSpeaker;
-    liveSegments[index] = { status: 'recording', text: '', speaker, tries: 0 };
+    liveSegments[index] = { status: 'recording', text: '', speaker: 'therapist', parts: null, tries: 0 };
     let peak = 0;
     rec.ondataavailable = (e) => { if (e.data && e.data.size) parts.push(e.data); };
     rec.onstop = () => {
@@ -1056,10 +1048,10 @@ function mount() {
         seg.status = 'done';
         if (text) recordQuotaUsage(text, 1);
         if (seg.persisted) await seg.persisted;
-        if (localSessionId) idbPutSegment(localSessionId, index, { blob: seg.blob, status: 'done', text, speaker: seg.speaker }).catch(() => {});
+        persistSegment(index);
         rebuildRawFromSegments();
         renderLiveTranscript();
-        if (audioMode === 'coach' && seg.speaker === 'patient' && text) scheduleSuggestions();
+        if (audioMode === 'coach' && text) scheduleSuggestions();
         return;
       } catch (err) {
         if (err && err.name === 'AbortError') { seg.status = 'failed'; return; }
@@ -1090,23 +1082,53 @@ function mount() {
     if (onProgress) onProgress(settled(), total());
   }
 
-  function speakerLabel(s) { return s === 'patient' ? 'Patient/Caregiver' : 'Therapist'; }
+  function speakerLabel(s) { return s === 'patient' ? 'Patient/Caregiver' : s === 'therapist' ? 'Therapist' : 'Speaker'; }
+
+  function persistSegment(i) {
+    const s = liveSegments[i];
+    if (!localSessionId || !s || !s.blob) return;
+    idbPutSegment(localSessionId, i, { blob: s.blob, status: s.status, text: s.text, speaker: s.speaker, parts: s.parts || null }).catch(() => {});
+  }
+
+  // Sentence-level pieces of a clip. A clip often holds a question AND its
+  // answer, so speakers are assigned per sentence, not per clip.
+  function splitSentences(text) {
+    const ABBREV = /\b(Dr|Mr|Mrs|Ms|Prof|St|vs|No|e\.g|i\.e)\.$/i;   // not a sentence end
+    return String(text || '').replace(/([.!?…]["')\]]?)\s+/g, '$1\u0001').split('\u0001').map(t => t.trim()).filter(Boolean)
+      .reduce((out, t) => { if (out.length && ABBREV.test(out[out.length - 1])) out[out.length - 1] += ' ' + t; else out.push(t); return out; }, []);
+  }
+
+  // Every transcribed sentence in recording order: { seg, part, p: { text, speaker } }.
+  // speaker is null until Coach has worked out who said it.
+  function coachUnits() {
+    const out = [];
+    liveSegments.forEach((s, i) => {
+      if (!s || s.status !== 'done' || !s.text) return;
+      if (!s.parts) s.parts = splitSentences(s.text).map(t => ({ text: t, speaker: null }));
+      s.parts.forEach((p, k) => out.push({ seg: i, part: k, p }));
+    });
+    return out;
+  }
+
+  function coachTurns() {
+    const turns = [];
+    coachUnits().forEach(u => {
+      const last = turns[turns.length - 1];
+      if (last && last.speaker === u.p.speaker) last.text += ' ' + u.p.text;
+      else turns.push({ speaker: u.p.speaker, text: u.p.text });
+    });
+    return turns;
+  }
 
   // Ordered transcript from the clips: plain text in Transcribe mode,
   // "Therapist:/Patient/Caregiver:" labelled turns in Coach mode.
   function rebuildRawFromSegments() {
-    const done = liveSegments.map((s, i) => ({ s, i })).filter(x => x.s && x.s.status === 'done' && x.s.text);
     if (audioMode === 'coach') {
-      const turns = [];
-      done.forEach(({ s, i }) => {
-        const last = turns[turns.length - 1];
-        if (last && last.speaker === s.speaker) { last.text += ' ' + s.text; last.segments.push(i); }
-        else turns.push({ speaker: s.speaker, text: s.text, segments: [i] });
-      });
+      const turns = coachTurns();
       if (sessionMeta) sessionMeta.turns = turns;
       rawSegments = turns.map(t => speakerLabel(t.speaker) + ': ' + t.text);
     } else {
-      rawSegments = done.map(x => x.s.text);
+      rawSegments = liveSegments.filter(s => s && s.status === 'done' && s.text).map(s => s.text);
     }
     if (sessionMeta) { sessionMeta.rawSegments = rawSegments; idbPutSession(sessionMeta).catch(() => {}); }
   }
@@ -1114,76 +1136,78 @@ function mount() {
   function renderLiveTranscript() {
     if (!liveTranscriptText) return;
     const html = [];
-    let lastSpeaker = null;
+    const coach = audioMode === 'coach';
+    let lastSpeaker;
     liveSegments.forEach((s, i) => {
       if (!s || s.status === 'silent') return;
       if (s.status === 'done' && !s.text) return;
-      const coach = audioMode === 'coach';
-      if (coach && s.speaker !== lastSpeaker) {
-        html.push(`<button type="button" class="speaker-chip speaker-${s.speaker}" data-seg="${i}" aria-label="Speaker: ${speakerLabel(s.speaker)}. Tap to change">${speakerLabel(s.speaker)}</button>`);
-        lastSpeaker = s.speaker;
+      if (s.status === 'done' && coach) {
+        if (!s.parts) s.parts = splitSentences(s.text).map(t => ({ text: t, speaker: null }));
+        s.parts.forEach((p, k) => {
+          if (p.speaker !== lastSpeaker) {
+            html.push(p.speaker
+              ? '<button type="button" class="speaker-chip speaker-' + p.speaker + '" data-seg="' + i + '" data-part="' + k + '" aria-label="Speaker: ' + speakerLabel(p.speaker) + '. Tap to correct">' + speakerLabel(p.speaker) + '</button>'
+              : '<span class="speaker-chip speaker-pending" aria-label="Identifying the speaker">Identifying speaker…</span>');
+            lastSpeaker = p.speaker;
+          }
+          html.push('<span class="transcript-segment" data-seg="' + i + '">' + escapeHtml(p.text) + ' </span>');
+        });
       }
-      if (s.status === 'done') html.push(`<span class="transcript-segment" data-seg="${i}">${escapeHtml(s.text)} </span>`);
-      else if (s.status === 'failed') html.push(`<span class="transcript-pending failed" data-seg="${i}">[segment will be transcribed at the end] </span>`);
-      else if (s.status === 'pending') html.push(`<span class="transcript-pending" data-seg="${i}">… </span>`);
+      else if (s.status === 'done') html.push('<span class="transcript-segment" data-seg="' + i + '">' + escapeHtml(s.text) + ' </span>');
+      else if (s.status === 'failed') html.push('<span class="transcript-pending failed" data-seg="' + i + '">[segment will be transcribed at the end] </span>');
+      else if (s.status === 'pending') html.push('<span class="transcript-pending" data-seg="' + i + '">… </span>');
     });
     liveTranscriptText.innerHTML = html.length ? html.join('') : '<span class="transcript-placeholder">Your words will appear here a few seconds after you speak…</span>';
     interimEl = null;
     liveTranscriptText.scrollTop = liveTranscriptText.scrollHeight;
   }
 
-  // Coach: tap a speaker chip to correct the label for that whole turn.
+  // Coach labels speakers on its own; a chip can still be tapped to correct
+  // a turn it got wrong (flips that turn only).
   liveTranscriptText.addEventListener('click', (e) => {
-    const chip = e.target.closest('.speaker-chip');
+    const chip = e.target.closest('button.speaker-chip');
     if (!chip) return;
-    const start = parseInt(chip.dataset.seg, 10);
-    const from = liveSegments[start] && liveSegments[start].speaker;
+    const seg = parseInt(chip.dataset.seg, 10), part = parseInt(chip.dataset.part, 10);
+    const units = coachUnits();
+    let k = units.findIndex(u => u.seg === seg && u.part === part);
+    if (k < 0) return;
+    const from = units[k].p.speaker;
     const to = from === 'patient' ? 'therapist' : 'patient';
-    for (let i = start; i < liveSegments.length; i++) {
-      const s = liveSegments[i];
-      if (!s || s.status === 'silent' || (s.status === 'done' && !s.text)) continue;
-      if (s.speaker !== from) break;
-      s.speaker = to;
-      if (localSessionId && s.blob) idbPutSegment(localSessionId, i, { blob: s.blob, status: s.status, text: s.text, speaker: to }).catch(() => {});
-    }
+    const touched = new Set();
+    for (; k < units.length && units[k].p.speaker === from; k++) { units[k].p.speaker = to; touched.add(units[k].seg); }
+    touched.forEach(i => { liveSegments[i].speaker = liveSegments[i].parts[0].speaker || 'therapist'; persistSegment(i); });
     rebuildRawFromSegments();
     renderLiveTranscript();
   });
 
   // =========================================================================
-  // COACH MODE — speaker labels + suggested next questions
+  // COACH MODE — automatic speaker labels + one suggested next question
   // =========================================================================
-  function setSpeaker(sp) {
-    if (sp === currentSpeaker) return;
-    currentSpeaker = sp;
-    // Speaker changed: end the current clip here so it keeps one label.
-    if (segRecorder && !isPaused && Date.now() - segStartedAt > 800) rotateSegment();
-    else if (segRecorder) liveSegments[liveSegments.length - 1].speaker = sp;
-    renderCoachPanel();
-  }
+  // Nobody switches "who is speaking" by hand. Each newly transcribed sentence
+  // is attributed to the therapist or the patient/caregiver from what was said
+  // and the turn-taking, in the same (quota-counted) AI call that proposes the
+  // next question.
+  let lastCoachAt = 0, coachFailures = 0, coachDirty = false;
+  const COACH_MIN_GAP_MS = 6000;      // batch clips: at most one call per 6 s
+  const COACH_QUESTION_GAP_MS = 15000;
 
   function renderCoachPanel() {
     if (!coachLivePanel) return;
     const coach = audioMode === 'coach';
     coachLivePanel.style.display = coach ? 'block' : 'none';
     if (!coach) return;
-    coachSpeakerToggle.querySelectorAll('[data-speaker]').forEach(b => {
-      const on = b.dataset.speaker === currentSpeaker;
-      b.classList.toggle('active', on);
-      b.setAttribute('aria-pressed', on ? 'true' : 'false');
-    });
-    const open = coachSuggestions.filter(s => !s.askedAt).slice(-2);
+    const open = coachSuggestions.filter(s => !s.askedAt).slice(-1);
     coachSuggestionsList.innerHTML = open.length
-      ? open.map(s => `<div class="coach-suggestion"><span>${escapeHtml(s.text)}</span><button type="button" class="btn-mini coach-asked-btn" data-id="${s.id}" aria-label="Mark as asked">Asked</button></div>`).join('')
-      : `<p class="coach-empty">${suggestInFlight ? 'Thinking of a follow-up…' : 'Suggestions appear after the patient or caregiver speaks.'}</p>`;
+      ? open.map(s => '<div class="coach-suggestion"><span>' + escapeHtml(s.text) + '</span><button type="button" class="btn-mini coach-asked-btn" data-id="' + s.id + '" aria-label="Mark as asked">Asked</button></div>').join('')
+      : '<p class="coach-empty">' + (suggestInFlight ? 'Listening…' : 'A suggested question appears after the patient or caregiver speaks.') + '</p>';
     coachSpeakToggle.disabled = !headphonesDetected;
-    coachSpeakHint.textContent = headphonesDetected ? '' : 'Connect headphones or earphones to enable spoken suggestions.';
+    coachSpeakHint.textContent = headphonesDetected ? '' : 'Connect headphones or earphones to hear the suggestion.';
     if (!headphonesDetected) { coachSpeakToggle.checked = false; speakSuggestions = false; }
   }
 
-  function scheduleSuggestions() {
+  function scheduleSuggestions(delay) {
     clearTimeout(suggestTimer);
-    suggestTimer = setTimeout(requestSuggestions, 1500);
+    suggestTimer = setTimeout(() => runCoach(false), delay == null ? 1200 : delay);
   }
 
   // De-identified: the linked patient's name and any names/DOB/phone numbers
@@ -1196,45 +1220,104 @@ function mount() {
     return D ? D.scrubText(text, ids) : text;
   }
 
-  async function requestSuggestions() {
-    if (audioMode !== 'coach' || isPaused || !sessionMeta || suggestInFlight) return;
-    if (Date.now() - lastSuggestAt < 15000) { scheduleSuggestions(); return; }
-    const turns = (sessionMeta.turns || []).slice(-10);
-    if (!turns.length || turns[turns.length - 1].speaker !== 'patient') return;
+  // Offline / quota / AI-failure fallback: questions are the therapist's,
+  // the line right after a therapist question is the patient's, otherwise
+  // the speaker carries on.
+  function guessSpeakers(units) {
+    units.forEach((u, k) => {
+      if (u.p.speaker) return;
+      const prev = k > 0 ? units[k - 1].p : null;
+      if (/\?\s*["')\]]?$/.test(u.p.text)) u.p.speaker = 'therapist';
+      else if (prev && prev.speaker === 'therapist' && /\?\s*["')\]]?$/.test(prev.text)) u.p.speaker = 'patient';
+      else u.p.speaker = (prev && prev.speaker) || 'therapist';
+    });
+  }
+
+  function commitSpeakers(units) {
+    const touched = new Set(units.map(u => u.seg));
+    touched.forEach(i => { const s = liveSegments[i]; s.speaker = (s.parts[0] && s.parts[0].speaker) || 'therapist'; persistSegment(i); });
+    rebuildRawFromSegments();
+    renderLiveTranscript();
+  }
+
+  async function runCoach(final) {
+    if (audioMode !== 'coach' || !sessionMeta) return;
+    if (suggestInFlight) { coachDirty = true; return; }
+    const units = coachUnits();
+    const fresh = units.filter(u => !u.p.speaker);
+    if (!fresh.length) return;
     const core = window.RehablixAIQuotaCore;
-    if (!core) return;
-    suggestInFlight = true; lastSuggestAt = Date.now(); renderCoachPanel();
+    if (!core) { guessSpeakers(units); commitSpeakers(fresh); return; }
+    const wait = COACH_MIN_GAP_MS - (Date.now() - lastCoachAt);
+    if (!final && wait > 0) { scheduleSuggestions(wait); return; }
+    const wantQuestion = !final && !isPaused && Date.now() - lastSuggestAt >= COACH_QUESTION_GAP_MS;
+    suggestInFlight = true; lastCoachAt = Date.now(); renderCoachPanel();
     try {
       const config = await core.resolveModelConfig('basal100');
-      if (!config) return;
+      if (!config) throw new Error('AI not configured');
       await core.checkQuotaOrThrow(currentUser && currentUser.uid, currentPlan);
       const professional = PROFESSIONAL_LABELS[sessionMeta.professional] || 'clinician';
-      const system = `You support a ${professional} during a live ${sessionMeta.sessionType || 'therapy'} session. Based on the conversation so far, suggest ONE or TWO short, open, respectful follow-up questions the ${professional} could ask the patient or caregiver next. Stay within the ${professional}'s scope; do not diagnose, do not give treatment advice, do not repeat questions already asked. Return ONLY JSON: {"questions":["..."]}`;
-      const convo = turns.map(t => speakerLabel(t.speaker) + ': ' + deidentify(t.text)).join('\n');
-      const asked = coachSuggestions.filter(s => s.askedAt).map(s => '- ' + s.text).join('\n');
-      const user = 'Conversation (de-identified):\n' + convo + (asked ? '\n\nAlready asked from earlier suggestions:\n' + asked : '');
+      const system = 'You label a live clinical conversation between a ' + professional + ' (T) and a patient or caregiver (P) during a ' + (sessionMeta.sessionType || 'therapy') + ' session. It was transcribed in short pieces with no speaker information. Decide who said each NEW line from its content and the turn-taking: the ' + professional + ' asks questions, gives instructions, explains and examines; the patient or caregiver answers and describes symptoms, history, daily life and concerns. Neighbouring lines often share a speaker.' +
+        (wantQuestion ? ' Then, only if the last NEW line was said by the patient or caregiver, write ONE short, open, respectful follow-up question the ' + professional + ' could ask next (within scope; no diagnosis, no treatment advice, nothing already asked). Otherwise leave it empty.' : '') +
+        ' Return ONLY JSON: {"labels":["T","P"]' + (wantQuestion ? ',"question":""' : '') + '} with exactly one label per NEW line, in order.';
+      const known = units.filter(u => u.p.speaker).slice(-12).map(u => (u.p.speaker === 'patient' ? 'P: ' : 'T: ') + deidentify(u.p.text)).join('\n');
+      const asked = coachSuggestions.filter(s => s.askedAt).slice(-6).map(s => '- ' + s.text).join('\n');
+      const user = (known ? 'Earlier lines (already labelled):\n' + known + '\n\n' : '') +
+        'NEW lines:\n' + fresh.map((u, k) => (k + 1) + '. ' + deidentify(u.p.text)).join('\n') +
+        (wantQuestion && asked ? '\n\nAlready asked:\n' + asked : '');
       const res = await fetch(config.endpoint + '/chat/completions', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token },
-        body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], max_tokens: 200, temperature: 0.4 }),
-        signal: liveAbort ? liveAbort.signal : undefined
+        body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], max_tokens: 80 + fresh.length * 6 + (wantQuestion ? 90 : 0), temperature: 0.2 }),
+        signal: (!final && liveAbort) ? liveAbort.signal : undefined
       });
-      if (!res.ok) throw new Error('Suggestion request failed');
+      if (!res.ok) throw new Error('Coach request failed');
       const data = await res.json();
       const content = (data.choices && data.choices[0] && data.choices[0].message.content) || '';
       core.reportTokenUsage(currentUser && currentUser.uid, currentPlan, system + user + content, config.weight);
-      let qs = [];
-      try { const m = content.match(/\{[\s\S]*\}/); qs = (JSON.parse(m ? m[0] : content).questions || []); } catch (e) { qs = content.split('\n').map(l => l.replace(/^[-*\d.)\s]+/, '').trim()).filter(Boolean); }
-      qs = qs.map(q => String(q).trim()).filter(q => q && q.length < 240).slice(0, 2);
-      const afterIndex = liveSegments.length - 1;
-      qs.forEach(q => coachSuggestions.push({ id: 's' + Date.now() + Math.random().toString(36).slice(2, 6), text: q, askedAt: null, afterIndex }));
-      saveSuggestionState();
-      if (speakSuggestions && headphonesDetected && qs.length) speak(qs[0]);
+      const m = content.match(/\{[\s\S]*\}/);
+      const parsed = JSON.parse(m ? m[0] : content);
+      const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
+      if (!labels.length) throw new Error('No labels returned');
+      fresh.forEach((u, k) => {
+        const l = String(labels[k] == null ? '' : labels[k]).trim().toUpperCase();
+        if (l.startsWith('P')) u.p.speaker = 'patient'; else if (l.startsWith('T')) u.p.speaker = 'therapist';
+      });
+      if (labels.length < fresh.length) guessSpeakers(units);   // a short answer: finish the tail locally
+      coachFailures = 0;
+      commitSpeakers(fresh);
+      const q = String(parsed.question || '').trim();
+      const lastUnit = units[units.length - 1];
+      if (wantQuestion && q && q.length < 240 && lastUnit && lastUnit.p.speaker === 'patient') {
+        lastSuggestAt = Date.now();
+        coachSuggestions.push({ id: 's' + Date.now() + Math.random().toString(36).slice(2, 6), text: q, askedAt: null, afterIndex: liveSegments.length - 1 });
+        saveSuggestionState();
+        if (speakSuggestions && headphonesDetected) speak(q);
+      }
     } catch (err) {
-      if (!err || err.name !== 'AbortError') console.warn('[audio] coach suggestions failed:', err);
+      if (err && err.name === 'AbortError') return;
+      console.warn('[audio] coach labelling failed:', err);
+      coachFailures++;
+      // Never leave the transcript unlabelled: after a second failure (or at
+      // the end of the session) fall back to the local turn-taking rules.
+      if (final || coachFailures >= 2) { guessSpeakers(units); commitSpeakers(fresh); }
+      else coachDirty = true;
     } finally {
       suggestInFlight = false;
       renderCoachPanel();
+      if (coachDirty && !final) { coachDirty = false; scheduleSuggestions(coachFailures ? 4000 : 1200); }
     }
+  }
+
+  // End of session: every sentence gets a speaker before the transcript is built.
+  async function settleSpeakers() {
+    if (audioMode !== 'coach') return;
+    clearTimeout(suggestTimer);
+    const deadline = Date.now() + 20000;
+    while (suggestInFlight && Date.now() < deadline) await new Promise(r => setTimeout(r, 200));
+    if (!suggestInFlight) await runCoach(true);
+    const units = coachUnits();
+    const left = units.filter(u => !u.p.speaker);
+    if (left.length) { guessSpeakers(units); commitSpeakers(left); }
   }
 
   function speak(text) {
@@ -1633,10 +1716,11 @@ Output ONLY the narrative text, as flowing paragraphs.`;
       if (segs.length) {
         resetLiveState();
         coachSuggestions = (sessionMeta.suggestions || []).map((s, i) => ({ id: 'r' + i, text: s.text, askedAt: s.askedAt || null, afterIndex: s.afterIndex }));
-        segs.forEach(s => { liveSegments[s.index] = { status: s.status === 'done' ? 'done' : 'pending', text: s.text || '', speaker: s.speaker || 'therapist', tries: 0, blob: s.blob }; });
+        segs.forEach(s => { liveSegments[s.index] = { status: s.status === 'done' ? 'done' : 'pending', text: s.text || '', speaker: s.speaker || 'therapist', parts: s.parts || ((s.text && s.speaker) ? [{ text: s.text, speaker: s.speaker }] : null), tries: 0, blob: s.blob }; });
         liveSegments.forEach((s, i) => { if (s && s.status === 'pending') liveQueue.push(i); });
         pumpLiveQueue();
         await drainLiveQueue((done, total) => updateProcessingProgress(30 + Math.round((done / Math.max(1, total)) * 30), `Transcribing segment ${done} of ${total}…`));
+        await settleSpeakers();
         rebuildRawFromSegments();
       }
       // Nothing transcribed live: transcribe the whole saved recording instead.

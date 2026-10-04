@@ -115,6 +115,9 @@
     return minPt;
   }
 
+  // Largest size at which a short figure stays on ONE line.
+  function onePt(text, wIn, maxPt, minPt) { return Math.max(minPt, Math.min(maxPt, Math.floor((wIn * 72) / (Math.max(1, String(text || '').length) * 0.6)))); }
+
   // ===================================================================
   // Canvas art — backgrounds, illustration panels, icons
   // ===================================================================
@@ -429,16 +432,18 @@
     }
     function bulletsBox(slide, list, x, y, w, h, pt, glyph) {
       if (!list.length) return;
-      const gap = 0.14;
-      const heights = list.map(b => linesFor(b, w - 0.55, pt) * pt * 1.28 / 72 + gap);
-      const sum = heights.reduce((a, b) => a + b, 0);
-      const scale = sum > h ? h / sum : 1;
-      const p = scale < 1 ? Math.max(11, Math.floor(pt * Math.sqrt(scale))) : pt;
+      // Largest type (up to +5pt) that fits, then the leftover space is shared
+      // between the items so a short list never floats in an empty card.
+      const textH = (p) => list.reduce((s, b) => s + linesFor(b, w - 0.6, p) * p * 1.3 / 72, 0);
+      let p = pt + 5;
+      while (p > 11 && textH(p) + list.length * 0.16 > h) p -= 1;
+      const gap = Math.max(0.12, Math.min(0.5, (h - textH(p)) / list.length));
+      const ic = Math.min(0.34, p / 72 * 1.25);
       let cy = y;
-      list.forEach((b, i) => {
-        const hh = linesFor(b, w - 0.55, p) * p * 1.28 / 72;
-        slide.addImage({ data: iconImg(glyph || ICONS.check, t.primary, 96), x, y: cy + 0.04, w: 0.26, h: 0.26 });
-        slide.addText(b, { x: x + 0.4, y: cy, w: w - 0.4, h: Math.max(0.34, hh), fontFace: t.body, fontSize: p, color: txt, valign: 'top', margin: 0, paraSpaceAfter: 2 });
+      list.forEach((b) => {
+        const hh = linesFor(b, w - 0.6, p) * p * 1.3 / 72;
+        slide.addImage({ data: iconImg(glyph || ICONS.check, t.primary, 96), x, y: cy + (p * 1.3 / 72 - ic) / 2, w: ic, h: ic });
+        slide.addText(b, { x: x + ic + 0.18, y: cy, w: w - ic - 0.18, h: Math.max(0.34, hh), fontFace: t.body, fontSize: p, color: txt, valign: 'top', margin: 0 });
         cy += hh + gap;
       });
     }
@@ -474,20 +479,20 @@
           card(slide, x, y, cw, ch);
           slide.addShape(S.ellipse, { x: x + 0.25, y: y + ch / 2 - 0.3, w: 0.6, h: 0.6, fill: { color: t.primary }, line: { color: t.primary, width: 0 } });
           slide.addText(String(i + 1), { x: x + 0.25, y: y + ch / 2 - 0.3, w: 0.6, h: 0.6, align: 'center', valign: 'middle', fontFace: t.head, fontSize: 16, bold: true, color: t.dark ? '0B1F24' : 'FFFFFF', margin: 0 });
-          slide.addText(it, { x: x + 1.05, y, w: cw - 1.25, h: ch, valign: 'middle', fontFace: t.body, fontSize: fitPt(it, cw - 1.3, ch, 17, 12), color: txt, margin: 0 });
+          slide.addText(it, { x: x + 1.05, y, w: cw - 1.25, h: ch, valign: 'middle', fontFace: t.body, fontSize: fitPt(it, cw - 1.3, ch, 19, 12), color: txt, margin: 0 });
         });
       },
       split(slide, s, idx) {
         header(slide, s, idx);
         const hasLead = !!s.lead;
-        if (hasLead) slide.addText(s.lead, { x: 0.7, y: 2.0, w: 5.4, h: 4.6, fontFace: t.body, fontSize: fitPt(s.lead, 5.3, 4.5, 20, 13), color: muted, valign: 'top', margin: 0, lineSpacingMultiple: 1.1 });
+        if (hasLead) slide.addText(s.lead, { x: 0.7, y: 2.0, w: 5.4, h: 4.6, fontFace: t.body, fontSize: fitPt(s.lead, 5.3, 4.5, 24, 13), color: muted, valign: 'top', margin: 0, lineSpacingMultiple: 1.1 });
         const x = hasLead ? 6.55 : 0.7, w = hasLead ? 6.1 : 11.95;
-        if (s.bullets.length) { card(slide, x, 1.95, w, 4.85); bulletsBox(slide, s.bullets, x + 0.4, 2.3, w - 0.8, 4.2, 16); }
+        if (s.bullets.length) { card(slide, x, 1.95, w, 4.85); bulletsBox(slide, s.bullets, x + 0.45, 2.4, w - 0.9, 4.0, 16); }
       },
       cards(slide, s, idx) {
         header(slide, s, idx);
         const n = s.items.length, cols = n <= 3 ? n : (n === 4 ? 4 : 3), rows = Math.ceil(n / cols);
-        const gap = 0.3, cw = (11.93 - gap * (cols - 1)) / cols, ch = rows === 1 ? 4.6 : 2.3;
+        const gap = 0.3, cw = (11.93 - gap * (cols - 1)) / cols, ch = rows === 1 ? 4.5 : 2.3;
         s.items.forEach((it, i) => {
           const x = 0.7 + (i % cols) * (cw + gap), y = 2.05 + Math.floor(i / cols) * (ch + 0.25);
           card(slide, x, y, cw, ch);
@@ -495,9 +500,9 @@
           const d = rows === 1 ? 0.85 : 0.6;
           badge(slide, x + 0.3, y + 0.35, d, glyphFor(it.icon, it.heading + ' ' + it.text, r), [t.primary, t.secondary, t.accent][i % 3]);
           const ty = y + 0.35 + d + 0.18;
-          if (it.heading) slide.addText(it.heading, { x: x + 0.3, y: ty, w: cw - 0.6, h: 0.55, fontFace: t.head, fontSize: fitPt(it.heading, cw - 0.6, 0.55, 18, 12), bold: true, color: txt, margin: 0, valign: 'top' });
+          if (it.heading) slide.addText(it.heading, { x: x + 0.3, y: ty, w: cw - 0.6, h: 0.55, fontFace: t.head, fontSize: fitPt(it.heading, cw - 0.6, 0.55, rows === 1 ? 22 : 17, 12), bold: true, color: txt, margin: 0, valign: 'top' });
           const by = ty + (it.heading ? 0.58 : 0);
-          slide.addText(it.text, { x: x + 0.3, y: by, w: cw - 0.6, h: y + ch - by - 0.2, fontFace: t.body, fontSize: fitPt(it.text, cw - 0.6, y + ch - by - 0.2, 14, 10), color: muted, valign: 'top', margin: 0 });
+          slide.addText(it.text, { x: x + 0.3, y: by, w: cw - 0.6, h: y + ch - by - 0.2, fontFace: t.body, fontSize: fitPt(it.text, cw - 0.6, y + ch - by - 0.2, rows === 1 ? 17 : 13.5, 10), color: muted, lineSpacingMultiple: 1.08, valign: 'top', margin: 0 });
         });
       },
       iconList(slide, s, idx) {
@@ -508,7 +513,7 @@
           const c = Math.floor(i / rows), rw = i % rows, x = 0.7 + c * (cw + 0.23), y = 2.0 + rw * (rh + 0.15);
           badge(slide, x, y + Math.max(0, (rh - 0.7) / 2), 0.7, glyphFor(it.icon, it.heading + ' ' + it.text, r));
           const body = it.heading ? [{ text: it.heading + '  ', options: { bold: true, color: txt, fontFace: t.head } }, { text: it.text, options: { color: muted } }] : [{ text: it.text, options: { color: txt } }];
-          slide.addText(body, { x: x + 0.95, y, w: cw - 1.0, h: rh, valign: 'middle', fontFace: t.body, fontSize: fitPt(it.heading + ' ' + it.text, cw - 1.0, rh, 15, 10), margin: 0 });
+          slide.addText(body, { x: x + 0.95, y, w: cw - 1.0, h: rh, valign: 'middle', fontFace: t.body, fontSize: fitPt(it.heading + ' ' + it.text, cw - 1.0, rh, 17, 10), margin: 0 });
         });
       },
       imageFocus(slide, s, idx) {
@@ -519,8 +524,8 @@
         if (s.kicker) slide.addText(s.kicker.toUpperCase(), { x: tx, y: 0.9, w: tw, h: 0.3, fontFace: t.body, fontSize: 11, bold: true, color: t.primary, charSpacing: 3, margin: 0 });
         slide.addText(s.title, { x: tx, y: 1.2, w: tw, h: 1.3, fontFace: t.head, fontSize: fitPt(s.title, tw, 1.3, 32, 20), bold: true, color: txt, valign: 'top', margin: 0 });
         let y = 2.65;
-        if (s.lead) { const h = Math.min(1.7, linesFor(s.lead, tw, 16) * 0.3 + 0.1); slide.addText(s.lead, { x: tx, y, w: tw, h, fontFace: t.body, fontSize: 16, color: muted, valign: 'top', margin: 0 }); y += h + 0.2; }
-        bulletsBox(slide, s.bullets, tx, y, tw, 6.8 - y, 15);
+        if (s.lead) { const h = Math.min(1.9, linesFor(s.lead, tw, 18) * 0.34 + 0.1); slide.addText(s.lead, { x: tx, y, w: tw, h, fontFace: t.body, fontSize: 18, color: muted, valign: 'top', margin: 0 }); y += h + 0.2; }
+        bulletsBox(slide, s.bullets, tx, y, tw, Math.min(6.7 - y, 0.6 + s.bullets.length * 0.95), 15);
       },
       stats(slide, s, idx) {
         header(slide, s, idx);
@@ -528,10 +533,10 @@
         s.stats.forEach((st, i) => {
           const x = 0.7 + i * (cw + gap), y = 2.35, h = 3.7;
           card(slide, x, y, cw, h);
-          slide.addText(st.value, { x: x + 0.3, y: y + 0.45, w: cw - 0.6, h: 1.45, fontFace: t.head, fontSize: fitPt(st.value, cw - 0.6, 1.4, 60, 30), bold: true, color: [t.primary, t.secondary, t.accent][i % 3], margin: 0 });
+          slide.addText(st.value, { x: x + 0.3, y: y + 0.45, w: cw - 0.6, h: 1.45, fontFace: t.head, fontSize: onePt(st.value, cw - 0.6, 64, 20), valign: 'bottom', bold: true, color: [t.primary, t.secondary, t.accent][i % 3], margin: 0 });
           slide.addShape(S.rect, { x: x + 0.32, y: y + 2.0, w: 0.6, h: 0.05, fill: { color: [t.primary, t.secondary, t.accent][i % 3] }, line: { width: 0, color: t.primary } });
-          slide.addText(st.label, { x: x + 0.3, y: y + 2.15, w: cw - 0.6, h: 0.8, fontFace: t.body, fontSize: 15, bold: true, color: txt, valign: 'top', margin: 0 });
-          if (st.note) slide.addText(st.note, { x: x + 0.3, y: y + 2.9, w: cw - 0.6, h: 0.7, fontFace: t.body, fontSize: 11, color: muted, valign: 'top', margin: 0 });
+          slide.addText(st.label, { x: x + 0.3, y: y + 2.15, w: cw - 0.6, h: 0.8, fontFace: t.body, fontSize: 18, bold: true, color: txt, valign: 'top', margin: 0 });
+          if (st.note) slide.addText(st.note, { x: x + 0.3, y: y + 2.85, w: cw - 0.6, h: 0.75, fontFace: t.body, fontSize: fitPt(st.note, cw - 0.6, 0.75, 14, 10), color: muted, valign: 'top', margin: 0 });
         });
       },
       timeline(slide, s, idx) {
@@ -544,8 +549,8 @@
           slide.addText(String(i + 1), { x: cx - 0.32, y: y - 0.32, w: 0.64, h: 0.64, align: 'center', valign: 'middle', fontFace: t.head, fontSize: 15, bold: true, color: t.dark ? '0B1F24' : 'FFFFFF', margin: 0 });
           const bw = Math.min(2.6, step * 0.95 + 0.3), bx = Math.max(0.5, Math.min(W - 0.5 - bw, cx - bw / 2));
           const by = up ? 1.95 : 4.55;
-          if (st.heading) slide.addText(st.heading, { x: bx, y: by, w: bw, h: 0.5, align: 'center', fontFace: t.head, fontSize: 14, bold: true, color: txt, margin: 0, valign: up ? 'bottom' : 'top' });
-          slide.addText(st.text, { x: bx, y: by + (st.heading ? 0.5 : 0), w: bw, h: 1.35, align: 'center', fontFace: t.body, fontSize: fitPt(st.text, bw, 1.3, 12.5, 9), color: muted, margin: 0, valign: 'top' });
+          if (st.heading) slide.addText(st.heading, { x: bx, y: by, w: bw, h: 0.5, align: 'center', fontFace: t.head, fontSize: 17, bold: true, color: txt, margin: 0, valign: 'middle' });
+          slide.addText(st.text, { x: bx, y: by + (st.heading ? 0.5 : 0), w: bw, h: 1.35, align: 'center', fontFace: t.body, fontSize: fitPt(st.text, bw, 1.3, 14, 9), color: muted, margin: 0, valign: 'top' });
         });
       },
       process(slide, s, idx) {
@@ -554,9 +559,10 @@
         s.steps.forEach((st, i) => {
           const x = 0.7 + i * (w + gap), col = mix(t.primary, t.secondary, n > 1 ? i / (n - 1) : 0);
           slide.addShape(i === 0 ? S.homePlate : S.chevron, { x, y: 2.1, w, h: 1.15, fill: { color: col }, line: { color: col, width: 0 }, shadow });
-          slide.addText(st.heading || `Step ${i + 1}`, { x: x + 0.3, y: 2.1, w: w - 0.55, h: 1.15, align: 'center', valign: 'middle', fontFace: t.head, fontSize: fitPt(st.heading, w - 0.6, 1.0, 16, 10), bold: true, color: 'FFFFFF', margin: 0 });
-          card(slide, x + 0.05, 3.55, w - 0.1, 3.1);
-          slide.addText(st.text, { x: x + 0.25, y: 3.75, w: w - 0.5, h: 2.75, fontFace: t.body, fontSize: fitPt(st.text, w - 0.5, 2.7, 14, 10), color: txt, valign: 'top', margin: 0 });
+          slide.addText(st.heading || `Step ${i + 1}`, { x: x + 0.3, y: 2.1, w: w - 0.55, h: 1.15, align: 'center', valign: 'middle', fontFace: t.head, fontSize: fitPt(st.heading, w - 0.6, 1.0, 19, 10), bold: true, color: 'FFFFFF', margin: 0 });
+          card(slide, x + 0.05, 3.55, w - 0.1, 2.7);
+          slide.addText(String(i + 1).padStart(2, '0'), { x: x + 0.28, y: 3.72, w: 1.2, h: 0.5, fontFace: t.head, fontSize: 20, bold: true, color: col, margin: 0 });
+          slide.addText(st.text, { x: x + 0.28, y: 4.28, w: w - 0.56, h: 1.85, fontFace: t.body, fontSize: fitPt(st.text, w - 0.56, 1.8, 17, 10), color: txt, valign: 'top', margin: 0 });
         });
       },
       cycle(slide, s, idx) {
@@ -564,15 +570,14 @@
         const n = s.steps.length, cx = 6.67, cy = 4.3, R = 2.05;
         slide.addShape(S.ellipse, { x: cx - R, y: cy - R, w: R * 2, h: R * 2, fill: { color: t.primary, transparency: 96 }, line: { color: t.primary, width: 2, dashType: 'dash', transparency: 40 } });
         slide.addShape(S.ellipse, { x: cx - 0.95, y: cy - 0.95, w: 1.9, h: 1.9, fill: { color: t.primary }, line: { color: t.primary, width: 0 }, shadow });
-        slide.addText(s.center || s.title, { x: cx - 0.9, y: cy - 0.9, w: 1.8, h: 1.8, align: 'center', valign: 'middle', fontFace: t.head, fontSize: fitPt(s.center || s.title, 1.6, 1.5, 15, 9), bold: true, color: t.dark ? '0B1F24' : 'FFFFFF', margin: 0.05 });
+        slide.addText(s.center || s.title, { x: cx - 0.9, y: cy - 0.9, w: 1.8, h: 1.8, align: 'center', valign: 'middle', fontFace: t.head, fontSize: fitPt(s.center || s.title, 1.6, 1.5, 17, 9), bold: true, color: t.dark ? '0B1F24' : 'FFFFFF', margin: 0.05 });
         s.steps.forEach((st, i) => {
-          const a = -Math.PI / 2 + (i / n) * Math.PI * 2, nx = cx + Math.cos(a) * R, ny = cy + Math.sin(a) * R, col = [t.secondary, t.accent, t.primary][i % 3];
+          const a = (n % 2 ? 0 : -Math.PI / 2 + Math.PI / n) + (i / n) * Math.PI * 2, nx = cx + Math.cos(a) * R, ny = cy + Math.sin(a) * R, col = [t.secondary, t.accent, t.primary][i % 3];
           badge(slide, nx - 0.38, ny - 0.38, 0.76, glyphFor(st.icon, st.heading + ' ' + st.text, r), col);
-          const right = Math.cos(a) >= -0.05, bw = 3.3;
-          const bx = Math.abs(Math.cos(a)) < 0.2 ? nx - bw / 2 : (right ? nx + 0.5 : nx - 0.5 - bw);
-          const byy = Math.abs(Math.cos(a)) < 0.2 ? (Math.sin(a) < 0 ? ny - 1.25 : ny + 0.45) : ny - 0.5;
-          slide.addText([{ text: (st.heading || `Stage ${i + 1}`) + '\n', options: { bold: true, color: txt, fontFace: t.head, fontSize: 13 } }, { text: st.text, options: { color: muted, fontSize: 10.5 } }],
-            { x: bx, y: Math.max(1.8, Math.min(6.2, byy)), w: bw, h: 0.95, align: Math.abs(Math.cos(a)) < 0.2 ? 'center' : (right ? 'left' : 'right'), valign: 'middle', fontFace: t.body, margin: 0 });
+          const right = Math.cos(a) >= 0, bw = 3.5;
+          const bx = right ? nx + 0.58 : nx - 0.58 - bw;
+          slide.addText([{ text: (st.heading || `Stage ${i + 1}`) + '\n', options: { bold: true, color: txt, fontFace: t.head, fontSize: 16 } }, { text: st.text, options: { color: muted, fontSize: 12.5 } }],
+            { x: bx, y: Math.max(1.85, Math.min(5.9, ny - 0.55)), w: bw, h: 1.1, align: right ? 'left' : 'right', valign: 'middle', fontFace: t.body, margin: 0 });
         });
       },
       comparison(slide, s, idx) {
@@ -580,8 +585,8 @@
         [[s.left, 0.7, t.primary], [s.right, 7.03, t.secondary]].forEach(([side, x, col]) => {
           card(slide, x, 2.0, 5.6, 4.75);
           slide.addShape(S.roundRect, { x, y: 2.0, w: 5.6, h: 0.8, rectRadius: 0.16, fill: { color: col }, line: { color: col, width: 0 } });
-          slide.addText(side.heading, { x: x + 0.3, y: 2.0, w: 5.0, h: 0.8, valign: 'middle', fontFace: t.head, fontSize: 18, bold: true, color: t.dark ? '0B1F24' : 'FFFFFF', margin: 0 });
-          bulletsBox(slide, side.bullets, x + 0.35, 3.05, 4.95, 3.5, 14.5, ICONS.check);
+          slide.addText(side.heading, { x: x + 0.3, y: 2.0, w: 5.0, h: 0.8, valign: 'middle', fontFace: t.head, fontSize: fitPt(side.heading, 5.0, 0.7, 20, 13), bold: true, color: t.dark ? '0B1F24' : 'FFFFFF', margin: 0 });
+          bulletsBox(slide, side.bullets, x + 0.35, 3.1, 4.95, 3.4, 14, ICONS.check);
         });
         slide.addShape(S.ellipse, { x: 6.17, y: 3.9, w: 1.0, h: 1.0, fill: { color: t.accent }, line: { color: t.dark ? '0B1F24' : 'FFFFFF', width: 3 }, shadow });
         slide.addText('VS', { x: 6.17, y: 3.9, w: 1.0, h: 1.0, align: 'center', valign: 'middle', fontFace: t.head, fontSize: 16, bold: true, color: '1A1A1A', margin: 0 });
@@ -611,20 +616,21 @@
           showValue: round || data.length === 1, dataLabelColor: round ? 'FFFFFF' : txt, dataLabelFontSize: 10, dataLabelFormatCode: ch.unit ? `0"${ch.unit}"` : '#,##0.##',
           holeSize: 58, lineSize: 3, lineDataSymbolSize: 8, barGapWidthPct: 60,
         });
-        if (hasSide) { card(slide, 8.3, 1.95, 4.33, 4.85); slide.addText('KEY INSIGHTS', { x: 8.6, y: 2.2, w: 3.8, h: 0.35, fontFace: t.body, fontSize: 11, bold: true, color: t.primary, charSpacing: 2, margin: 0 }); bulletsBox(slide, s.bullets, 8.6, 2.7, 3.8, 3.9, 13, ICONS.idea); }
+        if (hasSide) { card(slide, 8.3, 1.95, 4.33, 4.85); slide.addText('KEY INSIGHTS', { x: 8.6, y: 2.2, w: 3.8, h: 0.35, fontFace: t.body, fontSize: 11, bold: true, color: t.primary, charSpacing: 2, margin: 0 }); bulletsBox(slide, s.bullets, 8.6, 2.75, 3.75, Math.min(3.8, 0.5 + s.bullets.length * 1.1), 13, ICONS.idea); }
       },
       table(slide, s, idx) {
         header(slide, s, idx);
         const cols = s.columns.length, rows = [s.columns.map(c => ({ text: c, options: { bold: true, color: 'FFFFFF', fill: { color: t.primary }, fontFace: t.head } }))];
         s.rows.forEach((rw, i) => rows.push(s.columns.map((_, j) => ({ text: str(rw[j] || ''), options: { color: txt, fill: { color: i % 2 ? (t.dark ? '1E3036' : mix(t.bg[1], 'FFFFFF', 0.5)) : (t.dark ? '16262B' : 'FFFFFF') } } }))));
-        slide.addTable(rows, { x: 0.7, y: 2.0, w: 11.93, colW: Array(cols).fill(11.93 / cols), fontFace: t.body, fontSize: s.rows.length > 5 ? 11 : 13, border: { type: 'solid', pt: 0.5, color: t.dark ? '2E4248' : 'D8E0E8' }, valign: 'middle', margin: 0.08, autoPage: false });
+        const rowH = Math.max(0.5, Math.min(0.85, 4.7 / (s.rows.length + 1)));
+        slide.addTable(rows, { x: 0.7, y: 2.0, w: 11.93, colW: Array(cols).fill(11.93 / cols), rowH, fontFace: t.body, fontSize: s.rows.length > 5 ? 13 : (cols > 4 ? 14 : 16), border: { type: 'solid', pt: 0.5, color: t.dark ? '2E4248' : 'D8E0E8' }, valign: 'middle', margin: [0.06, 0.16, 0.06, 0.16], autoPage: false });
       },
       closing(slide, s, idx) {
         slide.background = { data: background(t, 'closing', seed + 5, glyphFor(s.icon, spec.title, r)) };
         const list = s.bullets.slice(0, 5);
         slide.addText(s.title || 'Thank you', { x: 0.8, y: list.length ? 0.9 : 2.3, w: 7.5, h: 1.3, fontFace: t.head, fontSize: 44, bold: true, color: txt, margin: 0, valign: 'top' });
         if (s.lead) slide.addText(s.lead, { x: 0.8, y: list.length ? 2.2 : 3.7, w: 7, h: 0.8, fontFace: t.body, fontSize: 18, color: muted, margin: 0, valign: 'top' });
-        if (list.length) { card(slide, 0.8, 3.1, 7.2, 3.6); slide.addText('KEY TAKEAWAYS', { x: 1.15, y: 3.35, w: 5, h: 0.35, fontFace: t.body, fontSize: 11, bold: true, color: t.primary, charSpacing: 2, margin: 0 }); bulletsBox(slide, list, 1.15, 3.85, 6.5, 2.7, 15, ICONS.check); }
+        if (list.length) { card(slide, 0.8, 3.1, 7.2, 3.6); slide.addText('KEY TAKEAWAYS', { x: 1.15, y: 3.35, w: 5, h: 0.35, fontFace: t.body, fontSize: 11, bold: true, color: t.primary, charSpacing: 2, margin: 0 }); bulletsBox(slide, list, 1.15, 3.85, 6.5, 2.65, 14, ICONS.check); }
       },
     };
 
@@ -747,6 +753,81 @@ Rules: ${count} slides total including cover and closing. Tell a story: hook →
     return { base64: btoa(bin), fileName: res.fileName, theme: res.theme, title: res.spec.title, slides: res.slides };
   }
 
+  // ===================================================================
+  // HTML preview — the SAME layout code drives a tiny recorder that mimics
+  // the PptxGenJS calls and paints each slide as HTML (cqw units, so a
+  // thumbnail scales with its container). Used for in-app slide previews.
+  // ===================================================================
+  function htmlDeck() {
+    const IN = 100 / W; // 1 inch in cqw
+    const u = (v) => (v * IN).toFixed(3) + 'cqw';
+    const pt = (v) => ((v / 72) * IN).toFixed(3) + 'cqw';
+    const col = (c, tr) => (c == null ? 'transparent' : rgba(c, 1 - (tr || 0) / 100));
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
+    const box = (o) => `left:${u(o.x || 0)};top:${u(o.y || 0)};width:${u(o.w || 0)};height:${u(o.h || 0)};`;
+    const slides = [];
+    const api = {
+      ShapeType: { roundRect: 'roundRect', ellipse: 'ellipse', rect: 'rect', line: 'line', chevron: 'chevron', homePlate: 'homePlate' },
+      ChartType: { bar: 'bar', line: 'line', doughnut: 'doughnut', pie: 'pie' },
+      addSlide() {
+        const parts = []; const sl = { bg: '' };
+        const slide = {
+          set background(b) { sl.bg = b && b.data ? `background:url(data:${b.data}) center/cover;` : `background:${col(b && b.color)};`; },
+          addShape(type, o) {
+            const fill = o.fill ? col(o.fill.color, o.fill.transparency) : 'transparent';
+            const ln = o.line && o.line.width ? `${Math.max(1, o.line.width)}px ${o.line.dashType ? 'dashed' : 'solid'} ${col(o.line.color, o.line.transparency)}` : '0';
+            const sh = o.shadow ? `box-shadow:0 ${u(0.06)} ${u(0.18)} rgba(0,0,0,${o.shadow.opacity});` : '';
+            let extra = '';
+            if (type === 'ellipse') extra = 'border-radius:50%;';
+            else if (type === 'roundRect') extra = `border-radius:${u(o.rectRadius || 0.1)};`;
+            else if (type === 'chevron') extra = 'clip-path:polygon(0 0,82% 0,100% 50%,82% 100%,0 100%,18% 50%);';
+            else if (type === 'homePlate') extra = 'clip-path:polygon(0 0,82% 0,100% 50%,82% 100%,0 100%);';
+            if (type === 'line') parts.push(`<div style="position:absolute;${box(o)}height:0;border-top:${ln};"></div>`);
+            else parts.push(`<div style="position:absolute;box-sizing:border-box;${box(o)}background:${fill};border:${ln};${extra}${sh}"></div>`);
+          },
+          addText(text, o) {
+            const runs = Array.isArray(text) ? text : [{ text: String(text), options: {} }];
+            const html = runs.map(rn => { const ro = rn.options || {}; return `<span style="${ro.bold ? 'font-weight:700;' : ''}${ro.color ? 'color:' + col(ro.color) + ';' : ''}${ro.fontSize ? 'font-size:' + pt(ro.fontSize) + ';' : ''}${ro.fontFace ? `font-family:'${ro.fontFace}',sans-serif;` : ''}">${esc(rn.text).replace(/\n/g, '<br>')}</span>`; }).join('');
+            const jc = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[o.valign || 'middle'];
+            parts.push(`<div style="position:absolute;display:flex;flex-direction:column;justify-content:${jc};overflow:hidden;${box(o)}text-align:${o.align || 'left'};font-family:'${o.fontFace || 'Segoe UI'}',sans-serif;font-size:${pt(o.fontSize || 14)};line-height:${(o.lineSpacingMultiple || 1) * 1.2};color:${col(o.color || '000000', o.transparency)};${o.bold ? 'font-weight:700;' : ''}${o.italic ? 'font-style:italic;' : ''}${o.charSpacing ? 'letter-spacing:' + pt(o.charSpacing) + ';' : ''}"><div>${html}</div></div>`);
+          },
+          addImage(o) { parts.push(`<img alt="" src="data:${o.data}" style="position:absolute;${box(o)}${o.shadow ? `filter:drop-shadow(0 ${u(0.08)} ${u(0.2)} rgba(0,0,0,.3));` : ''}">`); },
+          addChart(type, data, o) {
+            const colors = o.chartColors || ['888888'], se = data[0] || { values: [], labels: [] }, max = Math.max(1, ...data.flatMap(d => d.values));
+            let inner;
+            if (type === 'doughnut' || type === 'pie') {
+              const sum = se.values.reduce((a, b) => a + b, 0) || 1; let acc = 0;
+              const stops = se.values.map((v, i) => { const a = acc; acc += v / sum * 100; return `${col(colors[i % colors.length])} ${a}% ${acc}%`; }).join(',');
+              inner = `<div style="margin:auto;height:80%;aspect-ratio:1;border-radius:50%;background:conic-gradient(${stops});${type === 'doughnut' ? '-webkit-mask:radial-gradient(circle,transparent 38%,#000 39%);mask:radial-gradient(circle,transparent 38%,#000 39%);' : ''}"></div>`;
+            } else {
+              inner = `<div style="display:flex;align-items:flex-end;gap:3%;height:86%;width:92%;margin:auto;">${se.labels.map((lb, i) => `<div style="flex:1;display:flex;gap:6%;align-items:flex-end;height:100%;">${data.map((d, k) => `<div style="flex:1;height:${(d.values[i] / max * 100).toFixed(1)}%;background:${col(colors[k % colors.length])};border-radius:${u(0.05)} ${u(0.05)} 0 0;"></div>`).join('')}</div>`).join('')}</div>`;
+            }
+            parts.push(`<div style="position:absolute;display:flex;${box(o)}">${inner}</div>`);
+          },
+          addTable(rows, o) {
+            parts.push(`<table style="position:absolute;left:${u(o.x)};top:${u(o.y)};width:${u(o.w)};border-collapse:collapse;font-family:'${o.fontFace}',sans-serif;font-size:${pt(o.fontSize || 12)};">${rows.map(rw => `<tr>${rw.map(c => `<td style="height:${u(o.rowH || 0.4)};padding:${u(0.06)} ${u(0.16)};border:1px solid ${col(o.border && o.border.color)};background:${col(c.options.fill && c.options.fill.color)};color:${col(c.options.color)};${c.options.bold ? 'font-weight:700;' : ''}">${esc(c.text)}</td>`).join('')}</tr>`).join('')}</table>`);
+          },
+          addNotes() {},
+        };
+        slides.push({ sl, parts });
+        return slide;
+      },
+    };
+    api.toHtml = () => slides.map(s => `<div class="rx-deck-slide" style="position:relative;width:100%;aspect-ratio:${W}/${H};container-type:inline-size;overflow:hidden;${s.sl.bg}">${s.parts.join('')}</div>`);
+    return api;
+  }
+
+  /** Renders every slide as an HTML string (same layouts as the PPTX). */
+  async function previewHtml(specOrText, opts) {
+    opts = opts || {};
+    const spec = plan(typeof specOrText === 'string' ? parseSpec(specOrText) : normalize(specOrText));
+    const themeId = chooseTheme(spec, opts.style), t = THEMES[themeId], seed = hashStr(spec.title + themeId + (opts.seed || ''));
+    await ensureFonts();
+    const rec = htmlDeck();
+    renderer(rec, t, spec, seed)(opts.onProgress);
+    return { slides: rec.toHtml(), spec, theme: themeId };
+  }
+
   // Cover preview (studio / Lixa card thumbnail) — a real render of the
   // deck's generated cover art with its title set on top.
   async function coverPreview(spec, styleId, px) {
@@ -764,5 +845,5 @@ Rules: ${count} slides total including cover and closing. Tell a story: hook →
     return c.toDataURL('image/jpeg', 0.85);
   }
 
-  root.RehablixDeck = { THEMES, ICONS, LAYOUTS, buildPrompt, parseSpec, normalize, plan, chooseTheme, render, renderBase64, coverPreview, version: 1 };
+  root.RehablixDeck = { THEMES, ICONS, LAYOUTS, buildPrompt, parseSpec, normalize, plan, chooseTheme, render, renderBase64, previewHtml, coverPreview, version: 1 };
 })(typeof window !== 'undefined' ? window : this);

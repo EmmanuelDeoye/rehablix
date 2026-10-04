@@ -9,7 +9,7 @@
 
   function detectMode(text) {
     const lower = (text || '').toLowerCase();
-    if (/\b(slide|slides|deck|powerpoint|pptx|ward round)\b/.test(lower)) return 'presentation';
+    if (/\b(presentation|ward round)\b/.test(lower)) return 'presentation';
     if (/\b(document|note|soap note|admission note)\b/.test(lower)) return 'documentation';
     return 'report';
   }
@@ -176,7 +176,8 @@ ${data.additionalInstructions ? `\nADDITIONAL INSTRUCTIONS FROM THE CLINICIAN:\n
       name: 'Presentation Maker',
       icon: '📑',
       description: 'Case presentation, clinical report, or documentation from your notes',
-      keywords: ['presentation', 'slides', 'deck', 'clinical report', 'case presentation', 'ward round', 'write a report']
+      // "slides"/"deck"/"powerpoint" now belong to Deck Studio (deck-gen.js).
+      keywords: ['presentation', 'clinical report', 'case presentation', 'ward round', 'write a report']
     },
     requiredFields: [
       { key: 'content', prompt: 'What should this be about? Paste your notes, or describe the case/topic.' }
@@ -199,8 +200,11 @@ ${data.additionalInstructions ? `\nADDITIONAL INSTRUCTIONS FROM THE CLINICIAN:\n
     getExportContent,
     handleAction(actionId, card) {
       if (actionId === 'export-pptx' && card.exportData) {
-        localStorage.setItem('pptExportData', JSON.stringify(card.exportData));
-        window.open('ppt-export.html', '_blank');
+        // Opens Deck Studio (in-app) with this document as the source.
+        if (window.RehablixDeckService) {
+          const d = card.exportData;
+          window.RehablixDeckService.openStudioWith({ title: [d.modeLabel, d.diagnosis && d.diagnosis !== 'Not specified' ? d.diagnosis : ''].filter(Boolean).join(': '), html: d.content });
+        }
       }
     }
   };

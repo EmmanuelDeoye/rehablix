@@ -1,0 +1,97 @@
+/* css/deck.css — Deck Studio (index.html#/deck). Mobile-first; uses the
+   shared teal design tokens from css/main.css (light + dark). */
+.deck-main { padding: 1.25rem 1rem 6rem; background: var(--bg-page); min-height: calc(100vh - 60px); display: flex; justify-content: center; }
+.deck-container { width: 100%; max-width: 980px; display: flex; flex-direction: column; gap: 1.1rem; }
+.deck-main[data-stage="form"] .deck-container, .deck-main[data-stage="progress"] .deck-container { max-width: 720px; }
+
+.deck-hero h1 { margin: 0; font-size: 1.6rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em; }
+.deck-hero p { margin: 0.3rem 0 0; font-size: 0.92rem; color: var(--text-secondary); line-height: 1.45; }
+.deck-main[data-stage="result"] .deck-hero { display: none; }
+
+.deck-card { background: var(--surface); border: 1px solid var(--border-light); border-radius: 1.1rem; padding: 1.1rem; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 0.7rem; }
+.deck-label { font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); display: block; }
+.deck-input { width: 100%; box-sizing: border-box; font: inherit; font-size: 0.95rem; color: var(--text-primary); background: var(--bg-page); border: 1px solid var(--border-light); border-radius: 0.75rem; padding: 0.7rem 0.85rem; outline: none; transition: border-color .15s, box-shadow .15s; }
+textarea.deck-input { resize: vertical; min-height: 4.6rem; line-height: 1.45; }
+.deck-input:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.deck-details summary { cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--accent); list-style: none; padding: 0.2rem 0; display: inline-flex; gap: 0.45rem; align-items: center; }
+.deck-details summary::-webkit-details-marker { display: none; }
+.deck-details[open] summary { margin-bottom: 0.5rem; }
+.deck-row { display: flex; gap: 0.75rem; }
+.deck-field { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.deck-field-narrow { flex: 0 0 5.5rem; }
+
+/* style chips */
+.deck-styles { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.deck-styles-scroll { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.3rem; scrollbar-width: none; }
+.deck-styles-scroll::-webkit-scrollbar { display: none; }
+.deck-chip { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 0.45rem; min-height: 40px; padding: 0.3rem 0.8rem 0.3rem 0.35rem; border-radius: 2rem; border: 1px solid var(--border-light); background: var(--surface); color: var(--text-primary); font: inherit; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: border-color .15s, background .15s; }
+.deck-chip:hover { border-color: var(--accent); }
+.deck-chip.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.deck-chip:focus-visible, .deck-primary:focus-visible, .deck-ghost:focus-visible, .deck-slide:focus-visible, .deck-revise-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.deck-swatch { width: 1.7rem; height: 1.7rem; border-radius: 50%; flex-shrink: 0; border: 1px solid rgba(128, 128, 128, 0.25); display: inline-flex; align-items: center; justify-content: center; }
+.deck-swatch-auto { background: var(--accent-soft); color: var(--accent); font-size: 0.75rem; border-color: transparent; }
+
+.deck-primary { display: inline-flex; align-items: center; justify-content: center; gap: 0.55rem; min-height: 48px; padding: 0.75rem 1.2rem; margin-top: 0.3rem; border: none; border-radius: 0.9rem; background: var(--accent); color: #fff; font: inherit; font-size: 0.98rem; font-weight: 700; cursor: pointer; transition: transform .12s, opacity .15s; }
+.deck-primary:active { transform: scale(0.985); }
+.deck-primary:disabled { opacity: 0.6; cursor: progress; }
+.deck-primary-inline { margin-top: 0; min-height: 42px; padding: 0.5rem 1rem; font-size: 0.88rem; border-radius: 0.75rem; }
+.deck-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; min-height: 42px; padding: 0.5rem 0.9rem; border-radius: 0.75rem; border: 1px solid var(--border-light); background: var(--surface); color: var(--text-primary); font: inherit; font-size: 0.86rem; font-weight: 600; cursor: pointer; }
+.deck-note { margin: 0; font-size: 0.74rem; color: var(--text-secondary); line-height: 1.45; }
+
+/* progress */
+.deck-progress { align-items: center; text-align: center; padding: 2.2rem 1.2rem; gap: 1rem; }
+.deck-progress p { margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--text-primary); }
+.deck-progress-art { position: relative; width: 150px; height: 92px; }
+.deck-progress-art span { position: absolute; inset: 0; border-radius: 0.6rem; border: 1px solid var(--border-light); background: linear-gradient(135deg, var(--accent-soft), var(--surface)); animation: deckShuffle 2.4s ease-in-out infinite; }
+.deck-progress-art span:nth-child(2) { animation-delay: .25s; }
+.deck-progress-art span:nth-child(3) { animation-delay: .5s; background: linear-gradient(135deg, var(--accent), #38bdf8); opacity: 0.9; }
+@keyframes deckShuffle { 0%, 100% { transform: translate(0, 0) rotate(0); } 33% { transform: translate(-16px, 5px) rotate(-5deg); } 66% { transform: translate(16px, 5px) rotate(5deg); } }
+.deck-progress-track { width: min(100%, 320px); height: 6px; border-radius: 3px; background: var(--border-light); overflow: hidden; }
+.deck-progress-bar { height: 100%; width: 6%; border-radius: 3px; background: var(--accent); transition: width .6s ease; }
+@media (prefers-reduced-motion: reduce) { .deck-progress-art span { animation: none; } .deck-progress-bar { transition: none; } }
+
+/* result */
+#deckResult { display: flex; flex-direction: column; gap: 0.85rem; }
+#deckResult[hidden], .deck-card[hidden], .deck-recent[hidden], .deck-lightbox[hidden] { display: none; }
+.deck-result-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.7rem; }
+.deck-result-title { min-width: 0; flex: 1 1 14rem; }
+.deck-result-title h2 { margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--text-primary); overflow-wrap: anywhere; }
+.deck-meta { font-size: 0.78rem; color: var(--text-secondary); }
+.deck-result-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+.deck-revise { display: flex; gap: 0.5rem; }
+.deck-revise .deck-input { background: var(--surface); border-radius: 2rem; padding-left: 1.05rem; }
+.deck-revise-btn { flex: 0 0 44px; width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--accent); color: #fff; font-size: 0.95rem; cursor: pointer; }
+.deck-revise-btn:disabled { opacity: 0.6; }
+
+.deck-slides { display: grid; grid-template-columns: 1fr; gap: 0.8rem; }
+@media (min-width: 640px) { .deck-slides { grid-template-columns: 1fr 1fr; } .deck-main { padding: 2rem 1.5rem 3rem; } .deck-hero h1 { font-size: 1.9rem; } }
+@media (min-width: 1100px) { .deck-slides { grid-template-columns: 1fr 1fr 1fr; } .deck-container { max-width: 1180px; } }
+.deck-slide { position: relative; display: block; width: 100%; padding: 0; border: 1px solid var(--border-light); border-radius: 0.7rem; overflow: hidden; background: var(--surface); cursor: zoom-in; box-shadow: var(--shadow-sm); transition: transform .15s, box-shadow .15s; text-align: left; }
+.deck-slide:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+.deck-slide-frame { display: block; container-type: inline-size; pointer-events: none; }
+.deck-slide-no { position: absolute; left: 0.45rem; bottom: 0.45rem; min-width: 1.5rem; padding: 0.1rem 0.4rem; border-radius: 1rem; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 0.68rem; font-weight: 700; text-align: center; }
+
+/* recent */
+.deck-recent h3 { margin: 0.4rem 0 0.6rem; font-size: 0.82rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
+#deckRecentList { display: flex; flex-direction: column; gap: 0.45rem; }
+.deck-recent-item { display: flex; align-items: center; gap: 0.3rem; background: var(--surface); border: 1px solid var(--border-light); border-radius: 0.85rem; padding: 0.2rem 0.3rem 0.2rem 0.2rem; }
+.deck-recent-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.7rem; padding: 0.45rem 0.5rem; border: none; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 0.7rem; }
+.deck-recent-text { min-width: 0; display: flex; flex-direction: column; }
+.deck-recent-title { font-size: 0.9rem; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.deck-recent-meta { font-size: 0.74rem; color: var(--text-secondary); }
+.deck-recent-del { flex: 0 0 40px; width: 40px; height: 40px; border: none; background: none; color: var(--text-secondary); border-radius: 50%; cursor: pointer; }
+.deck-recent-del:hover { color: #dc2626; background: rgba(220, 38, 38, 0.08); }
+
+/* lightbox */
+.deck-lightbox { position: fixed; inset: 0; z-index: 4000; background: rgba(6, 12, 16, 0.92); display: flex; align-items: center; justify-content: center; padding: 3.2rem 0.5rem; }
+.deck-lightbox-stage { width: min(100%, calc((100vh - 7rem) * 16 / 9)); container-type: inline-size; border-radius: 0.5rem; overflow: hidden; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6); }
+.deck-lightbox-close, .deck-lightbox-nav { position: absolute; width: 44px; height: 44px; border-radius: 50%; border: none; background: rgba(255, 255, 255, 0.14); color: #fff; font-size: 1rem; cursor: pointer; }
+.deck-lightbox-close { top: 0.6rem; right: 0.6rem; }
+.deck-lightbox-nav { bottom: 0.5rem; }
+.deck-lightbox-prev { left: calc(50% - 5.2rem); }
+.deck-lightbox-next { right: calc(50% - 5.2rem); }
+.deck-lightbox-count { position: absolute; bottom: 1.15rem; left: 50%; transform: translateX(-50%); color: #fff; font-size: 0.82rem; font-weight: 600; }
+@media (min-width: 900px) { .deck-lightbox { padding: 3rem 4.5rem; } .deck-lightbox-nav { bottom: auto; top: 50%; transform: translateY(-50%); } .deck-lightbox-prev { left: 1rem; } .deck-lightbox-next { right: 1rem; } }
+
+/* Lixa file card thumbnail for decks */
+.deck-card-thumb { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 0.6rem; object-fit: cover; margin-bottom: 0.55rem; border: 1px solid var(--border-light); }

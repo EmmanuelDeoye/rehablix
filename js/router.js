@@ -56,6 +56,9 @@
     emr: { template: 'emr', title: 'rehablix · Smart EMR' },
     // Project Maker — migrated off the old standalone project.html, same
     // recipe as EMR above. See js/views/project-view.js.
+    // Deck Studio — the AI presentation designer (js/views/deck-view.js +
+    // js/deck/deck-engine.js). Replaces the old standalone ppt-export.html.
+    deck: { template: 'deck', title: 'Deck Studio | rehablix' },
     project: { template: 'project', title: 'rehablix · Project Maker' }
   };
 
