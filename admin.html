@@ -387,7 +387,26 @@
         .stat-card.clickable:active {
             transform: scale(0.97);
         }
-    </style>
+    
+    /* admin-extra: App & Versions, Notifications, plan presets */
+    .extra-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.8rem; margin-top: 0.8rem; }
+    .extra-grid label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); }
+    .extra-grid .extra-wide { grid-column: 1 / -1; }
+    .extra-grid input, .extra-grid select, .extra-grid textarea { font: inherit; font-size: 0.9rem; padding: 0.6rem 0.75rem; border-radius: 0.6rem; border: 1px solid var(--border-light); background: var(--bg-page); color: var(--text-primary); width: 100%; box-sizing: border-box; }
+    .extra-switch { flex-direction: row !important; align-items: center; gap: 0.6rem !important; font-size: 0.88rem !important; color: var(--text-primary) !important; margin-top: 0.6rem; }
+    .extra-switch input { width: 18px; height: 18px; accent-color: var(--accent); }
+    .extra-actions { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; margin-top: 1rem; }
+    .announcement-preview { margin-top: 1rem; padding: 0.8rem 0.9rem; border-radius: 0.8rem; border: 1px solid var(--accent); background: var(--surface); display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.85rem; max-width: 460px; }
+    .announcement-preview span { color: var(--text-secondary); }
+    .announcement-row { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; padding: 0.7rem 0; border-bottom: 1px solid var(--border-light); flex-wrap: wrap; }
+    .announcement-row:last-child { border-bottom: none; }
+    .announcement-row-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; flex: 1 1 260px; font-size: 0.86rem; }
+    .announcement-row-text span, .announcement-row-text small { color: var(--text-secondary); overflow-wrap: anywhere; }
+    .announcement-row-actions { display: flex; gap: 0.4rem; }
+    .plan-period-presets { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
+    .plan-period-presets button { border: 1px solid var(--border-light); background: var(--surface); color: var(--text-primary); border-radius: 2rem; padding: 0.35rem 0.8rem; font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+    .plan-period-presets button.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+</style>
 </head>
 <body class="admin-page">
 
@@ -487,6 +506,14 @@
                         <span class="sidebar-icon">🤝</span>
                         <span>Partners</span>
                         <span id="partnerCountBadge" class="badge-sidebar">0</span>
+                    </a>
+                    <a href="#" class="sidebar-link" data-view="notifications">
+                        <span class="sidebar-icon">🔔</span>
+                        <span>Notifications</span>
+                    </a>
+                    <a href="#" class="sidebar-link" data-view="app">
+                        <span class="sidebar-icon">📱</span>
+                        <span>App &amp; Versions</span>
                     </a>
                     <a href="#" class="sidebar-link" data-view="settings">
                         <span class="sidebar-icon">⚙️</span>
@@ -780,6 +807,93 @@
                 </section>
 
                 <!-- ======= SETTINGS VIEW ======= -->
+
+                <!-- ============ APP & VERSIONS ============ -->
+                <section id="viewApp" class="admin-view" style="display:none;">
+                    <div class="view-header">
+                        <h1>App &amp; Versions</h1>
+                        <p class="view-subtitle">Android app versions, forced updates and the tester notice</p>
+                    </div>
+
+                    <div class="settings-card glass-card">
+                        <h3>Android version</h3>
+                        <p class="settings-hint">The app compares its own version code with these numbers every time it opens. Below the minimum it must update before it can be used; below the latest it gets a gentle "update available" prompt.</p>
+                        <div class="extra-grid">
+                            <label>Latest version name<input type="text" id="appLatestName" placeholder="e.g. 1.1.0" /></label>
+                            <label>Latest version code<input type="number" id="appLatestCode" min="1" placeholder="e.g. 2" /></label>
+                            <label>Minimum supported code<input type="number" id="appMinCode" min="1" placeholder="e.g. 1" /></label>
+                            <label class="extra-wide">Update link (Play Store page)<input type="url" id="appUpdateUrl" placeholder="https://play.google.com/store/apps/details?id=com.rehablix.app" /></label>
+                            <label class="extra-wide">What's new (shown in the update prompt)<textarea id="appReleaseNotes" rows="3" placeholder="Short release notes"></textarea></label>
+                        </div>
+                    </div>
+
+                    <div class="settings-card glass-card">
+                        <h3>Tester notice</h3>
+                        <p class="settings-hint">For the test builds you share before launch. When this is ON, every copy that was NOT installed from the Play Store keeps asking its user (on every open, then every few hours) to uninstall it and install the official app. Play Store installs never see it.</p>
+                        <label class="extra-switch"><input type="checkbox" id="testerEnabled" /> <span id="testerState">Off</span></label>
+                        <div class="extra-grid">
+                            <label class="extra-wide">Title<input type="text" id="testerTitle" maxlength="60" /></label>
+                            <label class="extra-wide">Message<textarea id="testerMessage" rows="3" maxlength="320"></textarea></label>
+                            <label class="extra-wide">Play Store link<input type="url" id="testerPlayUrl" placeholder="https://play.google.com/store/apps/details?id=com.rehablix.app" /></label>
+                            <label>Ask again every (hours)<input type="number" id="testerRepeat" min="1" max="72" /></label>
+                        </div>
+                    </div>
+
+                    <div class="extra-actions">
+                        <button id="saveAppConfigBtn" class="admin-btn primary">Save app settings</button>
+                        <span class="settings-hint" id="appConfigUpdated"></span>
+                    </div>
+                    <div id="appConfigMsg" class="settings-msg"></div>
+                </section>
+
+                <!-- ============ NOTIFICATIONS ============ -->
+                <section id="viewNotifications" class="admin-view" style="display:none;">
+                    <div class="view-header">
+                        <h1>Notifications</h1>
+                        <p class="view-subtitle">Announcements to every Rehablix user</p>
+                    </div>
+
+                    <div class="settings-card glass-card">
+                        <h3>New announcement</h3>
+                        <p class="settings-hint" id="notifReach"></p>
+                        <div class="extra-grid">
+                            <label class="extra-wide">Title<input type="text" id="annTitle" maxlength="80" placeholder="e.g. Deck Studio is here" /></label>
+                            <label class="extra-wide">Message<textarea id="annBody" rows="3" maxlength="240" placeholder="One or two short sentences."></textarea></label>
+                            <label>Opens<select id="annTarget">
+                                <option value="index.html#/lixa">Lixa</option>
+                                <option value="index.html#/workspace">Workspace</option>
+                                <option value="index.html#/deck">Deck Studio</option>
+                                <option value="index.html#/audio">Audio Transcription</option>
+                                <option value="index.html#/emr">Smart EMR</option>
+                                <option value="index.html#/subscription">Subscription</option>
+                                <option value="index.html#/settings">Settings</option>
+                                <option value="custom">A web link…</option>
+                            </select></label>
+                            <label>Button text<input type="text" id="annCta" maxlength="24" placeholder="Open" /></label>
+                            <label class="extra-wide"><input type="url" id="annUrl" placeholder="https://…" style="display:none;" /></label>
+                            <label>Send to<select id="annPlatform"><option value="all">Everyone</option><option value="android">Android app only</option><option value="web">Web only</option></select></label>
+                            <label>Show in-app for (days)<input type="number" id="annDays" min="1" max="60" value="7" /></label>
+                            <label class="extra-switch extra-wide"><input type="checkbox" id="annPush" checked /> Also send as a push notification</label>
+                        </div>
+                        <div class="announcement-preview">
+                            <strong id="annPreviewTitle">Title</strong>
+                            <span id="annPreviewBody">Your message appears here.</span>
+                        </div>
+                        <div class="extra-actions"><button id="sendAnnouncementBtn" class="admin-btn primary">Publish announcement</button></div>
+                        <div id="annMsg" class="settings-msg"></div>
+                    </div>
+
+                    <div class="settings-card glass-card">
+                        <h3>Recent announcements</h3>
+                        <div id="announcementList"></div>
+                    </div>
+
+                    <div class="settings-card glass-card">
+                        <h3>How notifications work</h3>
+                        <p class="settings-hint">AI Tasks are raised on the user's own device. Center Invitations are sent automatically when a center invites someone. Smart Reminders go out at most once every 3 days, only to people who have been away for 2 days or more. Users can switch each kind off in Settings.</p>
+                    </div>
+                </section>
+
                 <section id="viewSettings" class="admin-view" style="display:none;">
                     <div class="view-header">
                         <h1>Settings</h1>
@@ -867,9 +981,17 @@
                     </select>
                 </div>
                 <div class="form-group">
+                    <label>Plan period</label>
+                    <div class="plan-period-presets" id="planPeriodPresets">
+                        <button type="button" data-period="1d">1 day</button>
+                        <button type="button" data-period="1w">1 week</button>
+                        <button type="button" data-period="2w">2 weeks</button>
+                        <button type="button" data-period="1m" class="active">1 month</button>
+                        <button type="button" data-period="1y">1 year</button>
+                    </div>
                     <label>Expiration Date</label>
                     <input type="date" id="planExpiryDateInput" />
-                    <small>Leave empty for default (1 year from now).</small>
+                    <small>Pick a preset or any date. Default: 1 month from today.</small>
                 </div>
                 <div id="planChangeMsg" class="form-msg"></div>
             </div>
@@ -993,6 +1115,7 @@
     <!-- ============================================================= -->
     <script src="js/config.js" defer></script>
     <script src="js/admin.js" defer></script>
+<script src="js/admin-extra.js" defer></script>
 
 </body>
 </html>

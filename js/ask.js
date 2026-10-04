@@ -325,7 +325,8 @@ You should also know about two related businesses and point users to them when r
 
 Only mention rehabverve.com.ng or rehabace.com when the user's request genuinely matches (e.g. "I need to hire a therapist", "who can build a sensory room", "where can I buy therapy equipment") — don't force them into unrelated answers.
 
-If the user's message includes content extracted from an uploaded file, an image, video frames, or a URL they shared (you'll see it clearly marked, e.g. "[Attached file: ...]" or "[Content from URL: ...]"), use that content as context to answer their actual question — don't just describe it back to them unless asked to.`;
+If the user's message includes content extracted from an uploaded file, an image, video frames, or a URL they shared (you'll see it clearly marked, e.g. "[Attached file: ...]" or "[Content from URL: ...]"), use that content as context to answer their actual question — don't just describe it back to them unless asked to.
+${window.RehablixKnowledge ? window.RehablixKnowledge.text('web') : ''}`;
   }
 
   // =========================================================================
@@ -1384,6 +1385,13 @@ If the user's message includes content extracted from an uploaded file, an image
     const typingDiv = document.createElement('div');
     typingDiv.className = 'message assistant';
     typingDiv.id = 'typingIndicator';
+    // Small talk: just the three typing dots — Lixa isn't "thinking" about a hello.
+    if (list[0] === '') {
+      typingDiv.innerHTML = '<div class="lixa-status-bubble lixa-typing-dots" aria-label="Lixa is typing"><span></span><span></span><span></span></div>';
+      chatMessages.appendChild(typingDiv);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      return;
+    }
     typingDiv.innerHTML = `<div class="lixa-status-bubble"><span class="lixa-status-spinner"></span><span class="lixa-status-text" id="typingStatusText">${escapeHtml(list[0])}</span></div>`;
     chatMessages.appendChild(typingDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1438,6 +1446,16 @@ Given the user's latest message, return ONLY a compact JSON object (no markdown,
     if (words.length >= 10 && (PLAN_TRIGGER_WORDS.test(text) || /[.?!].+[.?!]/.test(text))) return true;
     return false;
   }
+
+  // Greetings, thanks, "ok", and other few-word everyday messages: answered
+  // immediately on the fast model, with no planning pass and no status words.
+  const SMALL_TALK_RE = /^(hi+|hey+|hello+|yo|hiya|howdy|good\s*(morning|afternoon|evening|night|day)|morning|evening|thanks?(\s+you)?(\s+(so|very)\s+much)?|thank\s+u|ty|ok(ay)?|alright|cool|nice|great|awesome|perfect|got\s+it|noted|sure|yes|yeah|yep|no|nope|bye|goodbye|see\s+you|how\s+are\s+you(\s+doing)?|how('?s| is)\s+it\s+going|what'?s\s+up|sup|who\s+are\s+you|what\s+can\s+you\s+do|help)(\s+(lixa|there|dear|please|again|doc))?[\s!.?,]*$/i;
+  function isSmallTalk(text) {
+    const t = (text || '').trim();
+    if (!t || t.length > 60) return false;
+    return SMALL_TALK_RE.test(t);
+  }
+  let quickTurn = false;
 
   async function buildPlan(text) {
     try {
@@ -1889,6 +1907,12 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       config = await window.RehablixAI.webSearchConfig(selected && selected.responseStyle);
       if (config) showToast('Searching the web…', 'info', 2500);
     }
+    // Small talk never waits on a reasoning model: it goes to the fast tier
+    // (and costs the least), whatever model is selected in the composer.
+    if (!config && quickTurn && !needsVision && window.RehablixAIQuotaCore) {
+      const quick = await window.RehablixAIQuotaCore.resolveModelConfig('basal100');
+      if (quick) config = Object.assign({}, quick, { maxTokens: 400, responseStyle: 'Reply in one or two short, warm sentences. No headings, no lists.' });
+    }
     if (!config) config = await resolveModelConfig(needsVision);
     if (!config) throw new Error('AI service is not configured.');
 
@@ -1998,6 +2022,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     }
     if (currentUser) saveConversation();
     onDone();
+    if (window.RehablixNotify) window.RehablixNotify.aiTaskDone('Lixa replied', (assistantMsg.content || '').replace(/[#*_`>]/g, '').trim().slice(0, 110), 'index.html#/lixa');
   }
 
   // How close to the bottom (px) counts as "still following the stream" —
@@ -2024,8 +2049,9 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     const lastMsg = messages[messages.length - 1];
     const hasFiles = !!(lastMsg && lastMsg.attachmentMeta && lastMsg.attachmentMeta.length > 0);
     let plan = null;
-    if (looksComplex(promptTextForSuggestions)) plan = await buildPlan(promptTextForSuggestions);
-    showTyping(stagesFromPlan(plan, hasFiles));
+    quickTurn = !hasFiles && isSmallTalk(promptTextForSuggestions);
+    if (!quickTurn && looksComplex(promptTextForSuggestions)) plan = await buildPlan(promptTextForSuggestions);
+    showTyping(quickTurn ? [''] : stagesFromPlan(plan, hasFiles));
 
     // Clinical context awareness (feature 6.3/7): only looked up when the
     // plan flagged that a specific patient is referenced.

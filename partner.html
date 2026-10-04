@@ -82,157 +82,116 @@
   </nav>
 
   <main class="partner-main">
-    <div class="partner-container">
+    <div class="partner-container pt-wrap">
 
-      <!-- Signed-out state -->
-      <div id="partnerLoggedOut" class="partner-hero glass-card" style="display:none;">
-        <div class="partner-hero-icon">💰</div>
+      <!-- Signed-out -->
+      <section id="partnerLoggedOut" class="pt-hero" style="display:none;">
+        <span class="pt-hero-badge"><i class="fas fa-handshake"></i> Rehablix Partners</span>
         <h1>Earn with rehablix</h1>
-        <p>Log in or create a free rehablix account to apply for the Rehablix Partners program.</p>
-        <button class="btn-settings-primary" id="partnerLoginPromptBtn">Log In / Sign Up</button>
-      </div>
+        <p>Log in or create a free account to apply for the Rehablix Partners program.</p>
+        <button class="pt-btn" id="partnerLoginPromptBtn">Log in / Sign up</button>
+      </section>
 
       <!-- Loading -->
-      <div id="partnerLoading" class="partner-hero glass-card">
+      <section id="partnerLoading" class="pt-card pt-center">
         <div class="loading-spinner"></div>
         <p>Loading your partner status…</p>
-      </div>
+      </section>
 
-      <!-- STATE: not yet applied -->
-      <div id="partnerStateNone" class="partner-content" style="display:none;">
-        <div class="partner-hero glass-card">
-          <div class="partner-hero-icon">🚀</div>
-          <h1>Become a Rehablix Partner</h1>
-          <p>Share your personalized link with fellow clinicians and students. Every time someone you refer
-             subscribes to Student or Pro, you earn <strong>20% of their payment</strong> — for every renewal, automatically.</p>
+      <!-- Not applied yet -->
+      <div id="partnerStateNone" style="display:none;">
+        <section class="pt-hero">
+          <span class="pt-hero-badge"><i class="fas fa-handshake"></i> Rehablix Partners</span>
+          <h1>Share rehablix. Earn 20%.</h1>
+          <p>Get your own link. Every time someone you refer pays for a plan, you earn <strong>20% of that payment</strong>, renewals included.</p>
+        </section>
+
+        <div class="pt-benefits">
+          <div class="pt-benefit"><i class="fas fa-link"></i><div><h4>Your own link</h4><p>A referral link tied to your account.</p></div></div>
+          <div class="pt-benefit"><i class="fas fa-coins"></i><div><h4>20% commission</h4><p>On every subscription payment your referrals make.</p></div></div>
+          <div class="pt-benefit"><i class="fas fa-chart-line"></i><div><h4>Live dashboard</h4><p>See referrals and earnings as they happen.</p></div></div>
         </div>
 
-        <div class="partner-benefits glass-card">
-          <div class="partner-benefit"><span class="pb-icon">🔗</span><div><h4>Your own link</h4><p>A unique referral link tied to your account.</p></div></div>
-          <div class="partner-benefit"><span class="pb-icon">💵</span><div><h4>20% commission</h4><p>On every subscription payment your referrals make.</p></div></div>
-          <div class="partner-benefit"><span class="pb-icon">📊</span><div><h4>Live dashboard</h4><p>Track referrals and earnings in real time.</p></div></div>
-        </div>
-
-        <form id="partnerApplyForm" class="settings-card partner-apply-form">
-          <div class="card-header"><i class="fas fa-pen"></i><h3>Apply Now</h3></div>
-          <div class="card-body">
-            <div class="form-group">
-              <label for="partnerFullName">Full Name</label>
-              <input type="text" id="partnerFullName" required placeholder="Your name">
-            </div>
-            <div class="form-group">
-              <label for="partnerAudience">How will you share rehablix?</label>
+        <form id="partnerApplyForm" class="pt-card" novalidate>
+          <h2 class="pt-card-title"><i class="fas fa-pen"></i> Apply now</h2>
+          <div class="pt-grid">
+            <label class="pt-field">Full name<input type="text" id="partnerFullName" required autocomplete="name" placeholder="Your name"></label>
+            <label class="pt-field">Phone number<input type="tel" id="partnerPhone" autocomplete="tel" placeholder="e.g. +234 801 234 5678"></label>
+            <label class="pt-field pt-wide">How will you share rehablix?
               <select id="partnerAudience" required>
                 <option value="">Select an option</option>
                 <option value="social">Social media / content</option>
-                <option value="colleagues">Colleagues & professional network</option>
+                <option value="colleagues">Colleagues &amp; professional network</option>
                 <option value="students">Students / classmates</option>
                 <option value="center">My clinic / center</option>
                 <option value="other">Other</option>
               </select>
-            </div>
-            <div class="form-group">
-              <label for="partnerPayoutMethod">Payout Method</label>
-              <select id="partnerPayoutMethod" required>
-                <option value="">Select an option</option>
-                <option value="bank">Bank Transfer</option>
-                <option value="paypal">PayPal</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label for="partnerPayoutDetails">Payout Details</label>
-              <input type="text" id="partnerPayoutDetails" required placeholder="Bank name + account number, or PayPal email">
-              <small class="form-hint">Only used to pay out your commissions. Reviewed by an admin before approval.</small>
-            </div>
-            <div class="form-group">
-              <label for="partnerNote">Anything else we should know? (optional)</label>
-              <textarea id="partnerNote" rows="3" placeholder="e.g. link to your platform/following"></textarea>
-            </div>
-            <div id="partnerApplyError" class="error-message"></div>
-            <button type="submit" class="auth-btn" id="partnerApplyBtn">Submit Application</button>
+            </label>
           </div>
+          <div data-payout-fields="apply"></div>
+          <label class="pt-field">Anything else we should know? (optional)<textarea id="partnerNote" rows="3" placeholder="e.g. a link to your page or following"></textarea></label>
+          <p id="partnerApplyError" class="pt-error" role="alert"></p>
+          <button type="submit" class="pt-btn pt-btn-block" id="partnerApplyBtn">Submit application</button>
         </form>
       </div>
 
-      <!-- STATE: pending review -->
-      <div id="partnerStatePending" class="partner-hero glass-card" style="display:none;">
-        <div class="partner-hero-icon">⏳</div>
-        <h1>Application Under Review</h1>
-        <p>Thanks for applying! Our team is reviewing your Rehablix Partners application. You'll get an email
-           as soon as a decision is made — usually within a few business days.</p>
+      <!-- Pending -->
+      <div id="partnerStatePending" style="display:none;">
+        <section class="pt-card pt-center">
+          <span class="pt-state-icon pt-state-wait"><i class="fas fa-hourglass-half"></i></span>
+          <h1>Application under review</h1>
+          <p>Thanks for applying. Our team is reviewing your application and you'll hear from us as soon as a decision is made, usually within a few business days.</p>
+        </section>
+        <div data-details-card="pending"></div>
       </div>
 
-      <!-- STATE: rejected -->
-      <div id="partnerStateRejected" class="partner-hero glass-card" style="display:none;">
-        <div class="partner-hero-icon">😕</div>
-        <h1>Application Not Approved</h1>
-        <p id="partnerRejectionReason">Unfortunately your Rehablix Partners application wasn't approved this time.</p>
-        <button class="btn-settings-primary" id="partnerReapplyBtn">Apply Again</button>
-      </div>
+      <!-- Rejected -->
+      <section id="partnerStateRejected" class="pt-card pt-center" style="display:none;">
+        <span class="pt-state-icon pt-state-no"><i class="fas fa-circle-xmark"></i></span>
+        <h1>Application not approved</h1>
+        <p id="partnerRejectionReason">Your Rehablix Partners application wasn't approved this time.</p>
+        <button class="pt-btn" id="partnerReapplyBtn">Apply again</button>
+      </section>
 
-      <!-- STATE: approved (dashboard) -->
-      <div id="partnerStateApproved" class="partner-content" style="display:none;">
-        <div class="partner-dash-header">
-          <h1>Your Partner Dashboard</h1>
-          <p class="view-subtitle">Share your link. Earn 20% on every payment your referrals make.</p>
-        </div>
+      <!-- Approved: dashboard -->
+      <div id="partnerStateApproved" style="display:none;">
+        <header class="pt-dash-head">
+          <div>
+            <h1>Partner dashboard</h1>
+            <p>Share your link. Earn 20% on every payment your referrals make.</p>
+          </div>
+          <span class="pt-chip"><i class="fas fa-circle-check"></i> Approved</span>
+        </header>
 
-        <div class="partner-link-card glass-card">
-          <label>Your referral link</label>
-          <div class="partner-link-row">
+        <section class="pt-card pt-link-card">
+          <label for="partnerLinkInput">Your referral link</label>
+          <div class="pt-link-row">
             <input type="text" id="partnerLinkInput" readonly>
-            <button class="btn-settings-primary" id="copyPartnerLinkBtn"><i class="fas fa-copy"></i> Copy</button>
+            <button class="pt-btn" id="copyPartnerLinkBtn"><i class="fas fa-copy"></i> Copy</button>
+            <button class="pt-btn pt-btn-ghost" id="sharePartnerLinkBtn" aria-label="Share link"><i class="fas fa-share-nodes"></i></button>
           </div>
+        </section>
+
+        <div class="pt-stats">
+          <div class="pt-stat"><span>Total earned</span><strong id="statEarningsTotal">—</strong></div>
+          <div class="pt-stat"><span>Pending payout</span><strong id="statEarningsPending">—</strong></div>
+          <div class="pt-stat"><span>Referred users</span><strong id="statReferralsCount">0</strong></div>
+          <div class="pt-stat"><span>Paid conversions</span><strong id="statConversionsCount">0</strong></div>
         </div>
 
-        <div class="partner-stats-grid">
-          <div class="partner-stat glass-card">
-            <span class="ps-label">Total Earned</span>
-            <span class="ps-value" id="statEarningsTotal">—</span>
-          </div>
-          <div class="partner-stat glass-card">
-            <span class="ps-label">Pending Payout</span>
-            <span class="ps-value" id="statEarningsPending">—</span>
-          </div>
-          <div class="partner-stat glass-card">
-            <span class="ps-label">Referred Users</span>
-            <span class="ps-value" id="statReferralsCount">0</span>
-          </div>
-          <div class="partner-stat glass-card">
-            <span class="ps-label">Paid Conversions</span>
-            <span class="ps-value" id="statConversionsCount">0</span>
-          </div>
-        </div>
+        <div data-details-card="approved"></div>
 
-        <div class="settings-card wide-card">
-          <div class="card-header"><i class="fas fa-users"></i><h3>Your Referrals</h3></div>
-          <div class="card-body">
-            <div class="table-container">
-              <div class="table-scroll">
-                <table class="partner-table">
-                  <thead><tr><th>Name</th><th>Joined</th></tr></thead>
-                  <tbody id="referralsTableBody"></tbody>
-                </table>
-              </div>
-              <div id="referralsEmpty" class="info-empty"><i class="fas fa-info-circle"></i><p>No referrals yet — start sharing your link!</p></div>
-            </div>
-          </div>
-        </div>
+        <section class="pt-card">
+          <h2 class="pt-card-title"><i class="fas fa-users"></i> Your referrals</h2>
+          <div id="referralsList" class="pt-list"></div>
+          <p id="referralsEmpty" class="pt-empty">No referrals yet. Start sharing your link.</p>
+        </section>
 
-        <div class="settings-card wide-card">
-          <div class="card-header"><i class="fas fa-receipt"></i><h3>Commission History</h3></div>
-          <div class="card-body">
-            <div class="table-container">
-              <div class="table-scroll">
-                <table class="partner-table">
-                  <thead><tr><th>Referred User</th><th>Plan</th><th>Amount</th><th>Your Commission</th><th>Date</th></tr></thead>
-                  <tbody id="transactionsTableBody"></tbody>
-                </table>
-              </div>
-              <div id="transactionsEmpty" class="info-empty"><i class="fas fa-info-circle"></i><p>No commissions yet.</p></div>
-            </div>
-          </div>
-        </div>
+        <section class="pt-card">
+          <h2 class="pt-card-title"><i class="fas fa-receipt"></i> Commission history</h2>
+          <div id="transactionsList" class="pt-list"></div>
+          <p id="transactionsEmpty" class="pt-empty">No commissions yet.</p>
+        </section>
       </div>
 
     </div>

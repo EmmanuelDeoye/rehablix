@@ -403,13 +403,18 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
   // =========================================================================
   // Subject view
   // =========================================================================
-  function openSubject(subjectId) {
+  function setsOf(subjectId) {
+    return Object.keys(studySets).filter(id => studySets[id].subjectId === subjectId)
+      .sort((a, b) => (studySets[b].createdAt || 0) - (studySets[a].createdAt || 0));
+  }
+
+  function openSubject(subjectId, tab) {
     activeSubjectId = subjectId;
-    activeSetIds = Object.keys(studySets).filter(id => studySets[id].subjectId === subjectId);
+    activeSetIds = setsOf(subjectId);
+    reviewAllSubjects = false;
     $('subjectTitle').textContent = subjects[subjectId]?.name || 'Subject';
     showView(viewSubject);
-    switchTab('overview');
-    renderOverviewTab();
+    switchTab(tab || 'overview');
   }
 
   $('backToDashboardBtn').addEventListener('click', () => { renderDashboard(); showView(viewDashboard); });
@@ -419,12 +424,11 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
     window.RehablixRouter.go(`index.html?subject=${activeSubjectId}&subjectName=${encodeURIComponent(subjects[activeSubjectId].name)}#/exam`);
   });
 
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-  });
+  const studyTabButtons = document.querySelectorAll('.study-main .tab-btn');
+  studyTabButtons.forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
   function switchTab(tab) {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-    document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === tab));
+    studyTabButtons.forEach(b => { const on = b.dataset.tab === tab; b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on)); });
+    document.querySelectorAll('.study-main .tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === tab));
     if (tab === 'flashcards') renderFlashcardArea();
     if (tab === 'quiz') renderQuizIntro();
     if (tab === 'summary') renderSummaryTab();
@@ -434,9 +438,9 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
   function renderOverviewTab() {
     const topics = subjects[activeSubjectId]?.topics || {};
     const list = $('topicMasteryList');
-    const topicIds = Object.keys(topics);
+    const topicIds = Object.keys(topics).sort((a, b) => (topics[a].masteryScore || 0) - (topics[b].masteryScore || 0)); // weakest first
     list.innerHTML = topicIds.length === 0
-      ? `<p style="color:var(--study-text-secondary);font-size:0.85rem;">No topics tracked yet.</p>`
+      ? `<p class="study-muted">No topics tracked yet. Review some flashcards or take the quiz.</p>`
       : topicIds.map(id => {
           const t = topics[id];
           return `<div class="topic-mastery-row">
@@ -447,127 +451,232 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
         }).join('');
 
     const setsList = $('subjectSetsList');
-    setsList.innerHTML = activeSetIds.length === 0 ? `<p style="color:var(--study-text-secondary);font-size:0.85rem;">No study sets yet.</p>` :
+    setsList.innerHTML = activeSetIds.length === 0 ? `<p class="study-muted">No study sets yet.</p>` :
       activeSetIds.map(id => {
         const s = studySets[id];
-        return `<div class="set-row"><span class="set-row-name">${escapeHtml(s.title)}</span><span class="set-row-meta">${(s.flashcards || []).length} cards · ${(s.quiz || []).length} questions</span></div>`;
+        return `<div class="set-row" data-id="${id}">
+          <div class="set-row-text"><span class="set-row-name">${escapeHtml(s.title)}</span><span class="set-row-meta">${(s.flashcards || []).length} cards · ${(s.quiz || []).length} questions</span></div>
+          <button type="button" class="set-row-delete" aria-label="Delete ${escapeHtml(s.title)}" title="Delete this set"><i class="fas fa-trash"></i></button>
+        </div>`;
       }).join('');
   }
 
+  $('subjectSetsList').addEventListener('click', async (e) => {
+    const btn = e.target.closest('.set-row-delete'); if (!btn) return;
+    const id = btn.closest('.set-row').dataset.id;
+    const set = studySets[id]; if (!set) return;
+    if (!window.confirm(`Delete "${set.title}" and its flashcards and quiz? This cannot be undone.`)) return;
+    try {
+      await database.ref(`history/${scopeUid}/study/sets/${id}`).remove();
+      delete studySets[id];
+      activeSetIds = setsOf(activeSubjectId);
+      renderOverviewTab();
+      refreshDueBanner();
+      showToast('Study set deleted');
+    } catch (err) { showToast('Could not delete that set. Please try again.', 'error'); }
+  });
+
   function renderSummaryTab() {
-    const latestSet = activeSetIds.map(id => studySets[id]).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
-    $('summaryContent').innerHTML = latestSet ? (typeof marked !== 'undefined' ? marked.parse(latestSet.summary || '') : escapeHtml(latestSet.summary)) : '<p>No summary yet.</p>';
+    const sets = activeSetIds.map(id => studySets[id]).filter(s => s && s.summary);
+    const md = (t) => (typeof marked !== 'undefined' ? marked.parse(t || '') : escapeHtml(t));
+    $('summaryContent').innerHTML = sets.length === 0 ? '<p class="study-muted">No summary yet.</p>'
+      : sets.length === 1 ? md(sets[0].summary)
+      : sets.map((s, i) => `<details class="summary-set" ${i === 0 ? 'open' : ''}><summary>${escapeHtml(s.title)}</summary>${md(s.summary)}</details>`).join('');
   }
 
   // =========================================================================
   // Flashcard review session
   // =========================================================================
+  let reviewAllSubjects = false;                                   // "Review Now" on the dashboard: due cards from every subject
+  let sessionTally = { again: 0, hard: 0, good: 0, easy: 0 };
+  let sessionTotal = 0;
+  const isDue = (c) => !c.nextReview || c.nextReview <= Date.now();
+
   $('flashcardFilter').addEventListener('change', renderFlashcardArea);
-  $('shuffleCardsBtn').addEventListener('click', () => { flashcardQueue.sort(() => Math.random() - 0.5); currentCardIndex = 0; renderCard(); });
+  $('shuffleCardsBtn').addEventListener('click', () => {
+    // Fisher–Yates over what is left of the session
+    for (let i = flashcardQueue.length - 1; i > currentCardIndex; i--) {
+      const j = currentCardIndex + Math.floor(Math.random() * (i - currentCardIndex + 1));
+      [flashcardQueue[i], flashcardQueue[j]] = [flashcardQueue[j], flashcardQueue[i]];
+    }
+    renderCard();
+  });
+
+  function refreshFlashcardStats() {
+    const all = allFlashcards().filter(c => reviewAllSubjects || c.subjectId === activeSubjectId);
+    $('flashcardStats').textContent = `${all.filter(isDue).length} due · ${all.length} total`;
+  }
 
   function renderFlashcardArea() {
     const filter = $('flashcardFilter').value;
-    const all = allFlashcards().filter(c => c.subjectId === activeSubjectId);
-    const now = Date.now();
-    flashcardQueue = filter === 'due' ? all.filter(c => !c.nextReview || c.nextReview <= now) : all;
+    const all = allFlashcards().filter(c => reviewAllSubjects || c.subjectId === activeSubjectId);
+    flashcardQueue = filter === 'due' ? all.filter(isDue) : all;
     currentCardIndex = 0;
-    const due = all.filter(c => !c.nextReview || c.nextReview <= now).length;
-    $('flashcardStats').textContent = `${due} due · ${all.length} total`;
+    sessionTally = { again: 0, hard: 0, good: 0, easy: 0 };
+    sessionTotal = flashcardQueue.length;
+    refreshFlashcardStats();
     renderCard();
   }
 
   function renderCard() {
     const area = $('flashcardArea');
+    if (!area) return;
     if (flashcardQueue.length === 0) {
-      area.innerHTML = `<div class="empty-state"><i class="fas fa-check-circle"></i><p>Nothing to review here — nice work!</p></div>`;
+      const any = allFlashcards().some(c => reviewAllSubjects || c.subjectId === activeSubjectId);
+      area.innerHTML = `<div class="empty-state"><i class="fas fa-check-circle"></i><p>${any ? 'Nothing due right now. Nice work!' : 'No flashcards in this subject yet.'}</p>
+        ${any ? '<button type="button" class="btn-secondary" id="reviewAllCardsBtn">Review all cards anyway</button>' : ''}</div>`;
+      const b = $('reviewAllCardsBtn');
+      if (b) b.addEventListener('click', () => { $('flashcardFilter').value = 'all'; renderFlashcardArea(); });
       return;
     }
     if (currentCardIndex >= flashcardQueue.length) {
-      area.innerHTML = `<div class="empty-state"><i class="fas fa-trophy"></i><p>Review session complete!</p></div>`;
-      renderDashboard();
+      const t = sessionTally, done = t.again + t.hard + t.good + t.easy;
+      area.innerHTML = `<div class="flashcard-done">
+        <i class="fas fa-trophy"></i>
+        <h3>Session complete</h3>
+        <p>${done} review${done === 1 ? '' : 's'} · ${t.good + t.easy} knew it · ${t.again + t.hard} to revisit</p>
+        <div class="flashcard-done-actions">
+          <button type="button" class="btn-secondary" id="reviewAgainBtn"><i class="fas fa-redo"></i> Review all cards</button>
+          <button type="button" class="btn-primary" id="reviewToQuizBtn"><i class="fas fa-clipboard-question"></i> Take the quiz</button>
+        </div></div>`;
+      $('reviewAgainBtn').addEventListener('click', () => { $('flashcardFilter').value = 'all'; renderFlashcardArea(); });
+      $('reviewToQuizBtn').addEventListener('click', () => switchTab('quiz'));
+      refreshFlashcardStats();
+      refreshDueBanner();
       return;
     }
     const card = flashcardQueue[currentCardIndex];
+    const pct = Math.round((currentCardIndex / flashcardQueue.length) * 100);
     area.innerHTML = `
-      <div class="flashcard-progress">Card ${currentCardIndex + 1} of ${flashcardQueue.length}</div>
-      <div class="flashcard" id="activeFlashcard">
+      <div class="flashcard-progress"><span>Card ${currentCardIndex + 1} of ${flashcardQueue.length}</span>
+        <div class="flashcard-progress-track"><div style="width:${pct}%"></div></div></div>
+      <div class="flashcard" id="activeFlashcard" role="button" tabindex="0" aria-pressed="false" aria-label="Flashcard. Press Space to flip.">
         <div class="flashcard-inner">
           <div class="flashcard-face flashcard-face-front">
-            <span class="flashcard-topic-tag">${escapeHtml(card.topic || '')}</span>
-            ${escapeHtml(card.front)}
-            <span class="flashcard-hint">Tap to flip</span>
+            ${card.topic ? `<span class="flashcard-topic-tag">${escapeHtml(card.topic)}</span>` : ''}
+            <div class="flashcard-text">${escapeHtml(card.front)}</div>
+            <span class="flashcard-hint"><i class="fas fa-hand-pointer"></i> Tap to see the answer</span>
           </div>
-          <div class="flashcard-face flashcard-face-back">${escapeHtml(card.back)}</div>
+          <div class="flashcard-face flashcard-face-back">
+            <span class="flashcard-topic-tag">Answer</span>
+            <div class="flashcard-text">${escapeHtml(card.back)}</div>
+          </div>
         </div>
       </div>
-      <div class="grade-buttons" id="gradeButtons" style="display:none;">
-        <button class="grade-btn grade-again" data-grade="again">Again<small>&lt;1 day</small></button>
-        <button class="grade-btn grade-hard" data-grade="hard">Hard<small>Sooner</small></button>
-        <button class="grade-btn grade-good" data-grade="good">Good<small>Normal</small></button>
-        <button class="grade-btn grade-easy" data-grade="easy">Easy<small>Later</small></button>
+      <p class="flashcard-ask" id="gradeAsk" hidden>How well did you know it?</p>
+      <div class="grade-buttons" id="gradeButtons" hidden>
+        <button type="button" class="grade-btn grade-again" data-grade="again">Again<small>Shown again today</small></button>
+        <button type="button" class="grade-btn grade-hard" data-grade="hard">Hard<small>Sooner</small></button>
+        <button type="button" class="grade-btn grade-good" data-grade="good">Good<small>On schedule</small></button>
+        <button type="button" class="grade-btn grade-easy" data-grade="easy">Easy<small>Later</small></button>
       </div>
     `;
     const cardEl = $('activeFlashcard');
-    cardEl.addEventListener('click', () => {
-      cardEl.classList.toggle('flipped');
-      $('gradeButtons').style.display = cardEl.classList.contains('flipped') ? 'grid' : 'none';
-    });
-    document.querySelectorAll('.grade-btn').forEach(btn => {
+    const flip = () => {
+      const flipped = cardEl.classList.toggle('flipped');
+      cardEl.setAttribute('aria-pressed', String(flipped));
+      $('gradeButtons').hidden = !flipped;
+      $('gradeAsk').hidden = !flipped;
+    };
+    cardEl.addEventListener('click', flip);
+    cardEl.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip(); } });
+    let grading = false;
+    area.querySelectorAll('.grade-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        await applyGrade(card, btn.dataset.grade);
+        if (grading) return;
+        grading = true;
+        const grade = btn.dataset.grade;
+        sessionTally[grade]++;
+        try { await applyGrade(card, grade); } catch (err) { console.warn('[study] could not save the grade', err); showToast('Could not save that review (offline?). It will count next time.', 'error'); }
+        // "Again" comes back at the end of this session, like a real deck.
+        if (grade === 'again' && flashcardQueue.filter(c => c === card).length < 3) flashcardQueue.push(card);
         currentCardIndex++;
+        refreshFlashcardStats();
         renderCard();
+        const next = $('activeFlashcard'); if (next) next.focus({ preventScroll: true });
       });
     });
   }
 
   async function applyGrade(card, grade) {
     const update = gradeCard(card, grade);
+    Object.assign(card, update);
     const set = studySets[card.setId];
-    if (!set || !set.flashcards[card.cardIndex]) return;
+    if (!set || !set.flashcards || !set.flashcards[card.cardIndex]) return;
     Object.assign(set.flashcards[card.cardIndex], update);
     await database.ref(`history/${scopeUid}/study/sets/${card.setId}/flashcards/${card.cardIndex}`).update(update);
     // Flashcard performance nudges topic mastery too (lighter weight than a full quiz).
     const correctish = grade === 'good' || grade === 'easy';
-    await updateTopicMastery(card.subjectId, card.topic, correctish ? 1 : 0, 1);
+    if (card.topic) await updateTopicMastery(card.subjectId, card.topic, correctish ? 1 : 0, 1);
   }
 
   $('dueReviewBtn').addEventListener('click', () => {
-    const due = allFlashcards().filter(c => !c.nextReview || c.nextReview <= Date.now());
+    const due = allFlashcards().filter(isDue);
     if (due.length === 0) return;
-    activeSubjectId = due[0].subjectId;
-    $('subjectTitle').textContent = subjects[activeSubjectId]?.name || 'Subject';
-    showView(viewSubject);
-    switchTab('flashcards');
+    const subjectIds = [...new Set(due.map(c => c.subjectId))];
+    if (subjectIds.length === 1) {
+      openSubject(subjectIds[0], 'flashcards');
+    } else {
+      // Due cards across several subjects: one mixed review session.
+      activeSubjectId = subjectIds[0];
+      activeSetIds = setsOf(activeSubjectId);
+      $('subjectTitle').textContent = 'Due for review';
+      showView(viewSubject);
+      switchTab('flashcards');
+      reviewAllSubjects = true;
+    }
     $('flashcardFilter').value = 'due';
-    flashcardQueue = due;
-    currentCardIndex = 0;
-    renderCard();
+    renderFlashcardArea();
   });
+
+  // Keyboard shortcuts while a card is up: 1–4 grade it once it is flipped.
+  const onStudyKey = (e) => {
+    const cardEl = $('activeFlashcard');
+    if (!cardEl || !cardEl.isConnected || !cardEl.classList.contains('flipped')) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '')) return;
+    const grade = { 1: 'again', 2: 'hard', 3: 'good', 4: 'easy' }[e.key];
+    if (!grade) return;
+    const btn = document.querySelector('.study-main .grade-btn[data-grade="' + grade + '"]');
+    if (btn) btn.click();
+  };
+  document.addEventListener('keydown', onStudyKey);
+  cleanupFns.push(() => document.removeEventListener('keydown', onStudyKey));
 
   // =========================================================================
   // Quiz
   // =========================================================================
+  const QUIZ_MAX = 10;
+  function quizPool() {
+    const pool = [];
+    activeSetIds.forEach(id => (studySets[id].quiz || []).forEach(q => {
+      if (q && q.question && Array.isArray(q.options) && q.options.length >= 2 && Number.isInteger(q.correctIndex) && q.options[q.correctIndex] != null) pool.push(q);
+    }));
+    return pool;
+  }
+
   function renderQuizIntro() {
-    const latestSet = activeSetIds.map(id => studySets[id]).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+    const pool = quizPool();
     const area = $('quizArea');
-    if (!latestSet || !latestSet.quiz || latestSet.quiz.length === 0) {
+    if (pool.length === 0) {
       area.innerHTML = `<div class="empty-state"><i class="fas fa-question-circle"></i><p>No quiz available for this subject yet.</p></div>`;
       return;
     }
+    const n = Math.min(QUIZ_MAX, pool.length);
     area.innerHTML = `
-      <div class="glass-card" style="text-align:center;">
-        <h3 style="justify-content:center;"><i class="fas fa-clipboard-question"></i> Ready to test yourself?</h3>
-        <p style="color:var(--study-text-secondary);margin-bottom:1.2rem;">${latestSet.quiz.length} questions from "${escapeHtml(latestSet.title)}"</p>
-        <button class="btn-primary" id="startQuizBtn"><i class="fas fa-play"></i> Start Quiz</button>
+      <div class="glass-card quiz-intro">
+        <h3><i class="fas fa-clipboard-question"></i> Ready to test yourself?</h3>
+        <p class="study-muted">${n} question${n === 1 ? '' : 's'}${pool.length > n ? ` picked from ${pool.length}` : ''} on ${escapeHtml(subjects[activeSubjectId]?.name || 'this subject')}. You get the explanation after each answer.</p>
+        <button type="button" class="btn-primary" id="startQuizBtn"><i class="fas fa-play"></i> Start Quiz</button>
       </div>
     `;
-    $('startQuizBtn').addEventListener('click', () => startQuiz(latestSet.quiz));
+    $('startQuizBtn').addEventListener('click', () => startQuiz(pool));
   }
 
-  function startQuiz(questions) {
-    quizState = { questions, index: 0, answers: [], topicResults: {} };
+  function startQuiz(pool) {
+    const shuffled = pool.slice();
+    for (let i = shuffled.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]; }
+    quizState = { questions: shuffled.slice(0, QUIZ_MAX), index: 0, answers: [], topicResults: {} };
     renderQuizQuestion();
   }
 
@@ -578,23 +687,23 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
     area.innerHTML = `
       <div class="quiz-progress-track"><div class="quiz-progress-fill" style="width:${(index / questions.length) * 100}%;"></div></div>
       <div class="quiz-question-card">
-        <div class="quiz-question-topic">${escapeHtml(q.topic || '')} · Question ${index + 1} of ${questions.length}</div>
-        <div class="quiz-question-text">${escapeHtml(q.question)}</div>
-        <div id="quizOptions">
+        <div class="quiz-question-topic">${q.topic ? escapeHtml(q.topic) + ' · ' : ''}Question ${index + 1} of ${questions.length}</div>
+        <div class="quiz-question-text" id="quizQuestionText">${escapeHtml(q.question)}</div>
+        <div id="quizOptions" role="group" aria-labelledby="quizQuestionText">
           ${q.options.map((opt, i) => `
-            <div class="quiz-option" data-index="${i}">
+            <button type="button" class="quiz-option" data-index="${i}">
               <span class="quiz-option-letter">${String.fromCharCode(65 + i)}</span>
               <span>${escapeHtml(opt)}</span>
-            </div>`).join('')}
+            </button>`).join('')}
         </div>
-        <div id="quizExplanation"></div>
+        <div id="quizExplanation" aria-live="polite"></div>
         <div class="quiz-nav">
           <span></span>
-          <button class="btn-primary" id="quizNextBtn" style="display:none;">${index === questions.length - 1 ? 'See Results' : 'Next Question'}</button>
+          <button type="button" class="btn-primary" id="quizNextBtn" hidden>${index === questions.length - 1 ? 'See Results' : 'Next Question'}</button>
         </div>
       </div>
     `;
-    document.querySelectorAll('.quiz-option').forEach(opt => {
+    area.querySelectorAll('.quiz-option').forEach(opt => {
       opt.addEventListener('click', () => selectAnswer(parseInt(opt.dataset.index, 10)));
     });
   }
@@ -605,20 +714,24 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
     if (quizState.answers[index] !== undefined) return; // already answered
     quizState.answers[index] = selectedIndex;
 
-    document.querySelectorAll('.quiz-option').forEach((opt, i) => {
-      opt.classList.add(i === selectedIndex ? 'selected' : '');
+    document.querySelectorAll('.study-main .quiz-option').forEach((opt, i) => {
+      opt.disabled = true;
+      if (i === selectedIndex) opt.classList.add('selected');
       if (i === q.correctIndex) opt.classList.add('correct');
       else if (i === selectedIndex) opt.classList.add('incorrect');
     });
-    $('quizExplanation').innerHTML = `<div class="quiz-explanation"><strong>${selectedIndex === q.correctIndex ? 'Correct!' : 'Not quite.'}</strong> ${escapeHtml(q.explanation || '')}</div>`;
-    $('quizNextBtn').style.display = 'inline-flex';
+    const right = selectedIndex === q.correctIndex;
+    $('quizExplanation').innerHTML = `<div class="quiz-explanation ${right ? 'is-right' : 'is-wrong'}"><strong>${right ? 'Correct!' : 'Not quite.'}</strong> ${escapeHtml(q.explanation || '')}</div>`;
 
     const topic = q.topic || 'General';
     if (!quizState.topicResults[topic]) quizState.topicResults[topic] = { correct: 0, total: 0 };
     quizState.topicResults[topic].total++;
-    if (selectedIndex === q.correctIndex) quizState.topicResults[topic].correct++;
+    if (right) quizState.topicResults[topic].correct++;
 
-    $('quizNextBtn').onclick = () => {
+    const nextBtn = $('quizNextBtn');
+    nextBtn.hidden = false;
+    nextBtn.focus({ preventScroll: true });
+    nextBtn.onclick = () => {
       if (index === questions.length - 1) finishQuiz();
       else { quizState.index++; renderQuizQuestion(); }
     };
@@ -629,28 +742,32 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
     const correctCount = questions.filter((q, i) => answers[i] === q.correctIndex).length;
     const scorePct = Math.round((correctCount / questions.length) * 100);
 
-    for (const [topic, result] of Object.entries(topicResults)) {
-      await updateTopicMastery(activeSubjectId, topic, result.correct, result.total);
-    }
-
     $('quizArea').innerHTML = `
       <div class="quiz-results">
         <div class="quiz-score-ring" style="background:conic-gradient(${masteryColor(scorePct)} ${scorePct * 3.6}deg, var(--study-border) 0deg);">
-          <div style="width:104px;height:104px;border-radius:50%;background:var(--study-surface);display:flex;align-items:center;justify-content:center;">${scorePct}%</div>
+          <div class="quiz-score-inner">${scorePct}%</div>
         </div>
         <h2>${correctCount} / ${questions.length} correct</h2>
         <p>Your topic mastery has been updated.</p>
-        <button class="btn-primary" id="retakeQuizBtn"><i class="fas fa-redo"></i> Back to Overview</button>
-        <div id="quizReviewList" style="margin-top:2rem;"></div>
+        <div class="flashcard-done-actions">
+          <button type="button" class="btn-secondary" id="quizOverviewBtn">Back to Overview</button>
+          <button type="button" class="btn-primary" id="retakeQuizBtn"><i class="fas fa-redo"></i> Try another round</button>
+        </div>
+        <div id="quizReviewList" class="quiz-review-list"></div>
       </div>
     `;
     $('quizReviewList').innerHTML = questions.map((q, i) => `
       <div class="quiz-review-item">
-        <div class="quiz-review-q">${i + 1}. ${escapeHtml(q.question)} ${answers[i] === q.correctIndex ? '✅' : '❌'}</div>
-        <div style="font-size:0.82rem;color:var(--study-text-secondary);">Correct answer: ${escapeHtml(q.options[q.correctIndex])}${answers[i] !== q.correctIndex ? ' · Your answer: ' + escapeHtml(q.options[answers[i]] ?? '(skipped)') : ''}</div>
+        <div class="quiz-review-q"><i class="fas ${answers[i] === q.correctIndex ? 'fa-circle-check is-right' : 'fa-circle-xmark is-wrong'}"></i> ${i + 1}. ${escapeHtml(q.question)}</div>
+        <div class="study-muted">Correct answer: ${escapeHtml(q.options[q.correctIndex])}${answers[i] !== q.correctIndex ? ' · Your answer: ' + escapeHtml(q.options[answers[i]] ?? '(skipped)') : ''}</div>
       </div>
     `).join('');
-    $('retakeQuizBtn').addEventListener('click', () => switchTab('overview'));
+    $('quizOverviewBtn').addEventListener('click', () => switchTab('overview'));
+    $('retakeQuizBtn').addEventListener('click', () => renderQuizIntro());
+
+    try {
+      for (const [topic, result] of Object.entries(topicResults)) await updateTopicMastery(activeSubjectId, topic, result.correct, result.total);
+    } catch (err) { console.warn('[study] could not update mastery', err); }
     renderDashboard();
   }
 

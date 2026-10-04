@@ -2116,3 +2116,11 @@ body[data-route]:not([data-route="lixa"]):not([data-route="workspace"]) #themeTo
 .center-switch-option.active { color: var(--accent); font-weight: 600; }
 .center-switch-option span { flex: 1; }
 .center-switch-note { font-size: 0.72rem; line-height: 1.4; color: var(--text-secondary); padding: 8px 10px 6px; border-top: 1px solid var(--border-light); margin-top: 4px; }
+/* In-app announcement banner (js/notifications.js) */
+.rx-announcement { position: fixed; left: 50%; transform: translateX(-50%); top: 4.6rem; z-index: 3500; width: min(560px, calc(100vw - 1.5rem)); display: flex; align-items: center; gap: 0.7rem; padding: 0.75rem 0.85rem; border-radius: 0.9rem; background: var(--surface); border: 1px solid var(--accent); box-shadow: var(--shadow-hover); color: var(--text-primary); }
+.rx-announcement > i { color: var(--accent); flex-shrink: 0; }
+.rx-announcement-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; font-size: 0.82rem; line-height: 1.4; }
+.rx-announcement-text strong { font-size: 0.88rem; }
+.rx-announcement-text span { color: var(--text-secondary); overflow-wrap: anywhere; }
+.rx-announcement-open { flex-shrink: 0; border: none; border-radius: 0.6rem; background: var(--accent); color: #fff; font: inherit; font-size: 0.8rem; font-weight: 700; padding: 0.45rem 0.8rem; min-height: 36px; cursor: pointer; }
+.rx-announcement-close { flex: 0 0 34px; width: 34px; height: 34px; border: none; background: none; color: var(--text-secondary); border-radius: 50%; cursor: pointer; }

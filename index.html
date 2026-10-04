@@ -59,6 +59,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js" defer integrity="sha384-4gq9w/AGf72FXdNQ3Kn3EqWP7633NbCMjpYHt8YCZyXf23o2opcuAr4cif41tLrC" crossorigin="anonymous"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js" defer integrity="sha384-xtdq4MQqPj1dB5DQsuw9O7dh4kHhMP/Wp5u8O1jiaWiou13ZfJIgiccjtVK2pBhL" crossorigin="anonymous"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js" defer integrity="sha384-5PDE6CZvnNIJI5xu68GIFoOO3U73lAnRLBwPBmmKjWnYnYwKEHWr/ghtGooEOXGb" crossorigin="anonymous"></script>
+<!-- Push notifications (FCM web push) -->
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging-compat.js" defer integrity="sha384-F8rlC59erkC9PkWp7FIVgQHXhGqSCrhQS1i1zIWYJORAsFGQZE+do+ct+jlO2+0z" crossorigin="anonymous"></script>
   <!-- Marked for rendering AI responses -->
   <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js" defer integrity="sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+" crossorigin="anonymous"></script>
   <!-- docx for Word export (Presentation view) -->
@@ -248,7 +250,8 @@
   <script src="js/invite-modal.js" defer></script>
   <script src="js/auth.js" defer></script>
   <script src="js/theme.js" defer></script>
-  <script src="js/plan-tiers.js" defer></script>
+  <script src="js/notifications.js" defer></script>
+<script src="js/plan-tiers.js" defer></script>
   <!-- Shared low/exhausted-token warning modal — every AI call site across
        the app shows this same modal instead of inventing its own. -->
   <script src="js/quota-modal.js" defer></script>
@@ -292,7 +295,8 @@
 <script src="js/lixa-generators/deck-gen.js" defer></script>
   <script src="js/lixa-generators/study-gen.js" defer></script>
   <script src="js/lixa-generators/assign-gen.js" defer></script>
-  <script src="js/ask.js" defer></script>
+  <script src="js/lixa-knowledge.js" defer></script>
+<script src="js/ask.js" defer></script>
   <script src="js/lixa.js" defer></script>
 
   <!-- Workspace view -->

@@ -26,7 +26,7 @@
   const noSubscriptionMsg = document.getElementById('noSubscriptionMsg');
   const subscriptionInfo = document.getElementById('subscriptionInfo');
   const cancelRenewalSection = document.getElementById('cancelRenewalSection');
-  const notifToggle = document.getElementById('notifToggle');
+  const notifToggle = null; // replaced by the four notification switches (see NOTIFICATIONS below)
   const savePrefsBtn = document.getElementById('savePrefsBtn');
   const deleteAccountBtn = document.getElementById('deleteAccountBtn');
   const themeOptions = document.querySelectorAll('.theme-option');
@@ -411,12 +411,28 @@
   const TOOL_LABELS = { doc: 'Smart EMR', project: 'Project Maker', audio: 'Audio', exam: 'Exam Simulator' };
   const SHARED_NOTE = 'Shared with your center: Smart EMR, Project Maker, Audio and Exam Simulator. Everything else (Lixa, Motion, Presentations, Study, Assignments, …) stays private to each person.';
 
+  // Center card rolls down/up; retracted by default.
+  const centerCard = document.getElementById('centerCard');
+  const centerToggle = document.getElementById('centerCardToggle');
+  function setCenterOpen(open) {
+    if (!centerCard || !centerToggle) return;
+    centerCard.classList.toggle('collapsed', !open);
+    centerToggle.setAttribute('aria-expanded', String(open));
+  }
+  if (centerToggle) centerToggle.addEventListener('click', () => setCenterOpen(centerCard.classList.contains('collapsed')));
+
   async function loadCenterCard(uid, userData) {
     const body = document.getElementById('centerCardBody');
     if (!body || !window.RehablixCenter) return;
 
     const ctx = await window.RehablixCenter.getContext();
-    const membershipEntries = Object.entries(ctx.memberships || {}); // [centerUid, {status, centerName, ...}]
+    // A declined invitation is done with: it isn't listed (the center can invite again).
+    const membershipEntries = Object.entries(ctx.memberships || {}).filter(([, m]) => m && m.status !== 'declined'); // [centerUid, {status, centerName, ...}]
+    const pendingCount = membershipEntries.filter(([, m]) => m.status === 'invited').length;
+    const badge = document.getElementById('centerCardBadge');
+    if (badge) { badge.hidden = pendingCount === 0; badge.textContent = pendingCount === 1 ? '1 invitation' : pendingCount + ' invitations'; }
+    // An invitation waiting for an answer opens the card by itself.
+    if (pendingCount > 0) setCenterOpen(true);
 
     let html = '';
 
@@ -552,7 +568,8 @@
       revoked: '<span class="badge-warning">Revoked</span>'
     };
 
-    const memberRows = Object.keys(members).map(mUid => {
+    // A declined invitation isn't kept on the card (invite again if needed).
+    const memberRows = Object.keys(members).filter(mUid => members[mUid] && members[mUid].status !== 'declined').map(mUid => {
       const m = members[mUid];
       const perms = m.permissions || {};
       const toggles = Object.keys(TOOL_LABELS).map(k => `
@@ -840,20 +857,39 @@
     });
   });
 
-  // ==================== SAVE PREFERENCES ====================
-  if (savePrefsBtn) {
-    savePrefsBtn.addEventListener('click', () => {
-      const notifEnabled = notifToggle ? notifToggle.checked : false;
-      localStorage.setItem('rehab-notifications', notifEnabled);
-      showToast("Preferences saved successfully", 'success');
+  // ==================== NOTIFICATIONS ====================
+  // Four switches (saved the moment they change) + this device's permission.
+  const NOTIF_SWITCHES = { aiTasks: 'notifAiTasks', reminders: 'notifReminders', invites: 'notifInvites', announcements: 'notifAnnouncements' };
+  const notifDeviceText = document.getElementById('notifDeviceText');
+  const notifEnableBtn = document.getElementById('notifEnableBtn');
+  function paintNotifDevice() {
+    const N = window.RehablixNotify;
+    if (!notifDeviceText || !N) return;
+    const p = N.permission();
+    const text = { granted: 'Notifications are on for this browser.', denied: 'Notifications are blocked for this site. Allow them in your browser\'s site settings to receive them here.', default: 'Notifications are off on this browser.', unsupported: 'This browser can\'t show notifications. Install Rehablix to your home screen, or use the Android app.' }[p] || '';
+    notifDeviceText.textContent = text;
+    if (notifEnableBtn) notifEnableBtn.hidden = p !== 'default';
+  }
+  async function paintNotifPrefs() {
+    const N = window.RehablixNotify;
+    if (!N) return;
+    const prefs = await N.loadPrefs();
+    Object.entries(NOTIF_SWITCHES).forEach(([key, id]) => { const el = document.getElementById(id); if (el) el.checked = prefs[key] !== false; });
+    paintNotifDevice();
+  }
+  Object.entries(NOTIF_SWITCHES).forEach(([key, id]) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', async () => {
+      try { await window.RehablixNotify.savePrefs({ [key]: el.checked }); }
+      catch (e) { el.checked = !el.checked; showToast('Could not save that setting. Please try again.', 'error'); }
     });
-  }
-  
-  // Load notification preference
-  const savedNotif = localStorage.getItem('rehab-notifications');
-  if (notifToggle && savedNotif !== null) {
-    notifToggle.checked = savedNotif === 'true';
-  }
+  });
+  if (notifEnableBtn) notifEnableBtn.addEventListener('click', async () => {
+    const r = await window.RehablixNotify.enable();
+    paintNotifDevice();
+    if (r.ok) showToast('Notifications turned on', 'success');
+    else if (r.reason === 'denied') showToast('Notifications are blocked for this site in your browser settings.', 'error');
+  });
 
   // ==================== DELETE ACCOUNT ====================
   // Removes everything this account owns: its own records (history/{uid} —
@@ -957,16 +993,31 @@
     console.log('Auth state changed:', user ? `Logged in as ${user.email}` : 'Logged out');
 
     if (!user) {
-      // Redirect to Lixa if not logged in
-      window.location.hash = '#/lixa';
+      // Redirect to Lixa if not logged in (only while Settings is the page on screen —
+      // the view is kept alive, so this listener also runs while other pages are open).
+      loadedForUid = null;
+      if (document.body.dataset.route === 'settings') window.location.hash = '#/lixa';
       return;
     }
 
     // Small delay to ensure Firebase is ready
     setTimeout(async () => {
       await loadUserData(user);
+      loadedForUid = user.uid; loadedAt = Date.now();
+      paintNotifPrefs();
     }, 100);
   });
+
+  // Settings is kept alive by the router: coming back shows the page exactly
+  // as it was left. Data is refreshed quietly (no "Loading…" flash) only when
+  // it is more than a minute old.
+  refreshIfStale = async () => {
+    paintNotifDevice();
+    const u = auth.currentUser;
+    if (!u) { window.location.hash = '#/lixa'; return; }
+    if (loadedForUid === u.uid && Date.now() - loadedAt < 60000) return;
+    try { await loadUserData(u); loadedForUid = u.uid; loadedAt = Date.now(); } catch (e) { /* keep what is shown */ }
+  };
   cleanupFns.push(unsubscribeAuth);
 
   // ==================== DEBUG HELPER (Remove in production) ====================
@@ -988,6 +1039,9 @@
     cleanupFns = [];
   }
 
+  let loadedForUid = null, loadedAt = 0, refreshIfStale = null;
+  function onShow() { if (refreshIfStale) refreshIfStale(); }
+
   window.RehablixViews = window.RehablixViews || {};
-  window.RehablixViews.settings = { mount, unmount };
+  window.RehablixViews.settings = { mount, unmount, onShow };
 })();

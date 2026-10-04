@@ -331,9 +331,38 @@ function mount() {
       btn.classList.add('active');
       btn.setAttribute('aria-selected', 'true');
       sourceMode = btn.dataset.source;
+      try { localStorage.setItem('rehablix_audio_source', sourceMode); } catch (e) {}
       applySourceMode();
     });
   });
+
+  // Transcript is tucked away by default so the clinician isn't distracted
+  // mid-session; the header rolls it down/up (the choice is remembered).
+  const auFeedToggle = $('auFeedToggle');
+  function setFeedOpen(open) {
+    if (!auLiveFeed || !auFeedToggle) return;
+    auLiveFeed.classList.toggle('collapsed', !open);
+    auFeedToggle.setAttribute('aria-expanded', String(open));
+    if (open && liveTranscriptText) liveTranscriptText.scrollTop = liveTranscriptText.scrollHeight;
+  }
+  if (auFeedToggle) {
+    auFeedToggle.addEventListener('click', () => {
+      const open = auLiveFeed.classList.contains('collapsed');
+      setFeedOpen(open);
+      try { localStorage.setItem('rehablix_audio_feed_open', open ? '1' : '0'); } catch (e) {}
+    });
+    let wantOpen = false;
+    try { wantOpen = localStorage.getItem('rehablix_audio_feed_open') === '1'; } catch (e) {}
+    setFeedOpen(wantOpen);
+  }
+
+  // Programmatic Transcribe/Coach switch (restoring the last mode, resuming a session).
+  function setAudioMode(mode) {
+    const b = audioModeTabs && audioModeTabs.querySelector('[data-mode="' + mode + '"]');
+    if (b) b.click();
+    if (auModeToggleBtn) { auModeToggleBtn.classList.toggle('active', audioMode === 'coach'); auModeToggleBtn.setAttribute('aria-pressed', String(audioMode === 'coach')); }
+    applySourceMode();
+  }
 
   if (auModeToggleBtn) auModeToggleBtn.addEventListener('click', () => {
     const next = audioMode === 'coach' ? 'transcribe' : 'coach';
@@ -363,6 +392,7 @@ function mount() {
         btn.classList.add('active');
         btn.setAttribute('aria-selected', 'true');
         audioMode = btn.dataset.mode;
+        try { localStorage.setItem('rehablix_audio_mode', audioMode); } catch (e) {}
         if (coachSetupPanel) coachSetupPanel.style.display = audioMode === 'coach' ? 'block' : 'none';
         // Coach works on a live conversation; uploads stay plain transcription.
         const uploadTab = sourceModeTabs.querySelector('[data-source="upload"]');
@@ -464,6 +494,24 @@ function mount() {
     try { await checkQuotaOrThrow(); } catch (err) { showToast(err.message, 'error', 6000); return; }
 
     localSessionId = newSessionId();
+    if (resume) {
+      // Same session, new stretch of audio. The time away is counted as a
+      // pause, and the chunk where this stretch starts is remembered: each
+      // stretch is its own audio container, so a whole-recording transcription
+      // has to treat them separately.
+      const activeMs = (sessionMeta.elapsedSeconds || 0) * 1000;
+      const gap = Date.now() - new Date(sessionMeta.startedAt).getTime() - (sessionMeta.pausedAccumMs || 0) - activeMs;
+      sessionMeta.pausedAccumMs = (sessionMeta.pausedAccumMs || 0) + Math.max(0, gap);
+      sessionMeta.partStarts = (sessionMeta.partStarts || []).concat(chunkIndex);
+      sessionMeta.status = 'recording';
+      pauseStartedAt = null;
+      await idbPutSession(sessionMeta);
+      beginRecorder();
+      renderLiveTranscript();
+      renderCoachPanel();
+      return;
+    }
+
     sessionMeta = {
       id: localSessionId,
       title: sessionTitleInput.value.trim() || defaultTitle(),
@@ -520,7 +568,7 @@ function mount() {
     showToast('Recording cancelled', 'info');
   });
 
-  async function startNewRecording() {
+  async function startNewRecording(resume) {
     if (!currentUser) { showToast('Please log in first', 'error'); return; }
     if (scopeUid === null) { showToast('Your access to Audio Transcription has been turned off by your center admin.', 'error', 6000); return; }
 
@@ -542,19 +590,21 @@ function mount() {
     }
     // Coach mode records the patient/caregiver and sends de-identified turns
     // to AI for question suggestions — explicit consent is required first.
-    if (audioMode === 'coach' && !(coachConsentInput && coachConsentInput.checked)) {
+    if (!resume && audioMode === 'coach' && !(coachConsentInput && coachConsentInput.checked)) {
       showToast('Coach mode needs consent: confirm the patient/caregiver agreed to recording and AI assistance.', 'error', 6000);
       if (coachConsentInput) coachConsentInput.focus();
       return;
     }
     try { await checkQuotaOrThrow(); } catch (err) { showToast(err.message, 'error', 6000); return; }
 
-    localSessionId = newSessionId();
-    chunkIndex = 0;
-    rawSegments = [];
+    if (!resume) {
+      localSessionId = newSessionId();
+      chunkIndex = 0;
+      rawSegments = [];
+      resetLiveState();
+    }
     isPaused = false;
     interimEl = null;
-    resetLiveState();
 
     try {
       // AUDIO UPGRADE: browser-native noise suppression/echo cancellation/
@@ -747,9 +797,8 @@ function mount() {
         updateProcessingProgress(55, 'Transcribing the recording…');
         const chunks = await idbGetChunksForSession(localSessionId);
         if (chunks.length) {
-          const fullBlob = new Blob(chunks.map(c => c.blob), { type: sessionMeta.mimeType || 'audio/webm' });
           await checkQuotaOrThrow();
-          const text = await transcribeBlob(fullBlob);
+          const text = await transcribeSavedChunks(chunks);
           recordQuotaUsage(text, 1);
           if (text) { rawSegments = [text]; sessionMeta.turns = []; appendLiveTranscript(text); }
         }
@@ -1691,6 +1740,51 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     setStage(1);
   }
 
+  // A session continued with "Keep recording" holds several separately
+  // recorded stretches; each is transcribed on its own and the text joined.
+  async function transcribeSavedChunks(chunks) {
+    const starts = ((sessionMeta && sessionMeta.partStarts) || []).filter(n => n > 0);
+    const groups = []; let cur = [];
+    chunks.forEach(c => { if (starts.includes(c.index) && cur.length) { groups.push(cur); cur = []; } cur.push(c); });
+    if (cur.length) groups.push(cur);
+    const texts = [];
+    for (const g of groups) texts.push(await transcribeBlob(new Blob(g.map(c => c.blob), { type: sessionMeta.mimeType || 'audio/webm' })));
+    return texts.filter(Boolean).join(' ');
+  }
+
+  // Rebuilds the live clip list of a saved session (transcribing any clip
+  // that was still pending when the page was closed).
+  async function restoreLiveSegments() {
+    const segs = await idbGetSegmentsForSession(localSessionId);
+    resetLiveState();
+    coachSuggestions = (sessionMeta.suggestions || []).map((s, i) => ({ id: 'r' + i, text: s.text, askedAt: s.askedAt || null, afterIndex: s.afterIndex }));
+    segs.forEach(s => { liveSegments[s.index] = { status: s.status === 'done' ? 'done' : 'pending', text: s.text || '', speaker: s.speaker || 'therapist', parts: s.parts || ((s.text && s.speaker) ? [{ text: s.text, speaker: s.speaker }] : null), tries: 0, blob: s.blob }; });
+    for (let i = 0; i < liveSegments.length; i++) if (!liveSegments[i]) liveSegments[i] = { status: 'silent', text: '', speaker: 'therapist', parts: null, tries: 0 };
+    liveSegments.forEach((s, i) => { if (s && s.status === 'pending') liveQueue.push(i); });
+    pumpLiveQueue();
+    return segs.length;
+  }
+
+  const continueRecordingBtn = $('continueRecordingBtn');
+  if (continueRecordingBtn) continueRecordingBtn.addEventListener('click', async () => {
+    if (!sessionMeta) return;
+    resumeBanner.style.display = 'none';
+    try {
+      if (sourceMode !== 'live') sourceModeTabs.querySelector('[data-source="live"]').click();
+      setAudioMode(sessionMeta.mode || 'transcribe');
+      if (sessionTitleInput) sessionTitleInput.value = sessionMeta.title || '';
+      if (sessionTypeSelect && sessionMeta.sessionType) sessionTypeSelect.value = sessionMeta.sessionType;
+      if (professionalSelect && sessionMeta.professional) professionalSelect.value = sessionMeta.professional;
+      await restoreLiveSegments();
+      rebuildRawFromSegments();
+      const chunks = await idbGetChunksForSession(localSessionId);
+      chunkIndex = chunks.length ? chunks[chunks.length - 1].index + 1 : 0;
+      await startNewRecording(true);
+    } catch (err) { console.error('[audio] could not continue the recording', err); }
+    // Microphone refused / unavailable: the session is still there to finish or discard.
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') resumeBanner.style.display = 'flex';
+  });
+
   async function checkForInterruptedSession() {
     const all = await idbGetAllSessions();
     const interrupted = all.find(s => s.status === 'recording' || s.status === 'paused' || s.status === 'transcribing');
@@ -1701,7 +1795,7 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     rawSegments = interrupted.rawSegments || [];
 
     const when = new Date(interrupted.startedAt).toLocaleString();
-    resumeBannerText.textContent = `You have an unfinished recording ("${interrupted.title}") from ${when}.`;
+    resumeBannerText.textContent = `You have an unfinished recording ("${interrupted.title}") from ${when}. Keep recording into it, or finish and transcribe what you have.`;
     resumeBanner.style.display = 'flex';
   }
 
@@ -1715,6 +1809,7 @@ Output ONLY the narrative text, as flowing paragraphs.`;
       const segs = await idbGetSegmentsForSession(localSessionId);
       if (segs.length) {
         resetLiveState();
+        // (same restore as "Keep recording", inlined here with progress reporting)
         coachSuggestions = (sessionMeta.suggestions || []).map((s, i) => ({ id: 'r' + i, text: s.text, askedAt: s.askedAt || null, afterIndex: s.afterIndex }));
         segs.forEach(s => { liveSegments[s.index] = { status: s.status === 'done' ? 'done' : 'pending', text: s.text || '', speaker: s.speaker || 'therapist', parts: s.parts || ((s.text && s.speaker) ? [{ text: s.text, speaker: s.speaker }] : null), tries: 0, blob: s.blob }; });
         liveSegments.forEach((s, i) => { if (s && s.status === 'pending') liveQueue.push(i); });
@@ -1729,7 +1824,7 @@ Output ONLY the narrative text, as flowing paragraphs.`;
         if (chunks.length) {
           updateProcessingProgress(55, 'Transcribing the recording…');
           await checkQuotaOrThrow();
-          const text = await transcribeBlob(new Blob(chunks.map(c => c.blob), { type: sessionMeta.mimeType || 'audio/webm' }));
+          const text = await transcribeSavedChunks(chunks);
           recordQuotaUsage(text, 1);
           if (text) { rawSegments = [text]; sessionMeta.turns = []; sessionMeta.rawSegments = rawSegments; }
         }
@@ -1936,6 +2031,14 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     if (window.RehablixRegMigration && scopeUid) window.RehablixRegMigration.checkAndPrompt(scopeUid, 'audio'); // EMR UPGRADE (item 5)
   });
   cleanupFns.push(unsubAuth);
+
+  // The page reopens the way it was last used (Record live / Upload, Transcribe / Coach).
+  try {
+    const lastMode = localStorage.getItem('rehablix_audio_mode');
+    const lastSource = localStorage.getItem('rehablix_audio_source');
+    if (lastMode === 'coach') setAudioMode('coach');
+    else if (lastSource === 'upload') { const u = sourceModeTabs.querySelector('[data-source="upload"]'); if (u && !u.disabled) u.click(); }
+  } catch (e) { /* storage unavailable */ }
 
   openIDB().then(checkForInterruptedSession).catch(err => console.warn('IndexedDB unavailable:', err));
 }

@@ -1913,9 +1913,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const expiryInput = document.getElementById('planExpiryDateInput');
     const now = new Date();
-    const oneYear = new Date(now);
-    oneYear.setFullYear(oneYear.getFullYear() + 1);
-    expiryInput.value = oneYear.toISOString().split('T')[0];
+    // Default period: 1 month (presets for 1 day … 1 year are in js/admin-extra.js).
+    const oneMonth = new Date(now);
+    oneMonth.setMonth(oneMonth.getMonth() + 1);
+    expiryInput.value = oneMonth.toISOString().split('T')[0];
 
     document.getElementById('planChangeMsg').textContent = '';
     document.getElementById('planChangeMsg').className = 'form-msg';
@@ -1938,9 +1939,9 @@ document.addEventListener('DOMContentLoaded', function() {
       if (expiryDate) {
         updates[`users/${selectedUserId}/subscription/ends`] = new Date(expiryDate).toISOString();
       } else {
-        const oneYear = new Date();
-        oneYear.setFullYear(oneYear.getFullYear() + 1);
-        updates[`users/${selectedUserId}/subscription/ends`] = oneYear.toISOString();
+        const oneMonth = new Date();
+        oneMonth.setMonth(oneMonth.getMonth() + 1);
+        updates[`users/${selectedUserId}/subscription/ends`] = oneMonth.toISOString();
       }
 
       await database.ref().update(updates);

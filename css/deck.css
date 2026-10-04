@@ -95,3 +95,14 @@ textarea.deck-input { resize: vertical; min-height: 4.6rem; line-height: 1.45; }
 
 /* Lixa file card thumbnail for decks */
 .deck-card-thumb { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 0.6rem; object-fit: cover; margin-bottom: 0.55rem; border: 1px solid var(--border-light); }
+
+/* loading states */
+.deck-loading { align-items: center; text-align: center; padding: 2.4rem 1.2rem; gap: 0.9rem; }
+.deck-loading p { margin: 0; font-size: 0.92rem; font-weight: 600; color: var(--text-secondary); }
+.deck-spinner { width: 38px; height: 38px; border-radius: 50%; border: 3px solid var(--border-light); border-top-color: var(--accent); animation: deckSpin 0.8s linear infinite; }
+@keyframes deckSpin { to { transform: rotate(360deg); } }
+.deck-slide-skeleton { aspect-ratio: 16 / 9; cursor: default; background: linear-gradient(90deg, var(--surface) 25%, var(--border-light) 50%, var(--surface) 75%); background-size: 200% 100%; animation: deckShimmer 1.3s ease-in-out infinite; }
+.deck-slide-skeleton:hover { transform: none; box-shadow: var(--shadow-sm); }
+.deck-recent-skeleton { height: 3.4rem; background: linear-gradient(90deg, var(--surface) 25%, var(--border-light) 50%, var(--surface) 75%); background-size: 200% 100%; animation: deckShimmer 1.3s ease-in-out infinite; }
+@keyframes deckShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .deck-spinner, .deck-slide-skeleton, .deck-recent-skeleton { animation: none; } }

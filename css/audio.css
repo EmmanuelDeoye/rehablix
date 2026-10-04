@@ -1083,3 +1083,14 @@
 .au-modal-head h3 i { color: var(--audio-accent); }
 .au-modal-close { border: 0; background: transparent; font-size: 1.5rem; line-height: 1; color: var(--text-secondary); cursor: pointer; }
 .au-modal-done { width: 100%; margin-top: 0.4rem; }
+/* Collapsible live transcript (collapsed by default) */
+.au-feed-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; min-height: 44px; padding: 0.35rem 0.2rem; border: none; background: none; font: inherit; font-size: 0.85rem; font-weight: 700; color: var(--text-secondary); cursor: pointer; border-radius: 0.6rem; }
+.au-feed-toggle span { display: inline-flex; align-items: center; gap: 0.45rem; }
+.au-feed-toggle:focus-visible { outline: 2px solid var(--audio-accent, var(--accent)); outline-offset: 2px; }
+.au-feed-chevron { font-size: 0.75rem; transition: transform 0.2s ease; }
+.au-live-feed:not(.collapsed) .au-feed-chevron { transform: rotate(180deg); }
+.au-live-feed.collapsed .live-transcript-text { display: none; }
+.au-live-feed.collapsed { padding-bottom: 0.2rem; }
+.resume-banner-actions { flex-wrap: wrap; }
+.resume-banner-actions .btn-primary i { margin-right: 0.35rem; }
+@media (prefers-reduced-motion: reduce) { .au-feed-chevron { transition: none; } }

@@ -70,7 +70,8 @@
   // every handler to be re-bind-safe — keep-alive means mount() truly only
   // ever runs once per page load, and later visits just call onShow(), so
   // those listeners are never double-bound.
-  const KEEP_ALIVE = new Set(['lixa', 'workspace', 'emr', 'project']);
+  // Settings is kept alive too so it doesn't rebuild and reload on every visit.
+  const KEEP_ALIVE = new Set(['lixa', 'workspace', 'emr', 'project', 'settings']);
 
   const keepAliveWrappers = {}; // routeName -> wrapper element, once mounted
   let currentView = null;

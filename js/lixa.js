@@ -770,6 +770,8 @@
         if (result && result.ok) {
           const summary = result.summary || `Here's your ${tool.meta.name.toLowerCase()}:`;
           pushAssistantText(summary, result.fileCard);
+          // Finished while the user was elsewhere: tell them (AI Tasks notification).
+          if (window.RehablixNotify) window.RehablixNotify.aiTaskDone(tool.meta.name + ' ready', (result.fileCard && result.fileCard.title) || 'Tap to open it in Lixa.', 'index.html#/lixa');
           // A tool flow's first assistant message is usually just "which
           // details do you still need?", not real content — title from
           // this genuine completion instead, once there is one, overriding
@@ -1125,7 +1127,7 @@
             const data = snap.val();
             if (!data) return [];
             return Object.entries(data).map(([id, item]) => ({
-              id, type: src.type, label: src.label, icon: src.icon,
+              id, type: src.type, label: src.label, icon: src.icon, path: src.path,
               title: (src.titleOf && src.titleOf(item)) || item.title || item.toolName || item.topic || item.subject || 'Untitled',
               createdAt: item.createdAt || item.updatedAt || item.timestamp || 0,
               raw: item
@@ -1179,11 +1181,36 @@
             <span class="file-name" title="${core.escapeHtml(f.title)}">${core.escapeHtml(f.title)}</span>
             <span class="file-tool-label">${core.escapeHtml(f.label)}</span>
           </span>
+          <button type="button" class="file-delete-btn" aria-label="Delete ${core.escapeHtml(f.title)}" title="Delete"><i class="fas fa-trash"></i></button>
         </div>
       `).join(''));
       filesList.querySelectorAll('.history-file-item').forEach(el => {
-        el.addEventListener('click', () => openFile(el.dataset.type, el.dataset.id));
+        el.addEventListener('click', (e) => {
+          if (e.target.closest('.file-delete-btn')) { e.stopPropagation(); deleteFile(el); return; }
+          openFile(el.dataset.type, el.dataset.id);
+        });
       });
+    }
+
+    // Permanently removes one saved file (asks first). Only the user's own
+    // history record is deleted; nothing else references these records.
+    async function deleteFile(rowEl) {
+      const user = core.getCurrentUser();
+      const item = allFiles.find(f => f.id === rowEl.dataset.id && f.type === rowEl.dataset.type);
+      if (!user || !item) return;
+      if (!window.confirm('Delete "' + item.title + '"? This cannot be undone.')) return;
+      rowEl.classList.add('deleting');
+      try {
+        await core.getDatabase().ref('history/' + user.uid + '/' + item.path + '/' + item.id).remove();
+        allFiles = allFiles.filter(f => f !== item);
+        renderFileFilterOptions();
+        renderFilesList();
+        core.showToast('File deleted', 'success');
+      } catch (err) {
+        console.error('[lixa] delete file failed', err);
+        rowEl.classList.remove('deleting');
+        core.showToast('Could not delete that file. Please try again.', 'error');
+      }
     }
 
     function openFile(type, id) {

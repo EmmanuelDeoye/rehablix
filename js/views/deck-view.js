@@ -24,6 +24,7 @@
     const downloadBtn = $('deckDownloadBtn'), newBtn = $('deckNewBtn');
     const reviseInput = $('deckReviseInput'), reviseBtn = $('deckReviseBtn');
     const recentEl = $('deckRecent'), recentList = $('deckRecentList');
+    const loadingEl = $('deckLoading'), loadingText = $('deckLoadingText');
     const lightbox = $('deckLightbox'), lightboxStage = $('deckLightboxStage'), lightboxCount = $('deckLightboxCount');
 
     let chosenStyle = '';        // '' = let the AI / engine choose
@@ -61,6 +62,7 @@
     function paintChips() {
       stylesEl.innerHTML = chips(true, chosenStyle);
       restyleEl.innerHTML = chips(false, activeTheme);
+      slidesEl.removeAttribute('aria-busy');
     }
     on(stylesEl, 'click', (e) => {
       const b = e.target.closest('.deck-chip'); if (!b) return;
@@ -84,6 +86,7 @@
     function show(stage) {
       formEl.hidden = stage !== 'form';
       progressEl.hidden = stage !== 'progress';
+      if (loadingEl) loadingEl.hidden = stage !== 'loading';
       resultEl.hidden = stage !== 'result';
       recentEl.hidden = stage !== 'form' || !recentList.children.length;
       root.dataset.stage = stage;
@@ -91,6 +94,11 @@
 
     async function renderPreview() {
       const token = ++renderToken;
+      titleEl.textContent = spec.title;
+      // Placeholder frames while the slides are being drawn.
+      slidesEl.innerHTML = spec.slides.map(() => '<div class="deck-slide deck-slide-skeleton" aria-hidden="true"></div>').join('');
+      slidesEl.setAttribute('aria-busy', 'true');
+      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
       const pv = await Deck.previewHtml(spec, { style: activeTheme });
       if (token !== renderToken) return;
       activeTheme = pv.theme;
@@ -99,6 +107,18 @@
       metaEl.textContent = spec.slides.length + ' slides · ' + label(activeTheme) + ' style';
       slidesEl.innerHTML = slideHtml.map((h, i) => '<button type="button" class="deck-slide" data-i="' + i + '" aria-label="Open slide ' + (i + 1) + '"><span class="deck-slide-frame">' + h + '</span><span class="deck-slide-no">' + (i + 1) + '</span></button>').join('');
       restyleEl.innerHTML = chips(false, activeTheme);
+    }
+
+    // Opening a saved deck (deep link, Recent list, Lixa's "Preview & restyle").
+    async function openSaved(id) {
+      if (loadingText) loadingText.textContent = 'Opening your deck…';
+      show('loading');
+      let d = null;
+      try { d = await Service.load(id); } catch (e) { d = null; }
+      if (d) { openDeck(d.spec, d.id, d.theme); return true; }
+      showToast('That deck could not be opened.', 'error');
+      show('form');
+      return false;
     }
 
     function openDeck(nextSpec, id, theme) {
@@ -130,6 +150,7 @@
         const id = await Service.save(next, theme).catch(() => null);
         openDeck(next, id, theme);
         loadRecent();
+        if (window.RehablixNotify) window.RehablixNotify.aiTaskDone('Your deck is ready', next.title, id ? 'index.html?deck=' + id + '#/deck' : 'index.html#/deck');
       } catch (err) {
         if (!err || err.name !== 'AbortError') showToast((err && err.message) || 'Could not create the presentation. Please try again.', 'error', 6000);
         show('form');
@@ -203,6 +224,10 @@
 
     // ---- recent decks ----
     async function loadRecent() {
+      if (!recentList.children.length && root.dataset.stage === 'form') {
+        recentList.innerHTML = '<div class="deck-recent-item deck-recent-skeleton"></div><div class="deck-recent-item deck-recent-skeleton"></div>';
+        recentEl.hidden = false;
+      }
       try {
         const items = await Service.list(8);
         recentList.innerHTML = items.map((d) => '<div class="deck-recent-item" data-id="' + d.id + '">' +
@@ -221,8 +246,7 @@
         loadRecent();
         return;
       }
-      const d = await Service.load(id);
-      if (d) openDeck(d.spec, d.id, d.theme); else showToast('That deck could not be opened.', 'error');
+      await openSaved(id);
     });
 
     // ---- start ----
@@ -236,14 +260,14 @@
     }
     const wantedId = new URLSearchParams(window.location.search).get('deck');
     let opened = false;
+    if (wantedId) show('loading');   // until sign-in is restored and the deck is fetched
     const unsub = firebase.auth().onAuthStateChanged(async (user) => {
-      if (!user) { recentList.innerHTML = ''; recentEl.hidden = true; return; }
-      loadRecent();
+      if (!user) { recentList.innerHTML = ''; recentEl.hidden = true; if (root.dataset.stage === 'loading') show('form'); return; }
       if (wantedId && !opened) {
         opened = true;
-        const d = await Service.load(wantedId);
-        if (d) openDeck(d.spec, d.id, d.theme);
+        await openSaved(wantedId);
       }
+      loadRecent();
     });
     cleanupFns.push(unsub);
     cleanupFns.push(() => { if (abort) abort.abort(); renderToken++; });

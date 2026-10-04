@@ -755,3 +755,16 @@
   border-color: #dc2626;
   color: #dc2626;
 }
+/* compact popovers */
+/* The attach menu, model list and @tool list hug their content instead of
+   stretching: no wider than their longest row needs. */
+.attach-menu { min-width: 0; width: max-content; max-width: min(260px, calc(100vw - 2rem)); padding: 0.3rem; }
+.attach-menu button { padding-right: 1rem; }
+.model-picker-popup { min-width: 0; width: max-content; max-width: min(290px, calc(100vw - 2rem)); padding: 0.3rem; }
+.mention-popup { min-width: 0; width: max-content; max-width: min(300px, calc(100vw - 2rem)); padding: 0.3rem; }
+.dropdown-menu { min-width: 0; width: max-content; max-width: min(260px, calc(100vw - 1.5rem)); }
+
+/* Files list: delete button on each row */
+.history-file-item .file-delete-btn { flex: 0 0 34px; width: 34px; height: 34px; border: none; background: none; color: var(--text-secondary); border-radius: 50%; cursor: pointer; opacity: 0.65; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; transition: opacity .15s, color .15s, background .15s; }
+.history-file-item .file-delete-btn:hover, .history-file-item .file-delete-btn:focus-visible { opacity: 1; color: #dc2626; background: rgba(220, 38, 38, 0.1); }
+.history-file-item.deleting { opacity: 0.45; pointer-events: none; }
