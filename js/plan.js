@@ -177,3 +177,31 @@
     },
   };
 })();
+
+// ---- rehablix upload guard: per-plan, per-type file size limits on every file input ----
+(function () {
+  function toast(message) {
+    let c = document.getElementById('toast-container');
+    if (!c) { c = document.createElement('div'); c.id = 'toast-container'; document.body.appendChild(c); }
+    const t = document.createElement('div');
+    t.className = 'toast error';
+    const span = document.createElement('span'); span.textContent = message;
+    t.innerHTML = '<i class="fas fa-exclamation-circle"></i>'; t.appendChild(span);
+    c.appendChild(t);
+    setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; setTimeout(() => t.remove(), 300); }, 7000);
+  }
+  document.addEventListener('change', (e) => {
+    const input = e.target;
+    if (!input || input.tagName !== 'INPUT' || input.type !== 'file' || !input.files || !input.files.length) return;
+    if (input.id === 'fileInput' && input.closest('.ask-main, .chat-input-area, #chatInputArea')) return; // Lixa checks each file itself
+    const tiers = window.RehabPlanTiers;
+    if (!tiers || !tiers.checkUpload) return;
+    const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan && window.rehabPlans.getCurrentPlan()) || 'free';
+    const bad = Array.from(input.files).map((f) => tiers.checkUpload(f, plan)).find((r) => !r.ok);
+    if (!bad) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    input.value = '';
+    toast(bad.message);
+  }, true);
+})();

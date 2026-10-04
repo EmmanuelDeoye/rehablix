@@ -135,7 +135,61 @@
   }
 
   /** A long AI job finished: tell the user only if they've looked away. */
-  function aiTaskDone(title, body, url) { return show('ai_task', title || 'Your result is ready', body || 'Tap to open it in Rehablix.', url || location.href, { tag: 'ai-task' }); }
+  let lastSpecificAt = 0;
+  function aiTaskDone(title, body, url) { lastSpecificAt = Date.now(); return show('ai_task', title || 'Your result is ready', body || 'Tap to open it in Rehablix.', url || location.href, { tag: 'ai-task' }); }
+
+  // Every tool, not just Lixa: when the last AI request of a task finishes
+  // while this tab is in the background, raise "Your result is ready" (unless
+  // the tool already announced its own result).
+  (function watchAiRequests() {
+    const AI_HOST = /^https:\/\/(api\.deepseek\.com|api\.openai\.com)\//;
+    const inner = window.fetch.bind(window);
+    let inFlight = 0, leftWhileBusy = false, idleTimer = null;
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { if (inFlight > 0) leftWhileBusy = true; } else leftWhileBusy = false; });
+    const settle = () => {
+      inFlight = Math.max(0, inFlight - 1);
+      if (inFlight > 0) return;
+      clearTimeout(idleTimer);
+      // Tools often chain several calls: only "done" once nothing new starts for a few seconds.
+      idleTimer = setTimeout(() => {
+        if (inFlight > 0) return;
+        if (leftWhileBusy && document.visibilityState === 'hidden' && Date.now() - lastSpecificAt > 15000) {
+          show('ai_task', 'Your result is ready', 'Rehablix finished working on your request.', location.href, { tag: 'ai-task' });
+        }
+        leftWhileBusy = false;
+      }, 5000);
+    };
+    window.fetch = function (input, init) {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (!AI_HOST.test(url)) return inner(input, init);
+      inFlight++;
+      clearTimeout(idleTimer);
+      if (document.visibilityState === 'hidden') leftWhileBusy = true;
+      return inner(input, init).then((res) => {
+        // Streaming replies are finished when their body ends, not when the headers arrive.
+        try { res.clone().arrayBuffer().then(settle, settle); } catch (e) { settle(); }
+        return res;
+      }, (err) => { settle(); throw err; });
+    };
+  })();
+
+  // One gentle, one-time invitation to turn notifications on (never the
+  // browser prompt out of the blue: that only opens when the user taps).
+  function offerNotifications() {
+    const KEY = 'rehablix_notif_offered';
+    try { if (localStorage.getItem(KEY) === '1') return; } catch (e) { return; }
+    if (!supported() || Notification.permission !== 'default' || document.getElementById('rxNotifOffer')) return;
+    const el = document.createElement('div');
+    el.id = 'rxNotifOffer'; el.className = 'rx-announcement'; el.setAttribute('role', 'status');
+    el.innerHTML = '<i class="fas fa-bell" aria-hidden="true"></i><div class="rx-announcement-text"><strong>Get notified when results are ready</strong><span>Rehablix can tell you when a long AI task finishes, even if you switch tabs.</span></div>';
+    const done = () => { try { localStorage.setItem(KEY, '1'); } catch (e) {} el.remove(); };
+    const on = document.createElement('button'); on.type = 'button'; on.className = 'rx-announcement-open'; on.textContent = 'Turn on';
+    on.addEventListener('click', async () => { done(); const r = await enable(); if (r.ok) toast('Notifications turned on', 'success'); });
+    const close = document.createElement('button'); close.type = 'button'; close.className = 'rx-announcement-close'; close.setAttribute('aria-label', 'Not now'); close.innerHTML = '<i class="fas fa-xmark"></i>';
+    close.addEventListener('click', done);
+    el.appendChild(on); el.appendChild(close);
+    document.body.appendChild(el);
+  }
 
   // ---- in-app announcement banner (works without push) -----------------------
   async function checkAnnouncement() {
@@ -184,6 +238,7 @@
       // Last seen: lets the reminder sender skip people who are active anyway.
       db().ref('users/' + u.uid + '/notifications/lastSeenAt').set(Date.now()).catch(() => {});
       checkAnnouncement();
+      setTimeout(offerNotifications, 6000);
     });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();

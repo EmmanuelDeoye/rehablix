@@ -71,7 +71,8 @@
   // ever runs once per page load, and later visits just call onShow(), so
   // those listeners are never double-bound.
   // Settings is kept alive too so it doesn't rebuild and reload on every visit.
-  const KEEP_ALIVE = new Set(['lixa', 'workspace', 'emr', 'project', 'settings']);
+  // Study Buddy too: a half-finished review session survives leaving the page.
+  const KEEP_ALIVE = new Set(['lixa', 'workspace', 'emr', 'project', 'settings', 'study']);
 
   const keepAliveWrappers = {}; // routeName -> wrapper element, once mounted
   let currentView = null;

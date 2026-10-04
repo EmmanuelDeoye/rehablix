@@ -143,7 +143,45 @@
     });
   }
 
+  // ---- Upload size limits (MB) per plan and file type ----
+  // Documents grow the most with the plan (large textbooks, theses, scans);
+  // images and video are capped at 50 MB; audio stays at 25 MB on every plan
+  // because that is the transcription provider's hard limit per file.
+  const UPLOAD_LIMIT_MB = {
+    document: { free: 25, student: 50, pro: 100, max: 200 },
+    image:    { free: 25, student: 30, pro: 40,  max: 50 },
+    video:    { free: 25, student: 30, pro: 40,  max: 50 },
+    audio:    { free: 25, student: 25, pro: 25,  max: 25 }
+  };
+  function uploadKind(file) {
+    const type = (file && file.type) || '';
+    const name = ((file && file.name) || '').toLowerCase();
+    if (type.startsWith('image/') || /\.(png|jpe?g|gif|webp|heic|heif|bmp)$/.test(name)) return 'image';
+    if (type.startsWith('audio/') || /\.(mp3|m4a|wav|ogg|oga|aac|flac|amr|opus|weba)$/.test(name)) return 'audio';
+    if (type.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|3gp)$/.test(name)) return 'video';
+    return 'document';
+  }
+  function uploadLimitMb(plan, kind) {
+    const row = UPLOAD_LIMIT_MB[kind] || UPLOAD_LIMIT_MB.document;
+    return row[plan] || row.free;
+  }
+  // { ok, kind, limitMb, message } — message explains the limit and, when a
+  // higher plan would allow the file, says which one.
+  function checkUpload(file, plan) {
+    plan = PLAN_LEVEL[plan] === undefined ? 'free' : plan;
+    const kind = uploadKind(file);
+    const limitMb = uploadLimitMb(plan, kind);
+    if (!file || file.size <= limitMb * 1024 * 1024) return { ok: true, kind, limitMb };
+    const sizeMb = (file.size / 1024 / 1024).toFixed(1);
+    const label = { document: 'documents', image: 'images', video: 'videos', audio: 'audio files' }[kind];
+    const better = PLAN_ORDER.find(p => PLAN_LEVEL[p] > PLAN_LEVEL[plan] && file.size <= uploadLimitMb(p, kind) * 1024 * 1024);
+    const message = '"' + file.name + '" is ' + sizeMb + ' MB. The limit for ' + label + ' on the ' + PLAN_LABELS[plan] + ' plan is ' + limitMb + ' MB.' +
+      (better ? ' The ' + PLAN_LABELS[better] + ' plan allows up to ' + uploadLimitMb(better, kind) + ' MB.' : (kind === 'audio' ? ' Please trim it or split it into shorter clips.' : ''));
+    return { ok: false, kind, limitMb, message };
+  }
+
   window.RehabPlanTiers = {
+    UPLOAD_LIMIT_MB, uploadKind, uploadLimitMb, checkUpload,
     PLAN_LEVEL, PLAN_LABELS, PLAN_ORDER, PLAN_TOKEN_BUDGET, QUOTA_WINDOW_MS,
     MODELS, getModel, isModelUnlocked, nextPlan,
     estimateTokens, hasQuota, consumeQuota

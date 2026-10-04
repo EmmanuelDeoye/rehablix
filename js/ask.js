@@ -597,8 +597,11 @@ ${window.RehablixKnowledge ? window.RehablixKnowledge.text('web') : ''}`;
 
   function handleFilesSelected(fileList) {
     Array.from(fileList).forEach(file => {
-      if (file.size > 25 * 1024 * 1024) {
-        showToast(`${file.name} is too large (max 25MB)`, 'error');
+      // Size limit depends on the plan and the kind of file (js/plan-tiers.js).
+      const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan && window.rehabPlans.getCurrentPlan()) || 'free';
+      const check = window.RehabPlanTiers && window.RehabPlanTiers.checkUpload ? window.RehabPlanTiers.checkUpload(file, plan) : { ok: file.size <= 25 * 1024 * 1024, message: `${file.name} is too large (max 25MB)` };
+      if (!check.ok) {
+        showToast(check.message, 'error', 7000);
         return;
       }
       const att = {

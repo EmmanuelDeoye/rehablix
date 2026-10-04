@@ -7,6 +7,8 @@
 
 (function () {
   let cleanupFns = [];
+  let loadedAt = 0;
+  let onShowImpl = null;
 
   function mount() {
   const database = firebase.database();
@@ -810,16 +812,65 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
   // =========================================================================
   // Init
   // =========================================================================
-  async function refreshAllData() {
-    await loadSubjects();
-    await loadStudySets();
+  // Shimmer placeholders while the subjects and sets are being fetched
+  // (instead of flashing "No subjects yet" at someone who has plenty).
+  function renderLoadingSkeleton() {
+    const grid = $('subjectsGrid');
+    if (!grid) return;
+    grid.setAttribute('aria-busy', 'true');
+    grid.innerHTML = Array.from({ length: 3 }).map(() => `
+      <div class="subject-card subject-card-skeleton" aria-hidden="true">
+        <div class="study-shimmer" style="height:1.1rem;width:65%"></div>
+        <div class="study-shimmer" style="height:0.75rem;width:40%"></div>
+        <div class="study-shimmer" style="height:7px;width:100%"></div>
+        <div class="study-shimmer" style="height:0.75rem;width:30%"></div>
+      </div>`).join('');
+  }
+
+  async function refreshAllData(quiet) {
+    if (!quiet) renderLoadingSkeleton();
+    try {
+      await Promise.all([loadSubjects(), loadStudySets()]);
+    } finally {
+      const grid = $('subjectsGrid');
+      if (grid) grid.removeAttribute('aria-busy');
+    }
+    loadedAt = Date.now();
     renderDashboard();
     if (window.RehablixHistoryDrawer) window.RehablixHistoryDrawer.refresh('study');
   }
 
+  // Deep links: from Exam Simulator (?subject=…&focus=…) or from Lixa's
+  // Files list / a Lixa file card (?openSet=<study set id>, resolved to its
+  // subject here — a Files entry is a set, not a subject).
+  function handleDeepLink() {
+    const params = new URLSearchParams(window.location.search);
+    let subjectParam = params.get('subject');
+    const setParam = params.get('openSet');
+    if (setParam && studySets[setParam]) subjectParam = studySets[setParam].subjectId;
+    if (subjectParam && subjects[subjectParam]) {
+      openSubject(subjectParam);
+      if (params.get('focus')) showToast('Focus on the highlighted weak topics below', 'info', 5000);
+    }
+    // Consume the link so a later login/logout or refresh doesn't jump back to it.
+    if ((subjectParam || setParam) && window.RehablixRouter) window.RehablixRouter.clearQuery();
+  }
+
+  // Study Buddy is kept alive by the router: coming back shows the page as it
+  // was left (open subject, tab, card in progress). Data older than a minute
+  // is refreshed quietly, and a new deep link is honoured.
+  onShowImpl = async () => {
+    if (!currentUser || scopeUid === null) return;
+    const hasLink = /[?&](subject|openSet)=/.test(window.location.search);
+    if (Date.now() - loadedAt > 60000 || hasLink) { try { await refreshAllData(true); } catch (e) { /* keep what is shown */ } }
+    if (hasLink) handleDeepLink();
+  };
+
+  renderLoadingSkeleton();   // until sign-in is restored and the data arrives
+
   const unsubAuth = auth.onAuthStateChanged(async (user) => {
     currentUser = user;
-    if (!user) return;
+    if (!user) { subjects = {}; studySets = {}; renderDashboard(); return; }
 
     if (window.RehablixCenter && typeof window.RehablixCenter.getEffectiveScopeUid === 'function') {
       try { scopeUid = await window.RehablixCenter.getEffectiveScopeUid('study'); }
@@ -836,23 +887,7 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
 
     await refreshAllData();
 
-    // Deep links: from Exam Simulator (?subject=…&focus=…) or from Lixa's
-    // Files list / a Lixa file card (?openSet=<study set id>, resolved to its
-    // subject here — a Files entry is a set, not a subject).
-    const params = new URLSearchParams(window.location.search);
-    let subjectParam = params.get('subject');
-    const setParam = params.get('openSet');
-    if (setParam && studySets[setParam]) subjectParam = studySets[setParam].subjectId;
-    if (subjectParam && subjects[subjectParam]) {
-      openSubject(subjectParam);
-      const focusParam = params.get('focus');
-      if (focusParam) showToast('Focus on the highlighted weak topics below', 'info', 5000);
-    }
-    // Consume the link so a later login/logout (which re-runs this
-    // callback) or a refresh doesn't jump back to it.
-    if (subjectParam || setParam) {
-      if (window.RehablixRouter) window.RehablixRouter.clearQuery();
-    }
+    handleDeepLink();
   });
   cleanupFns.push(unsubAuth);
   } // end mount()
@@ -863,5 +898,5 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
   }
 
   window.RehablixViews = window.RehablixViews || {};
-  window.RehablixViews.study = { mount, unmount };
+  window.RehablixViews.study = {mount, unmount, onShow: () => { if (onShowImpl) onShowImpl(); } };
 })();

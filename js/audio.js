@@ -437,7 +437,7 @@ function mount() {
       return;
     }
     if (file.size > MAX_UPLOAD_BYTES) {
-      showToast('That file is over 25MB. Please trim it or split it into shorter clips.', 'error', 5000);
+      showToast('That file is over 25 MB, the most the transcription service accepts in one file. Please trim it or split it into shorter clips.', 'error', 6000);
       return;
     }
     uploadedFile = file;

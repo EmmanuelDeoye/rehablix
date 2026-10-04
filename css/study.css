@@ -359,3 +359,10 @@
   .study-main .create-actions button { width: 100%; justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) { .study-main .flashcard-inner { transition: none; } }
+
+/* loading shimmer */
+.study-main .subject-card-skeleton { cursor: default; pointer-events: none; }
+.study-main .subject-card-skeleton:hover { transform: none; box-shadow: none; border-color: var(--study-border); }
+.study-main .study-shimmer { border-radius: 6px; background: linear-gradient(90deg, var(--study-border) 25%, color-mix(in srgb, var(--study-border) 45%, var(--study-surface)) 50%, var(--study-border) 75%); background-size: 200% 100%; animation: studyShimmer 1.2s ease-in-out infinite; }
+@keyframes studyShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .study-main .study-shimmer { animation: none; } }

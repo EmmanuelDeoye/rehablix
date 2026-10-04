@@ -664,7 +664,12 @@
         let xml = await f.async('string');
         if (xml.includes('<p:transition')) return;
         const tr = s._transition === 'push' ? '<p:transition spd="slow"><p:push dir="u"/></p:transition>' : '<p:transition spd="med"><p:fade/></p:transition>';
-        const at = ['<p:timing', '<p:extLst', '</p:sld>'].map(k => xml.indexOf(k)).filter(k => k > 0).sort((a, b) => a - b)[0];
+        // Schema order inside <p:sld>: cSld, clrMapOvr, transition, timing, extLst. Only look
+        // AFTER the slide content: tables carry their own <p:extLst> inside <p:cSld>, and
+        // putting the transition there makes PowerPoint reject the whole file.
+        const body = Math.max(xml.lastIndexOf('</p:cSld>'), xml.lastIndexOf('</p:clrMapOvr>'), xml.lastIndexOf('<p:clrMapOvr'));
+        const at = ['<p:timing', '<p:extLst', '</p:sld>'].map(k => xml.indexOf(k, Math.max(0, body))).filter(k => k > 0).sort((a, b) => a - b)[0];
+        if (!(at > 0)) return;
         xml = xml.slice(0, at) + tr + xml.slice(at);
         zip.file(path, xml);
       }));
