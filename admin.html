@@ -395,6 +395,13 @@
     .extra-grid input, .extra-grid select, .extra-grid textarea { font: inherit; font-size: 0.9rem; padding: 0.6rem 0.75rem; border-radius: 0.6rem; border: 1px solid var(--border-light); background: var(--bg-page); color: var(--text-primary); width: 100%; box-sizing: border-box; }
     .extra-switch { flex-direction: row !important; align-items: center; gap: 0.6rem !important; font-size: 0.88rem !important; color: var(--text-primary) !important; margin-top: 0.6rem; }
     .extra-switch input { width: 18px; height: 18px; accent-color: var(--accent); }
+    /* All-time visits: two columns wide so the number and its switch never squeeze each other */
+    .stat-card-wide { grid-column: span 2; min-width: 0; flex-wrap: wrap; row-gap: 0.7rem; }
+    .stat-card-wide .stat-info { flex: 1 1 0; min-width: 0; }
+    .stat-card-wide .stat-label, .stat-card-wide .stat-value { white-space: nowrap; }
+    /* the switch (and the signed-in / anonymous breakdown it turns into) gets its own full-width row */
+    .stat-card-switch { flex: 1 1 100%; margin: 0 !important; padding-top: 0.6rem; border-top: 1px solid var(--border-light); font-size: 0.8rem !important; font-weight: 600; line-height: 1.35; cursor: pointer; }
+    .stat-card-switch input { flex: 0 0 auto; }
     .extra-actions { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; margin-top: 1rem; }
     .announcement-preview { margin-top: 1rem; padding: 0.8rem 0.9rem; border-radius: 0.8rem; border: 1px solid var(--accent); background: var(--surface); display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.85rem; max-width: 460px; }
     .announcement-preview span { color: var(--text-secondary); }
@@ -538,13 +545,13 @@
                     <!-- Stats cards -->
                     <div class="stats-grid" id="statsGrid">
                         <!-- All-time visits: counted only when the admin asks (it reads every visit record) -->
-                        <div class="stat-card glass-card" id="statAllTimeCard" style="order: 99;">
-                            <span class="stat-icon">🌍</span>
-                            <div class="stat-content">
+                        <div class="stat-card glass-card stat-card-wide" id="statAllTimeCard" style="order: 99;">
+                            <div class="stat-icon">🌍</div>
+                            <div class="stat-info">
                                 <span class="stat-label">All-time visits</span>
                                 <span class="stat-value" id="statVisitsAllTime">—</span>
-                                <label class="extra-switch" style="margin-top:0.35rem;font-size:0.78rem !important;"><input type="checkbox" id="allTimeToggle" /> <span id="allTimeHint">Show</span></label>
                             </div>
+                            <label class="extra-switch stat-card-switch"><input type="checkbox" id="allTimeToggle" /> <span id="allTimeHint">Show</span></label>
                         </div>
                         <div class="stat-card glass-card clickable" data-target="users" id="statTotalUsersCard">
                             <div class="stat-icon">👤</div>

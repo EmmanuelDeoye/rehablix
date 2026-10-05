@@ -412,11 +412,15 @@
     const txt = t.text, muted = t.muted;
     const cardFill = t.dark ? { color: 'FFFFFF', transparency: 90 } : { color: t.surface, transparency: t.glass ? 18 : 0 };
     const cardLine = t.dark ? { color: 'FFFFFF', transparency: 78, width: 1 } : { color: mix(t.bg[1], t.primary, 0.18), width: 1 };
-    const shadow = { type: 'outer', blur: 14, offset: 5, angle: 90, color: '000000', opacity: t.dark ? 0.35 : 0.12 };
+    // NOTE: never share one options object between shapes. PptxGenJS converts shadow (and
+    // other) options IN PLACE each time they are used (pt -> EMU, degrees -> 60000ths), so a
+    // shared object compounds to values like 1.3e+79 from the second shape on, and PowerPoint
+    // then reports the file as unreadable. Hence fresh objects from these factories.
+    const mkShadow = () => ({ type: 'outer', blur: 14, offset: 5, angle: 90, color: '000000', opacity: t.dark ? 0.35 : 0.12 });
     const total = spec.slides.length;
 
     function card(slide, x, y, w, h, opts) {
-      slide.addShape(S.roundRect, Object.assign({ x, y, w, h, rectRadius: 0.16, fill: cardFill, line: cardLine, shadow }, opts || {}));
+      slide.addShape(S.roundRect, Object.assign({ x, y, w, h, rectRadius: 0.16, fill: Object.assign({}, cardFill), line: Object.assign({}, cardLine), shadow: mkShadow() }, opts || {}));
     }
     function badge(slide, x, y, d, glyph, color) {
       slide.addShape(S.ellipse, { x, y, w: d, h: d, fill: { color: color || t.primary, transparency: t.dark ? 70 : 82 }, line: { color: color || t.primary, transparency: 55, width: 1 } });
@@ -514,14 +518,14 @@
         list.forEach((it, i) => {
           const c = Math.floor(i / rows), rw = i % rows, x = 0.7 + c * (cw + 0.23), y = 2.0 + rw * (rh + 0.15);
           badge(slide, x, y + Math.max(0, (rh - 0.7) / 2), 0.7, glyphFor(it.icon, it.heading + ' ' + it.text, r));
-          const body = it.heading ? [{ text: it.heading + '  ', options: { bold: true, color: txt, fontFace: t.head } }, { text: it.text, options: { color: muted } }] : [{ text: it.text, options: { color: txt } }];
+          const body = it.heading && root.JSZip ? [{ text: it.heading + '  ', options: { bold: true, color: txt, fontFace: t.head } }, { text: it.text, options: { color: muted } }] : [{ text: (it.heading ? it.heading + ' — ' : '') + it.text, options: { color: txt } }];
           slide.addText(body, { x: x + 0.95, y, w: cw - 1.0, h: rh, valign: 'middle', fontFace: t.body, fontSize: fitPt(it.heading + ' ' + it.text, cw - 1.0, rh, 17, 10), margin: 0 });
         });
       },
       imageFocus(slide, s, idx) {
         const left = idx % 2 === 0;
         const px = left ? 0.6 : 7.6, pw = 5.15, ph = 6.3;
-        slide.addImage({ data: illustrationPanel(t, glyphFor(s.icon, s.title + ' ' + s.lead, r), seed + idx, pw, ph), x: px, y: 0.6, w: pw, h: ph, shadow });
+        slide.addImage({ data: illustrationPanel(t, glyphFor(s.icon, s.title + ' ' + s.lead, r), seed + idx, pw, ph), x: px, y: 0.6, w: pw, h: ph, shadow: mkShadow() });
         const tx = left ? 6.25 : 0.7, tw = 6.4;
         if (s.kicker) slide.addText(s.kicker.toUpperCase(), { x: tx, y: 0.9, w: tw, h: 0.3, fontFace: t.body, fontSize: 11, bold: true, color: t.primary, charSpacing: 3, margin: 0 });
         slide.addText(s.title, { x: tx, y: 1.2, w: tw, h: 1.3, fontFace: t.head, fontSize: fitPt(s.title, tw, 1.3, 32, 20), bold: true, color: txt, valign: 'top', margin: 0 });
@@ -547,7 +551,7 @@
         slide.addShape(S.line, { x: x0, y, w: x1 - x0, h: 0, line: { color: t.primary, width: 2.5, transparency: 30 } });
         s.steps.forEach((st, i) => {
           const cx = x0 + i * step, up = i % 2 === 0, col = [t.primary, t.secondary, t.accent][i % 3];
-          slide.addShape(S.ellipse, { x: cx - 0.32, y: y - 0.32, w: 0.64, h: 0.64, fill: { color: col }, line: { color: t.dark ? '0B1F24' : 'FFFFFF', width: 3 }, shadow });
+          slide.addShape(S.ellipse, { x: cx - 0.32, y: y - 0.32, w: 0.64, h: 0.64, fill: { color: col }, line: { color: t.dark ? '0B1F24' : 'FFFFFF', width: 3 }, shadow: mkShadow() });
           slide.addText(String(i + 1), { x: cx - 0.32, y: y - 0.32, w: 0.64, h: 0.64, align: 'center', valign: 'middle', fontFace: t.head, fontSize: 15, bold: true, color: t.dark ? '0B1F24' : 'FFFFFF', margin: 0 });
           const bw = Math.min(2.6, step * 0.95 + 0.3), bx = Math.max(0.5, Math.min(W - 0.5 - bw, cx - bw / 2));
           const by = up ? 1.95 : 4.55;
@@ -560,7 +564,7 @@
         const n = s.steps.length, gap = 0.08, w = (11.93 - gap * (n - 1)) / n;
         s.steps.forEach((st, i) => {
           const x = 0.7 + i * (w + gap), col = mix(t.primary, t.secondary, n > 1 ? i / (n - 1) : 0);
-          slide.addShape(i === 0 ? S.homePlate : S.chevron, { x, y: 2.1, w, h: 1.15, fill: { color: col }, line: { color: col, width: 0 }, shadow });
+          slide.addShape(i === 0 ? S.homePlate : S.chevron, { x, y: 2.1, w, h: 1.15, fill: { color: col }, line: { color: col, width: 0 }, shadow: mkShadow() });
           slide.addText(st.heading || `Step ${i + 1}`, { x: x + 0.3, y: 2.1, w: w - 0.55, h: 1.15, align: 'center', valign: 'middle', fontFace: t.head, fontSize: fitPt(st.heading, w - 0.6, 1.0, 19, 10), bold: true, color: 'FFFFFF', margin: 0 });
           card(slide, x + 0.05, 3.55, w - 0.1, 2.7);
           slide.addText(String(i + 1).padStart(2, '0'), { x: x + 0.28, y: 3.72, w: 1.2, h: 0.5, fontFace: t.head, fontSize: 20, bold: true, color: col, margin: 0 });
@@ -571,14 +575,14 @@
         header(slide, s, idx);
         const n = s.steps.length, cx = 6.67, cy = 4.3, R = 2.05;
         slide.addShape(S.ellipse, { x: cx - R, y: cy - R, w: R * 2, h: R * 2, fill: { color: t.primary, transparency: 96 }, line: { color: t.primary, width: 2, dashType: 'dash', transparency: 40 } });
-        slide.addShape(S.ellipse, { x: cx - 0.95, y: cy - 0.95, w: 1.9, h: 1.9, fill: { color: t.primary }, line: { color: t.primary, width: 0 }, shadow });
+        slide.addShape(S.ellipse, { x: cx - 0.95, y: cy - 0.95, w: 1.9, h: 1.9, fill: { color: t.primary }, line: { color: t.primary, width: 0 }, shadow: mkShadow() });
         slide.addText(s.center || s.title, { x: cx - 0.9, y: cy - 0.9, w: 1.8, h: 1.8, align: 'center', valign: 'middle', fontFace: t.head, fontSize: fitPt(s.center || s.title, 1.6, 1.5, 17, 9), bold: true, color: t.dark ? '0B1F24' : 'FFFFFF', margin: 0.05 });
         s.steps.forEach((st, i) => {
           const a = (n % 2 ? 0 : -Math.PI / 2 + Math.PI / n) + (i / n) * Math.PI * 2, nx = cx + Math.cos(a) * R, ny = cy + Math.sin(a) * R, col = [t.secondary, t.accent, t.primary][i % 3];
           badge(slide, nx - 0.38, ny - 0.38, 0.76, glyphFor(st.icon, st.heading + ' ' + st.text, r), col);
           const right = Math.cos(a) >= 0, bw = 3.5;
           const bx = right ? nx + 0.58 : nx - 0.58 - bw;
-          slide.addText([{ text: (st.heading || `Stage ${i + 1}`) + '\n', options: { bold: true, color: txt, fontFace: t.head, fontSize: 16 } }, { text: st.text, options: { color: muted, fontSize: 12.5 } }],
+          slide.addText([{ text: (st.heading || `Stage ${i + 1}`), options: { bold: true, color: txt, fontFace: t.head, fontSize: 16, breakLine: true } }, { text: st.text, options: { color: muted, fontSize: 12.5 } }],
             { x: bx, y: Math.max(1.85, Math.min(5.9, ny - 0.55)), w: bw, h: 1.1, align: right ? 'left' : 'right', valign: 'middle', fontFace: t.body, margin: 0 });
         });
       },
@@ -590,7 +594,7 @@
           slide.addText(side.heading, { x: x + 0.3, y: 2.0, w: 5.0, h: 0.8, valign: 'middle', fontFace: t.head, fontSize: fitPt(side.heading, 5.0, 0.7, 20, 13), bold: true, color: t.dark ? '0B1F24' : 'FFFFFF', margin: 0 });
           bulletsBox(slide, side.bullets, x + 0.35, 3.1, 4.95, 3.4, 14, ICONS.check);
         });
-        slide.addShape(S.ellipse, { x: 6.17, y: 3.9, w: 1.0, h: 1.0, fill: { color: t.accent }, line: { color: t.dark ? '0B1F24' : 'FFFFFF', width: 3 }, shadow });
+        slide.addShape(S.ellipse, { x: 6.17, y: 3.9, w: 1.0, h: 1.0, fill: { color: t.accent }, line: { color: t.dark ? '0B1F24' : 'FFFFFF', width: 3 }, shadow: mkShadow() });
         slide.addText('VS', { x: 6.17, y: 3.9, w: 1.0, h: 1.0, align: 'center', valign: 'middle', fontFace: t.head, fontSize: 16, bold: true, color: '1A1A1A', margin: 0 });
       },
       quote(slide, s, idx) {
@@ -646,7 +650,7 @@
         try { (L[s.layout] || L.split)(slide, s, idx, secNo); }
         catch (e) { console.warn('[deck] layout failed, using split', s.layout, e); L.split(slide, Object.assign({}, s, { bullets: s.bullets.length ? s.bullets : [s.lead || s.title] }), idx); }
         if (!hero) footer(slide, idx);
-        if (s.notes) slide.addNotes(s.notes);
+        if (s.notes && root.JSZip) slide.addNotes(s.notes);
         s._transition = s.layout === 'cover' ? 'fade' : s.layout === 'section' ? 'push' : s.layout === 'closing' ? 'fade' : 'fade';
         if (onProgress) onProgress(0.3 + 0.6 * ((idx + 1) / spec.slides.length), `Designing slide ${idx + 1} of ${spec.slides.length}…`);
       });
@@ -692,12 +696,52 @@
     }
   }
 
+  // PptxGenJS writes two things PowerPoint is strict about:
+  //  - in ppt/presentation.xml it puts <p:notesMasterIdLst> AFTER <p:sldIdLst>; the schema order
+  //    is sldMasterIdLst, notesMasterIdLst, handoutMasterIdLst, sldIdLst. With speaker notes
+  //    present this alone makes PowerPoint say "found unreadable content";
+  //  - [Content_Types].xml declares one slideMaster per slide although only slideMaster1 exists;
+  //  - a paragraph made of several text runs gets its <a:pPr> repeated before EVERY run, but a
+  //    paragraph may only start with one. PowerPoint then says it "was unable to display some
+  //    of the text". The repeats are removed here (the first one already carries the settings).
+  function fixParagraphs(xml) {
+    return xml.replace(/<a:p>[\s\S]*?<\/a:p>/g, (para) => {
+      const firstRun = para.search(/<a:(?:r|br|fld)[ >]/);
+      if (firstRun < 0 || para.indexOf('<a:pPr', firstRun) < 0) return para;
+      return para.slice(0, firstRun) + para.slice(firstRun).replace(/<a:pPr[^>]*\/>|<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/g, '');
+    });
+  }
+  async function fixPackageStructure(zip) {
+    for (const f of zip.file(/^ppt\/(?:slides|notesSlides)\/[^/]+\.xml$/)) {
+      const xml = await f.async('string');
+      const fixed = fixParagraphs(xml);
+      if (fixed !== xml) zip.file(f.name, fixed);
+    }
+    const pres = zip.file('ppt/presentation.xml');
+    if (pres) {
+      let xml = await pres.async('string');
+      const m = xml.match(/<p:notesMasterIdLst>[\s\S]*?<\/p:notesMasterIdLst>/);
+      const sld = xml.indexOf('<p:sldIdLst>');
+      if (m && sld >= 0 && xml.indexOf(m[0]) > sld) {
+        xml = xml.replace(m[0], '').replace('<p:sldIdLst>', m[0] + '<p:sldIdLst>');
+        zip.file('ppt/presentation.xml', xml);
+      }
+    }
+    const ctFile = zip.file('[Content_Types].xml');
+    if (ctFile) {
+      const ct = await ctFile.async('string');
+      const fixed = ct.replace(/<Override PartName="\/([^"]+)"[^>]*\/>/g, (whole, part) => (zip.file(part) ? whole : ''));
+      if (fixed !== ct) zip.file('[Content_Types].xml', fixed);
+    }
+  }
+
   async function addTransitions(blob, slides, withTransitions) {
     const JSZipLib = root.JSZip;
     if (!JSZipLib) return blob;
     try {
       const zip = await JSZipLib.loadAsync(blob);
       await fixMediaNames(zip);
+      await fixPackageStructure(zip);
       if (withTransitions !== false) await Promise.all(slides.map(async (s, i) => {
         const path = `ppt/slides/slide${i + 1}.xml`;
         const f = zip.file(path); if (!f) return;
@@ -714,7 +758,7 @@
         zip.file(path, xml);
       }));
       return await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', compression: 'DEFLATE' });
-    } catch (e) { console.warn('[deck] transitions skipped', e); return blob; }
+    } catch (e) { console.warn('[deck] package repair failed', e); throw new Error('Could not finish building the PowerPoint file. Please try again.'); }
   }
 
   async function ensureFonts() {
@@ -890,5 +934,5 @@ Rules: ${count} slides total including cover and closing. Tell a story: hook →
     return c.toDataURL('image/jpeg', 0.85);
   }
 
-  root.RehablixDeck = { THEMES, ICONS, LAYOUTS, buildPrompt, parseSpec, normalize, plan, chooseTheme, render, renderBase64, previewHtml, coverPreview, version: 1 };
+  root.RehablixDeck = { THEMES, ICONS, LAYOUTS, buildPrompt, parseSpec, normalize, plan, chooseTheme, render, renderBase64, previewHtml, coverPreview, version: 2 };
 })(typeof window !== 'undefined' ? window : this);

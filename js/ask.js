@@ -2524,22 +2524,24 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   }
 
   // =========================================================================
-  // History list — incrementally paginated (Lixa History + Intelligence
-  // Upgrade #1): the first 15 conversations load up front, and scrolling
-  // near the bottom of the drawer fetches 7 more at a time straight from
-  // Firebase (a cursor query, not "load everything then slice"), until
-  // there's nothing left. Loaded pages are kept in `allConversations` so
-  // re-opening the drawer, searching, and re-rendering after a save/delete
-  // never re-fetch or duplicate what's already there.
+  // History list — paged the same way as the Files list (js/lixa.js).
+  //
+  // Pages are read by KEY (push ids are chronological), newest first:
+  // `orderByKey().limitToLast(n)`, then `endBefore(oldestKey)` for the next
+  // page. Key order is always indexed, so the server returns just that page.
+  // The list used to page on `updatedAt`, which the database has no index
+  // for — Firebase then sends EVERY conversation (all their messages) and
+  // filters on the device, which is what made the drawer slow to fill.
+  // Only the fields a row needs are kept in memory. Loaded pages stay in
+  // `allConversations`, so re-opening the drawer or searching never re-fetches.
   // =========================================================================
   let allConversations = [];
-  const HISTORY_PAGE_FIRST = 15;
-  const HISTORY_PAGE_MORE = 7;
+  const HISTORY_PAGE_SIZE = 12;
   let historyHasMore = true;
   let historyLoadingMore = false;
   let historyOldestKey = null;
-  let historyOldestVal = null;
   let historyScrollBound = false;
+  let historyLoadToken = 0;
 
   // "3:45 PM" for anything within the last 24h, "Sep 14" beyond that.
   function formatRelative(ts) {
@@ -2550,14 +2552,19 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
   }
 
-  function historyRowsFromSnapshot(snap) {
-    const items = [];
-    // Firebase iterates children in ascending order-by-value — collecting
-    // via forEach (not snap.val(), which would lose that order to plain
-    // object-key order) and reversing gives newest-first for display.
-    snap.forEach(child => { items.push({ id: child.key, ...child.val() }); return false; });
-    items.reverse();
-    return items;
+  const historyTime = (c) => c.updatedAt || c.createdAt || 0;
+  const sortHistory = (rows) => rows.sort((x, y) => historyTime(y) - historyTime(x));
+
+  async function fetchHistoryPage(uid, beforeKey) {
+    let q = database.ref(`history/${uid}/askConversations`).orderByKey();
+    if (beforeKey) q = q.endBefore(beforeKey);
+    const data = (await q.limitToLast(HISTORY_PAGE_SIZE).once('value')).val() || {};
+    const keys = Object.keys(data).sort();
+    return {
+      oldestKey: keys.length ? keys[0] : null,
+      full: keys.length === HISTORY_PAGE_SIZE,
+      rows: keys.map((id) => { const c = data[id] || {}; return { id, title: c.title, updatedAt: c.updatedAt, createdAt: c.createdAt }; }),
+    };
   }
 
   async function loadHistoryList() {
@@ -2565,58 +2572,54 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       console.warn('[loadHistoryList] No user logged in');
       return;
     }
-    allConversations = [];
-    historyHasMore = true;
-    historyLoadingMore = false;
-    historyOldestKey = null;
-    historyOldestVal = null;
-    if (historyLoading) historyLoading.hidden = false;
+    const token = ++historyLoadToken;
+    const uid = currentUser.uid;
+    // The skeleton only covers a first load; a refresh keeps the rows on screen.
+    if (historyLoading) historyLoading.hidden = allConversations.length > 0;
     try {
-      const snap = await database.ref(`history/${currentUser.uid}/askConversations`)
-        .orderByChild('updatedAt').limitToLast(HISTORY_PAGE_FIRST).once('value');
-      const items = historyRowsFromSnapshot(snap);
-      allConversations = items;
-      if (items.length) {
-        const oldest = items[items.length - 1];
-        historyOldestKey = oldest.id;
-        historyOldestVal = oldest.updatedAt != null ? oldest.updatedAt : 0;
+      const page = await fetchHistoryPage(uid, null);
+      if (token !== historyLoadToken) return;
+      const rows = page.rows;
+      // An older conversation that is open (and was just continued) may not be
+      // in the newest page: keep its row so it doesn't vanish from the list.
+      if (currentConversationId && !rows.some(c => c.id === currentConversationId)) {
+        const known = allConversations.find(c => c.id === currentConversationId);
+        if (known || conversationTitle) rows.push({ id: currentConversationId, title: (known && known.title) || conversationTitle, updatedAt: Date.now(), createdAt: known && known.createdAt });
       }
-      historyHasMore = items.length === HISTORY_PAGE_FIRST;
+      allConversations = sortHistory(rows);
+      historyOldestKey = page.oldestKey;
+      historyHasMore = page.full;
+      historyLoadingMore = false;
       renderHistoryList(allConversations);
       bindHistoryScroll();
     } catch (error) {
       console.error('[loadHistoryList] Error:', error);
     } finally {
-      if (historyLoading) historyLoading.hidden = true;
+      if (token === historyLoadToken && historyLoading) historyLoading.hidden = true;
     }
   }
 
-  // Fetches the next older page. Uses an (updatedAt, key) compound cursor
-  // (endBefore's 2-arg form) so ties in updatedAt can't cause a
-  // duplicated or skipped row at the page boundary.
+  // Fetches the next older page (the 12 conversations before the oldest key loaded).
   async function loadMoreHistory() {
     if (!currentUser || !historyHasMore || historyLoadingMore || historyOldestKey == null) return;
+    const token = historyLoadToken;
     historyLoadingMore = true;
     showHistoryLoadMoreRow(true);
     try {
-      const snap = await database.ref(`history/${currentUser.uid}/askConversations`)
-        .orderByChild('updatedAt').endBefore(historyOldestVal, historyOldestKey).limitToLast(HISTORY_PAGE_MORE).once('value');
-      const items = historyRowsFromSnapshot(snap);
+      const page = await fetchHistoryPage(currentUser.uid, historyOldestKey);
+      if (token !== historyLoadToken) return;
       const seen = new Set(allConversations.map(c => c.id));
-      const fresh = items.filter(c => !seen.has(c.id));
-      allConversations = allConversations.concat(fresh);
-      if (items.length) {
-        const oldest = items[items.length - 1];
-        historyOldestKey = oldest.id;
-        historyOldestVal = oldest.updatedAt != null ? oldest.updatedAt : 0;
-      }
-      historyHasMore = items.length === HISTORY_PAGE_MORE;
-      renderHistoryList(allConversations);
+      allConversations = sortHistory(allConversations.concat(page.rows.filter(c => !seen.has(c.id))));
+      if (page.oldestKey) historyOldestKey = page.oldestKey;
+      historyHasMore = page.full;
     } catch (error) {
       console.error('[loadMoreHistory] Error:', error);
     } finally {
-      historyLoadingMore = false;
-      showHistoryLoadMoreRow(false);
+      if (token === historyLoadToken) {
+        historyLoadingMore = false;
+        showHistoryLoadMoreRow(false);
+        renderHistoryList(allConversations);
+      }
     }
   }
 
@@ -2628,6 +2631,8 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     if (!historyList) return;
     let row = document.getElementById('historyLoadMoreRow');
     if (on) {
+      const btn = document.getElementById('historyLoadMoreBtn');
+      if (btn) btn.remove();
       if (!row) {
         row = document.createElement('div');
         row.id = 'historyLoadMoreRow';
@@ -2649,6 +2654,12 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       const nearBottom = historyList.scrollHeight - historyList.scrollTop - historyList.clientHeight < HISTORY_SCROLL_THRESHOLD;
       if (nearBottom) loadMoreHistory();
     });
+  }
+
+  function appendHistoryLoadMore() {
+    if (!historyList || !historyHasMore || historyLoadingMore) return;
+    historyList.insertAdjacentHTML('beforeend', '<button type="button" class="files-load-more" id="historyLoadMoreBtn">Load more</button>');
+    document.getElementById('historyLoadMoreBtn').addEventListener('click', () => loadMoreHistory());
   }
 
   function renderHistoryList(conversations) {
@@ -2675,9 +2686,10 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       historyList.insertAdjacentHTML('beforeend', `
         <div class="empty-state">
           <i class='bx bx-search'></i>
-          <p>No matching conversations</p>
+          <p>${historyHasMore ? 'No match in the conversations loaded so far' : 'No matching conversations'}</p>
         </div>
       `);
+      appendHistoryLoadMore();
       return;
     }
 
@@ -2699,6 +2711,9 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       div.querySelector('.delete-btn').addEventListener('click', (e) => deleteConversation(conv.id, e));
       historyList.appendChild(div);
     });
+    appendHistoryLoadMore();
+    // A first page that doesn't fill the drawer can't be scrolled, so fetch the next one now.
+    if (historyHasMore && !historyLoadingMore && !historyList.hidden && historyList.clientHeight > 0 && historyList.scrollHeight <= historyList.clientHeight + 4) loadMoreHistory();
   }
 
   // =========================================================================
