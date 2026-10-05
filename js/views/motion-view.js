@@ -961,6 +961,19 @@
       return true;
     }
 
+    function motionDrawerItem(item) {
+      return {
+        id: `${item.type}:${item.id}`,
+        title: historyItemTitle(item),
+        meta: [TYPE_LABEL[item.type], item.patientName, item.status === 'confirmed' ? 'Confirmed' : (item.structured ? 'Draft' : '')].filter(Boolean).join(' · '),
+        time: item.timestamp,
+        icon: ICONS[item.type],
+        searchText: `${historyItemTitle(item)} ${item.patientName || ''}`,
+        active: !!(lastResult && lastResult.historyKey === item.id && lastResult.type === item.type && resultsEl.classList.contains('active')),
+        raw: item
+      };
+    }
+
     if (window.RehablixHistoryDrawer) {
       window.RehablixHistoryDrawer.register('motion', {
         label: 'Motion & Gait Results',
@@ -968,17 +981,13 @@
         emptyText: 'No results yet',
         async load() {
           const items = await loadMotionHistory();
-          return items.map(item => ({
-            id: `${item.type}:${item.id}`,
-            title: historyItemTitle(item),
-            meta: [TYPE_LABEL[item.type], item.patientName, item.status === 'confirmed' ? 'Confirmed' : (item.structured ? 'Draft' : '')].filter(Boolean).join(' · '),
-            time: item.timestamp,
-            icon: ICONS[item.type],
-            searchText: `${historyItemTitle(item)} ${item.patientName || ''}`,
-            active: !!(lastResult && lastResult.historyKey === item.id && lastResult.type === item.type && resultsEl.classList.contains('active')),
-            raw: item
-          }));
+          return items.map(motionDrawerItem);
         },
+        // Paged by the drawer, 12 per result type at a time (js/history-drawer.js). null = scope not known yet.
+        pages: () => ((currentUser && scopeUid) ? ['rom', 'gait', 'assistive'].map(k => ({
+          path: `history/${scopeUid}/${core.KIND_PATH[k]}`,
+          map: (id, item) => motionDrawerItem({ id, type: k, ...item })
+        })) : null),
         open: (item) => openHistoricalResult(item.raw),
         remove: (item) => deleteHistoricalResult(item.raw)
       });

@@ -1874,6 +1874,16 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     }
   }
 
+  function audioDrawerItem(id, item) {
+    return {
+      id,
+      title: item.title || 'Untitled',
+      meta: [capitalize(item.sessionType || ''), formatTime(item.durationSeconds || 0)].filter(Boolean).join(' · '),
+      time: item.createdAt,
+      raw: item
+    };
+  }
+
   if (window.RehablixHistoryDrawer) {
     window.RehablixHistoryDrawer.register('audio', {
       label: 'Audio Transcriptions',
@@ -1882,14 +1892,10 @@ Output ONLY the narrative text, as flowing paragraphs.`;
       emptyText: 'No history found',
       async load() {
         const items = await fetchHistoryItems();
-        return items.map(item => ({
-          id: item.key,
-          title: item.title || 'Untitled',
-          meta: [capitalize(item.sessionType || ''), formatTime(item.durationSeconds || 0)].filter(Boolean).join(' · '),
-          time: item.createdAt,
-          raw: item
-        }));
+        return items.map(item => audioDrawerItem(item.key, item));
       },
+      // Paged by the drawer, 12 at a time (js/history-drawer.js). null = scope not known yet.
+      pages: () => (scopeUid ? [{ path: `history/${scopeUid}/audio`, map: audioDrawerItem }] : null),
       open: (item) => openHistoryItem(item.id, historyCache[item.id] || item.raw),
       remove: (item) => deleteHistoryItem(item.id)
     });

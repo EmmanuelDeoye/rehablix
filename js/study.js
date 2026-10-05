@@ -804,6 +804,11 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
         await loadStudySets();
         return historyDrawerItems();
       },
+      // Paged by the drawer, 12 at a time (js/history-drawer.js). null = scope not known yet.
+      pages: () => (scopeUid ? [{
+        path: `history/${scopeUid}/study/sets`,
+        map: (id, s) => ({ id, title: s.title || 'Untitled', meta: `${(s.flashcards || []).length} cards · ${(s.quiz || []).length} questions`, time: s.createdAt, raw: s })
+      }] : null),
       open: (item) => openSubject(item.raw.subjectId)
     });
     cleanupFns.push(() => window.RehablixHistoryDrawer.unregister('study'));

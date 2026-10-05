@@ -1,8 +1,9 @@
 // js/tool-switcher.js — the "all tools" button in the top bar.
 // On every tool page (not on Lixa or Workspace, which are one tap away on the
-// bottom bar) a grid icon sits just before the profile/login control. It
-// drops down the list of tools so the user can jump straight from one tool
-// to another without going back to Workspace first.
+// bottom bar) a tools icon sits just before the profile/login control. It
+// opens the list of tools as a panel that slides in from the right edge of
+// the screen, so the user can jump straight from one tool to another without
+// going back to Workspace first.
 (function () {
   const TOOLS = [
     { route: 'lixa', label: 'Lixa', icon: 'fa-comment-dots' },
@@ -33,15 +34,32 @@
     wrap.hidden = true;
     wrap.innerHTML = `
       <button type="button" class="icon-btn tool-switcher-btn" id="toolSwitcherBtn" aria-label="All tools" title="All tools" aria-haspopup="menu" aria-expanded="false">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+        <!-- same thin outline style as the history / theme icons beside it -->
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+          <rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M17 2.6L21.4 7L17 11.4L12.6 7Z"/>
         </svg>
-      </button>
-      <div class="tool-switcher-menu" id="toolSwitcherMenu" role="menu" hidden></div>`;
+      </button>`;
     anchor.insertAdjacentElement('afterend', wrap);   // auth.js adds Login / profile after this
 
+    // The panel and its backdrop live on <body>: inside the (blurred) top bar a
+    // fixed element would be positioned against the bar instead of the screen.
+    const backdrop = document.createElement('div');
+    backdrop.className = 'tool-switcher-backdrop';
+    backdrop.hidden = true;
+    const panel = document.createElement('aside');
+    panel.className = 'tool-switcher-panel';
+    panel.id = 'toolSwitcherPanel';
+    panel.hidden = true;
+    panel.setAttribute('aria-label', 'All tools');
+    panel.innerHTML = `
+      <div class="tool-switcher-head"><span>Tools</span><button type="button" class="icon-btn" id="toolSwitcherClose" aria-label="Close"><i class="fas fa-times" aria-hidden="true"></i></button></div>
+      <div class="tool-switcher-menu" id="toolSwitcherMenu" role="menu"></div>`;
+    document.body.appendChild(backdrop);
+    document.body.appendChild(panel);
+
     const btn = wrap.querySelector('#toolSwitcherBtn');
-    const menu = wrap.querySelector('#toolSwitcherMenu');
+    const menu = panel.querySelector('#toolSwitcherMenu');
+    let closeTimer = null;
     const current = () => document.body.dataset.route || ((location.hash.match(/^#\/([a-z]+)/i) || [])[1] || '').toLowerCase();
 
     function paint() {
@@ -49,15 +67,29 @@
       menu.innerHTML = TOOLS.map((t) => t.divider ? '<div class="tool-switcher-divider" role="separator"></div>'
         : `<button type="button" role="menuitem" class="tool-switcher-item${t.route === here ? ' active' : ''}" data-route="${t.route}"${t.route === here ? ' aria-current="page"' : ''}><i class="fas ${t.icon}" aria-hidden="true"></i><span>${t.label}</span></button>`).join('');
     }
+    const isOpen = () => panel.classList.contains('open');
     function setOpen(open) {
-      menu.hidden = !open;
+      if (open === isOpen() && panel.hidden === !open) return;
+      clearTimeout(closeTimer);
       btn.setAttribute('aria-expanded', String(open));
       btn.classList.toggle('active', open);
-      if (open) { paint(); const first = menu.querySelector('.tool-switcher-item.active') || menu.querySelector('.tool-switcher-item'); if (first) first.focus({ preventScroll: true }); }
+      if (open) {
+        paint();
+        panel.hidden = false; backdrop.hidden = false;
+        void panel.offsetWidth;                  // so the slide-in transition runs
+        panel.classList.add('open'); backdrop.classList.add('open');
+        const first = menu.querySelector('.tool-switcher-item.active') || menu.querySelector('.tool-switcher-item');
+        if (first) first.focus({ preventScroll: true });
+      } else {
+        panel.classList.remove('open'); backdrop.classList.remove('open');
+        closeTimer = setTimeout(() => { panel.hidden = true; backdrop.hidden = true; }, 240);   // after it has slid back out
+      }
     }
     function sync() { wrap.hidden = HIDDEN_ON.has(current()); if (wrap.hidden) setOpen(false); }
 
-    btn.addEventListener('click', (e) => { e.stopPropagation(); setOpen(menu.hidden); });
+    btn.addEventListener('click', (e) => { e.stopPropagation(); setOpen(!isOpen()); });
+    backdrop.addEventListener('click', () => setOpen(false));
+    panel.querySelector('#toolSwitcherClose').addEventListener('click', () => { setOpen(false); btn.focus(); });
     menu.addEventListener('click', (e) => {
       const item = e.target.closest('.tool-switcher-item'); if (!item) return;
       setOpen(false);
@@ -71,7 +103,7 @@
       else if (e.key === 'ArrowUp') { e.preventDefault(); (items[i - 1] || items[items.length - 1]).focus(); }
       else if (e.key === 'Escape') { setOpen(false); btn.focus(); }
     });
-    document.addEventListener('click', (e) => { if (!menu.hidden && !wrap.contains(e.target)) setOpen(false); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isOpen()) setOpen(false); });
     window.addEventListener('rehablix:routechange', sync);
     window.addEventListener('hashchange', sync);
     sync();

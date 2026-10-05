@@ -735,6 +735,58 @@
     }
   }
 
+  // Strict readers (PowerPoint for Android / iOS) reject or mis-draw things desktop PowerPoint
+  // quietly accepts. Each step below is a no-op on a package that is already correct.
+  //  - ".jpg" is declared as "image/jpg", which is not a real media type (it is "image/jpeg").
+  //    The slide backgrounds are .jpg, so a strict reader cannot load any of them;
+  //  - the notes master points at the slide master's theme part. Every master must own its
+  //    theme, so the notes master gets a copy of its own;
+  //  - chart relationships use package-absolute targets ("/ppt/charts/…"); every other
+  //    relationship is relative, and some readers only resolve relative ones.
+  async function fixForStrictReaders(zip) {
+    const ctFile = zip.file('[Content_Types].xml');
+    let ct = ctFile ? await ctFile.async('string') : '';
+    const ct0 = ct;
+    ct = ct.replace(/(<Default\b[^>]*ContentType=")image\/jpg(")/gi, '$1image/jpeg$2');
+
+    const readTheme = async (relsPath) => {
+      const f = zip.file(relsPath); if (!f) return null;
+      const xml = await f.async('string');
+      const m = xml.match(/<Relationship\b[^>]*relationships\/theme"[^>]*>/);
+      const t = m && m[0].match(/Target="([^"]+)"/);
+      return t ? { xml, target: t[1], name: t[1].split('/').pop() } : null;
+    };
+    const slideTheme = await readTheme('ppt/slideMasters/_rels/slideMaster1.xml.rels');
+    const notesRels = 'ppt/notesMasters/_rels/notesMaster1.xml.rels';
+    const notesTheme = await readTheme(notesRels);
+    if (slideTheme && notesTheme && slideTheme.name === notesTheme.name && zip.file('ppt/theme/' + notesTheme.name)) {
+      let n = 2;
+      while (zip.file('ppt/theme/theme' + n + '.xml')) n++;
+      const own = 'theme' + n + '.xml';
+      zip.file('ppt/theme/' + own, await zip.file('ppt/theme/' + notesTheme.name).async('string'));
+      zip.file(notesRels, notesTheme.xml.replace('Target="' + notesTheme.target + '"', 'Target="../theme/' + own + '"'));
+      if (ct && !ct.includes('/ppt/theme/' + own + '"')) ct = ct.replace('</Types>', '<Override PartName="/ppt/theme/' + own + '" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/></Types>');
+    }
+    if (ctFile && ct !== ct0) zip.file('[Content_Types].xml', ct);
+
+    for (const rel of zip.file(/^ppt\/slides\/_rels\/[^/]+\.rels$/)) {
+      const xml = await rel.async('string');
+      const fixed = xml.replace(/Target="\/ppt\//g, 'Target="../');
+      if (fixed !== xml) zip.file(rel.name, fixed);
+    }
+  }
+
+  // Writes the package the way Office does: only real parts (no folder entries, which JSZip
+  // adds and an OPC package must not contain), with [Content_Types].xml first.
+  async function writePackage(zip) {
+    const out = new root.JSZip();
+    const names = Object.keys(zip.files).filter(n => !zip.files[n].dir);
+    const rank = (n) => (n === '[Content_Types].xml' ? 0 : n === '_rels/.rels' ? 1 : 2);
+    names.sort((x, y) => rank(x) - rank(y));
+    for (const n of names) out.file(n, await zip.files[n].async('uint8array'), { binary: true, createFolders: false });
+    return out.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', compression: 'DEFLATE' });
+  }
+
   async function addTransitions(blob, slides, withTransitions) {
     const JSZipLib = root.JSZip;
     if (!JSZipLib) return blob;
@@ -742,6 +794,7 @@
       const zip = await JSZipLib.loadAsync(blob);
       await fixMediaNames(zip);
       await fixPackageStructure(zip);
+      await fixForStrictReaders(zip);
       if (withTransitions !== false) await Promise.all(slides.map(async (s, i) => {
         const path = `ppt/slides/slide${i + 1}.xml`;
         const f = zip.file(path); if (!f) return;
@@ -757,7 +810,7 @@
         xml = xml.slice(0, at) + tr + xml.slice(at);
         zip.file(path, xml);
       }));
-      return await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', compression: 'DEFLATE' });
+      return await writePackage(zip);
     } catch (e) { console.warn('[deck] package repair failed', e); throw new Error('Could not finish building the PowerPoint file. Please try again.'); }
   }
 
@@ -934,5 +987,5 @@ Rules: ${count} slides total including cover and closing. Tell a story: hook →
     return c.toDataURL('image/jpeg', 0.85);
   }
 
-  root.RehablixDeck = { THEMES, ICONS, LAYOUTS, buildPrompt, parseSpec, normalize, plan, chooseTheme, render, renderBase64, previewHtml, coverPreview, version: 2 };
+  root.RehablixDeck = { THEMES, ICONS, LAYOUTS, buildPrompt, parseSpec, normalize, plan, chooseTheme, render, renderBase64, previewHtml, coverPreview, version: 3 };
 })(typeof window !== 'undefined' ? window : this);

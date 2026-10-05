@@ -362,8 +362,20 @@ async function mount() {
     }
   }
 
-  function retrieveFromHistory(id) {
-    const item = historyItems.find(item => item.id === id);
+  function standardizedDrawerItem(id, item) {
+    return {
+      id,
+      title: item.toolName || 'Unknown Tool',
+      meta: item.includeGuides ? 'With guides' : '',
+      time: item.timestamp,
+      searchText: `${item.toolName || ''} ${item.preview || ''}`,
+      raw: item
+    };
+  }
+
+  // fallback: the record as the drawer loaded it (the drawer pages on its own).
+  function retrieveFromHistory(id, fallback) {
+    const item = historyItems.find(item => item.id === id) || fallback;
     if (item) {
       showPreviewCard(item.toolName, item.includeGuides, item.generatedContent, { fromHistory: true, historyId: item.id });
       toolNameInput.value = item.toolName;
@@ -386,16 +398,11 @@ async function mount() {
       emptyHint: 'Generate your first standardized tool to see it here',
       async load() {
         await loadUserHistory();
-        return historyItems.map(item => ({
-          id: item.id,
-          title: item.toolName || 'Unknown Tool',
-          meta: item.includeGuides ? 'With guides' : '',
-          time: item.timestamp,
-          searchText: `${item.toolName || ''} ${item.preview || ''}`,
-          raw: item
-        }));
+        return historyItems.map(item => standardizedDrawerItem(item.id, item));
       },
-      open: (item) => retrieveFromHistory(item.id),
+      // Paged by the drawer, 12 at a time (js/history-drawer.js).
+      pages: () => (currentUser ? [{ path: `history/${currentUser.uid}/standardizedTools`, map: (id, item) => standardizedDrawerItem(id, { id, ...item }) }] : null),
+      open: (item) => retrieveFromHistory(item.id, item.raw),
       async remove(item) {
         if (!confirm('Delete this item from history?')) return false;
         const ok = await removeFromHistory(item.id);

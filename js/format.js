@@ -616,6 +616,17 @@ Return ONLY the HTML.`;
   // ===== Global history drawer provider =====
   // Same data (history/{uid}/formats), same open/delete/clear behaviour the
   // old private drawer had — just rendered by the shell's one drawer.
+  function formatDrawerItem(id, item) {
+    return {
+      id,
+      title: item.patientName || 'Unknown Patient',
+      meta: [item.assessmentType || 'Assessment', item.clinicalSetting].filter(Boolean).join(' · '),
+      time: item.timestamp,
+      searchText: [item.patientName, item.assessmentType, item.department, item.category, item.diagnosis, item.preview].filter(Boolean).join(' '),
+      raw: item
+    };
+  }
+
   function registerHistoryProvider() {
     if (!window.RehablixHistoryDrawer) return;
     window.RehablixHistoryDrawer.register('format', {
@@ -626,15 +637,10 @@ Return ONLY the HTML.`;
       emptyHint: 'Generate your first assessment to see it here',
       async load() {
         await loadUserHistory();
-        return historyItems.map(item => ({
-          id: item.id,
-          title: item.patientName || 'Unknown Patient',
-          meta: [item.assessmentType || 'Assessment', item.clinicalSetting].filter(Boolean).join(' · '),
-          time: item.timestamp,
-          searchText: [item.patientName, item.assessmentType, item.department, item.category, item.diagnosis, item.preview].filter(Boolean).join(' '),
-          raw: item
-        }));
+        return historyItems.map(item => formatDrawerItem(item.id, item));
       },
+      // Paged by the drawer, 12 at a time (js/history-drawer.js).
+      pages: () => (currentUser ? [{ path: `history/${currentUser.uid}/formats`, map: (id, item) => formatDrawerItem(id, { id, ...item }) }] : null),
       open: (item) => retrieveHistoryItem(item.raw),
       async remove(item) {
         if (!confirm('Delete this assessment from your history? This cannot be undone.')) return false;

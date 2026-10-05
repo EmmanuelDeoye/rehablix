@@ -1555,6 +1555,17 @@ ${combinedText || 'No notes provided.'}`;
             .sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0));
     }
 
+    function caseDrawerItem(key, item) {
+        return {
+            id: key,
+            title: item.patientName || 'Unknown',
+            meta: item.mode === 'report' ? 'Report' : item.mode === 'documentation' ? 'Documentation' : 'Presentation',
+            time: item.timestamp,
+            searchText: [item.patientName, item.profession, item.diagnosis].filter(Boolean).join(' '),
+            raw: item
+        };
+    }
+
     if (window.RehablixHistoryDrawer) {
         window.RehablixHistoryDrawer.register('presentation', {
             label: 'Documents & Reports',
@@ -1564,15 +1575,13 @@ ${combinedText || 'No notes provided.'}`;
             emptyHint: 'Generate your first document',
             async load() {
                 const entries = await fetchHistoryEntries();
-                return entries.map(([key, item]) => ({
-                    id: key,
-                    title: item.patientName || 'Unknown',
-                    meta: item.mode === 'report' ? 'Report' : item.mode === 'documentation' ? 'Documentation' : 'Presentation',
-                    time: item.timestamp,
-                    searchText: [item.patientName, item.profession, item.diagnosis].filter(Boolean).join(' '),
-                    raw: item
-                }));
+                return entries.map(([key, item]) => caseDrawerItem(key, item));
             },
+            // Paged by the drawer, 12 at a time (js/history-drawer.js). null = scope not known yet.
+            pages: () => ((currentUser && scopeUid) ? [{
+                path: `history/${scopeUid}/caseHistory`,
+                map: (key, item) => (['presentation', 'report', 'documentation'].includes(item.contentType) ? caseDrawerItem(key, item) : null)
+            }] : null),
             open: (item) => { window.RehablixRouter.go(`index.html?type=case&id=${item.id}#/result`); },
             remove: (item) => deleteHistoryItem(item.id)
         });

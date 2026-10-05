@@ -934,6 +934,17 @@ Return ONLY the polished HTML. No markdown fences.`;
     }
   }
 
+  function assignmentDrawerItem(id, item) {
+    return {
+      id,
+      title: item.topic || 'Untitled',
+      meta: [item.course, item.toneLabel, item.hasOutline ? 'outline' : ''].filter(Boolean).join(' · '),
+      time: item.timestamp,
+      searchText: [item.topic, item.course, item.typeLabel].filter(Boolean).join(' '),
+      raw: item
+    };
+  }
+
   if (window.RehablixHistoryDrawer) {
     window.RehablixHistoryDrawer.register('assignment', {
       label: 'Assignments',
@@ -943,15 +954,10 @@ Return ONLY the polished HTML. No markdown fences.`;
       emptyHint: 'Generated assignments will appear here',
       async load() {
         const entries = await fetchAssignmentHistory();
-        return entries.map(([id, item]) => ({
-          id,
-          title: item.topic || 'Untitled',
-          meta: [item.course, item.toneLabel, item.hasOutline ? 'outline' : ''].filter(Boolean).join(' · '),
-          time: item.timestamp,
-          searchText: [item.topic, item.course, item.typeLabel].filter(Boolean).join(' '),
-          raw: item
-        }));
+        return entries.map(([id, item]) => assignmentDrawerItem(id, item));
       },
+      // Paged by the drawer, 12 at a time (js/history-drawer.js).
+      pages: () => (currentUser ? [{ path: `history/${currentUser.uid}/assignments`, map: assignmentDrawerItem }] : null),
       open: (item) => openAssignment(item.id),
       remove: (item) => deleteAssignment(item.id)
     });

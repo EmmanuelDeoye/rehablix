@@ -498,6 +498,11 @@ Generate exactly ${questionCount} multiple-choice questions at "${difficulty}" d
         await loadAttempts();
         return historyDrawerItems();
       },
+      // Paged by the drawer, 12 at a time (js/history-drawer.js). null = scope not known yet.
+      pages: () => (scopeUid ? [{
+        path: `history/${scopeUid}/exam/attempts`,
+        map: (id, a) => ({ id, title: a.title || 'Exam attempt', meta: `${a.score}% · ${a.correctCount}/${a.totalQuestions}`, time: a.createdAt, raw: a })
+      }] : null),
       open: (item) => renderResults(attempts[item.id] || item.raw)
     });
     cleanupFns.push(() => window.RehablixHistoryDrawer.unregister('exam'));
