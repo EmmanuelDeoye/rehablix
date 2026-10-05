@@ -701,6 +701,9 @@
   //    is sldMasterIdLst, notesMasterIdLst, handoutMasterIdLst, sldIdLst. With speaker notes
   //    present this alone makes PowerPoint say "found unreadable content";
   //  - [Content_Types].xml declares one slideMaster per slide although only slideMaster1 exists;
+  //  - the notes master and the slide master both point at ppt/theme/theme1.xml; every master needs
+  //    its OWN theme part. Desktop PowerPoint tolerates the sharing, PowerPoint for phones/tablets
+  //    refuses to open the file, so the notes master is given a copy (theme2.xml);
   //  - a paragraph made of several text runs gets its <a:pPr> repeated before EVERY run, but a
   //    paragraph may only start with one. PowerPoint then says it "was unable to display some
   //    of the text". The repeats are removed here (the first one already carries the settings).
@@ -727,10 +730,23 @@
         zip.file('ppt/presentation.xml', xml);
       }
     }
+    // Give the notes master its own theme part (see note above).
+    const nmRelsFile = zip.file('ppt/notesMasters/_rels/notesMaster1.xml.rels');
+    const theme1File = zip.file('ppt/theme/theme1.xml');
+    if (nmRelsFile && theme1File && !zip.file('ppt/theme/theme2.xml')) {
+      const nmRels = await nmRelsFile.async('string');
+      if (/Target="\.\.\/theme\/theme1\.xml"/.test(nmRels)) {
+        zip.file('ppt/theme/theme2.xml', await theme1File.async('string'));
+        zip.file(nmRelsFile.name, nmRels.replace(/Target="\.\.\/theme\/theme1\.xml"/, 'Target="../theme/theme2.xml"'));
+      }
+    }
     const ctFile = zip.file('[Content_Types].xml');
     if (ctFile) {
       const ct = await ctFile.async('string');
-      const fixed = ct.replace(/<Override PartName="\/([^"]+)"[^>]*\/>/g, (whole, part) => (zip.file(part) ? whole : ''));
+      let fixed = ct.replace(/<Override PartName="\/([^"]+)"[^>]*\/>/g, (whole, part) => (zip.file(part) ? whole : ''));
+      if (zip.file('ppt/theme/theme2.xml') && !fixed.includes('/ppt/theme/theme2.xml')) {
+        fixed = fixed.replace('</Types>', '<Override PartName="/ppt/theme/theme2.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/></Types>');
+      }
       if (fixed !== ct) zip.file('[Content_Types].xml', fixed);
     }
   }
