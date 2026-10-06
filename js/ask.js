@@ -355,6 +355,16 @@
         a.dataset.handoffPage = TOOL_PAGES.find(p => href === p || href.startsWith(p + '?'));
       }
     });
+    // Each table sits in its own sideways-scrolling box (css/ask.css
+    // .lixa-table-scroll), so a wide table keeps readable columns and scrolls
+    // instead of being squeezed to the width of a phone.
+    wrapper.querySelectorAll('table').forEach(table => {
+      if (table.parentElement && table.parentElement.classList.contains('lixa-table-scroll')) return;
+      const box = document.createElement('div');
+      box.className = 'lixa-table-scroll';
+      table.parentNode.insertBefore(box, table);
+      box.appendChild(table);
+    });
     return wrapper.innerHTML;
   }
 
@@ -2830,6 +2840,18 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     // conversation, or a confidently-detected intent takes over the turn
     // instead of going to the general chat model.
     if (window.LixaOrchestrator) {
+      // A tool uses the attached files as well, so their text has to be ready
+      // before the request is routed (it used to be read only for plain chat).
+      if (attachedFiles.some(a => a.status === 'reading')) {
+        sendBtn.disabled = true;
+        showToast('Finishing up your file(s) — this can take a bit longer for scanned images or PDFs…', 'info', 4000);
+        const readStart = Date.now();
+        while (attachedFiles.some(a => a.status === 'reading') && Date.now() - readStart < 45000) {
+          await new Promise(r => setTimeout(r, 250));
+        }
+        sendBtn.disabled = false;
+        if (isWaiting) return;
+      }
       const handled = await window.LixaOrchestrator.tryHandle(text, attachedFiles);
       if (handled) {
         messageInput.value = '';
@@ -3029,6 +3051,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     reportToolTokenUsage: (text, weight) => reportTokenUsage(text, weight),
     showToast,
     escapeHtml,
+    fileTypeIcon,
     renderFileCard,
     showTyping,
     removeTyping,

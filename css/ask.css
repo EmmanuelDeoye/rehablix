@@ -268,10 +268,31 @@ body {
   margin-left: 0;
   color: var(--text-secondary);
 }
+/* A table keeps readable column widths and scrolls sideways when it is wider
+   than the screen, instead of being squeezed until words break letter by letter.
+   js/ask.js puts every table in a .lixa-table-scroll box. */
+.message.assistant .message-bubble .lixa-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  margin: 1rem 0;
+}
 .message.assistant .message-bubble table {
   border-collapse: collapse;
-  width: 100%;
-  margin: 1rem 0;
+  width: max-content;       /* as wide as its columns need … */
+  min-width: 100%;          /* … but never narrower than the message */
+  max-width: none;          /* the scroll box limits it, not the table itself */
+  margin: 0;
+}
+.message.assistant .message-bubble th,
+.message.assistant .message-bubble td {
+  min-width: 6rem;
+  max-width: 17rem;         /* long text wraps inside a comfortable column */
+  word-break: normal;
+  overflow-wrap: break-word;
+  hyphens: none;
+  vertical-align: top;
 }
 .message.assistant .message-bubble th,
 .message.assistant .message-bubble td {

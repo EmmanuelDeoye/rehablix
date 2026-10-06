@@ -108,6 +108,35 @@
   function meaningfulWords(text) {
     return (text || '').toLowerCase().split(/[^a-z0-9'-]+/).filter((w) => w && !FILLER_WORDS.has(w)).length;
   }
+  // ---- files attached to a tool request --------------------------------
+  // "@presentation create a SOAP note from this" + a PDF: the file IS the
+  // material. Its extracted text travels with the request (hidden from the
+  // Task Setup form) and is put where each tool reads its source material.
+  const ATTACHMENT_CHAR_LIMIT = 30000;
+  function usableAttachments(attachedFiles) {
+    return (attachedFiles || []).filter(a => !(a.type && a.type.startsWith('audio/')) && (a.extractedText || '').trim());
+  }
+  function attachmentTextOf(attachedFiles) {
+    const text = usableAttachments(attachedFiles).map(a => `[Attached file: ${a.name}]\n${a.extractedText.trim()}`).join('\n\n');
+    return text.length > ATTACHMENT_CHAR_LIMIT ? text.slice(0, ATTACHMENT_CHAR_LIMIT) + '\n[…attachment shortened…]' : text;
+  }
+  function attachmentBaseName(attachedFiles) {
+    const first = usableAttachments(attachedFiles)[0];
+    return first ? String(first.name || 'Attached file').replace(/\.[^.]+$/, '') : '';
+  }
+  const joinText = (...parts) => parts.filter(p => p && String(p).trim()).join('\n\n');
+  function withAttachments(toolId, data) {
+    if (!data || !data._attachmentText) return data;
+    const out = Object.assign({}, data);
+    const att = out._attachmentText;
+    delete out._attachmentText;
+    if (toolId === 'presentation') out.content = joinText(out.content, att);
+    else if (toolId === 'format' || toolId === 'study') out.notes = joinText(out.notes, att);
+    else if (toolId === 'deck') out.source = joinText(out.source, att);
+    else out.additionalInstructions = joinText(out.additionalInstructions, 'Reference material attached by the user (use it as the source):\n' + att);
+    return out;
+  }
+
   // The least a request must say before it can be generated from without asking.
   const MIN_DETAIL = { format: 1, standardized: 1, presentation: 3, study: 1, assignment: 2 };
 
@@ -454,8 +483,13 @@
     // =====================================================================
     // Chat helpers
     // =====================================================================
-    function pushUserText(text) {
-      core.pushMessage({ role: 'user', content: text, displayContent: text, timestamp: Date.now() });
+    function pushUserText(text, attachedFiles) {
+      const msg = { role: 'user', content: text, displayContent: text, timestamp: Date.now() };
+      // Show the attached files on the message, as a normal chat message does.
+      if (attachedFiles && attachedFiles.length) {
+        msg.attachmentMeta = attachedFiles.map(a => ({ name: a.name, icon: (core.fileTypeIcon && a.file) ? core.fileTypeIcon(a.file) : 'fa-file-lines' }));
+      }
+      core.pushMessage(msg);
       core.render();
       if (core.getCurrentUser()) core.save();
     }
@@ -543,7 +577,7 @@
       const tool = TOOLS[toolId];
       if (!tool) return false;
 
-      pushUserText(rawText);
+      pushUserText(rawText, attachedFiles);
 
       if (!opts.confirmed) {
         pushAssistantText(`Sounds like you want a **${tool.meta.name}** — let's do it. (Tip: start a message with "@${tool.meta.id}" any time to jump straight to this tool.)`);
@@ -582,6 +616,19 @@
         // before anything is generated; a named standardized tool is specific
         // enough to go straight ahead.
         reviewFirst = !opts.confirmed && toolId !== 'standardized';
+      }
+      // Attached files are part of the request (see withAttachments). Where the
+      // file is the material itself, it stands in for the tool's main input.
+      const attachmentText = attachmentTextOf(attachedFiles);
+      if (attachmentText) {
+        collected._attachmentText = attachmentText;
+        const fileName = attachmentBaseName(attachedFiles);
+        if (toolId === 'presentation') collected.content = (contentText || '').trim() || `Use the attached file (${fileName}).`;
+        if (toolId === 'study') {
+          if (!collected.subject) collected.subject = fileName;
+          if (!collected.notes) collected.notes = `See the attached file (${fileName}).`;
+        }
+        if (toolId === 'deck' && !collected.content) collected.content = (contentText || '').trim() || fileName;
       }
       const missing = missingFieldsFor(tool, collected);
 
@@ -915,6 +962,7 @@
 
     async function runGeneration(toolId, data) {
       const tool = TOOLS[toolId];
+      data = withAttachments(toolId, data);
       hideBanner();
       const stages = (tool.meta.statusStages && tool.meta.statusStages.length) ? tool.meta.statusStages : GENERIC_STAGES;
       showStatus(stages);
@@ -1062,7 +1110,7 @@
 
     // hintText: what to look for when the visible message is a bare command ("/pdf the study set").
     async function startExport(format, text, attachedFiles, hintText) {
-      pushUserText(text);
+      pushUserText(text, attachedFiles);
       const target = await resolveExportTarget(hintText === undefined ? text : hintText, attachedFiles, core.getMessages().slice(0, -1));
       if (!target) {
         pushAssistantText(`I don't have anything to turn into a ${EXPORT_FORMAT_LABEL[format]} yet — ask me to write something first, or add the topic after the command (for example "/${format === 'docx' ? 'word' : format} falls prevention in older adults").`);
@@ -1169,7 +1217,7 @@
         if (target && window.RehablixDeckService) {
           const tool = TOOLS.deck;
           if (target.deckRecordId) return await startTool('deck', shown, text, attachedFiles, { confirmed: true });
-          pushUserText(shown);
+          pushUserText(shown, attachedFiles);
           const source = window.RehablixDeckService.stripHtml(target.html || '');
           const data = Object.assign({}, tool.extractFromText(text), { content: target.title && target.title !== 'Lixa Response' ? target.title : text, source, additionalInstructions: text });
           await runGeneration('deck', data);
