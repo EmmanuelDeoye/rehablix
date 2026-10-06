@@ -1,9 +1,10 @@
 // js/tool-switcher.js — the "all tools" button in the top bar.
 // On every tool page (not on Lixa or Workspace, which are one tap away on the
 // bottom bar) a tools icon sits just before the profile/login control. It
-// opens the list of tools as a panel that slides in from the right edge of
-// the screen, so the user can jump straight from one tool to another without
-// going back to Workspace first.
+// drops the list of tools down under the icon — a frosted-glass card with
+// rounded corners that is only as wide as its content, like the profile menu —
+// so the user can jump straight from one tool to another without going back
+// to Workspace first.
 (function () {
   const TOOLS = [
     { route: 'lixa', label: 'Lixa', icon: 'fa-comment-dots' },
@@ -41,20 +42,13 @@
       </button>`;
     anchor.insertAdjacentElement('afterend', wrap);   // auth.js adds Login / profile after this
 
-    // The panel and its backdrop live on <body>: inside the (blurred) top bar a
-    // fixed element would be positioned against the bar instead of the screen.
-    const backdrop = document.createElement('div');
-    backdrop.className = 'tool-switcher-backdrop';
-    backdrop.hidden = true;
-    const panel = document.createElement('aside');
+    // The menu lives on <body> and is placed under the icon when it opens: inside
+    // the (blurred) top bar its own frosted-glass blur could not see the page.
+    const panel = document.createElement('div');
     panel.className = 'tool-switcher-panel';
     panel.id = 'toolSwitcherPanel';
     panel.hidden = true;
-    panel.setAttribute('aria-label', 'All tools');
-    panel.innerHTML = `
-      <div class="tool-switcher-head"><span>Tools</span><button type="button" class="icon-btn" id="toolSwitcherClose" aria-label="Close"><i class="fas fa-times" aria-hidden="true"></i></button></div>
-      <div class="tool-switcher-menu" id="toolSwitcherMenu" role="menu"></div>`;
-    document.body.appendChild(backdrop);
+    panel.innerHTML = '<div class="tool-switcher-menu" id="toolSwitcherMenu" role="menu" aria-label="All tools"></div>';
     document.body.appendChild(panel);
 
     const btn = wrap.querySelector('#toolSwitcherBtn');
@@ -68,6 +62,13 @@
         : `<button type="button" role="menuitem" class="tool-switcher-item${t.route === here ? ' active' : ''}" data-route="${t.route}"${t.route === here ? ' aria-current="page"' : ''}><i class="fas ${t.icon}" aria-hidden="true"></i><span>${t.label}</span></button>`).join('');
     }
     const isOpen = () => panel.classList.contains('open');
+    // Right edge lined up with the icon, just below it, never off-screen.
+    function place() {
+      const r = btn.getBoundingClientRect();
+      panel.style.top = Math.round(r.bottom + 10) + 'px';
+      panel.style.right = Math.max(8, Math.round(window.innerWidth - r.right - 4)) + 'px';
+      panel.style.maxHeight = Math.max(180, Math.round(window.innerHeight - r.bottom - 26)) + 'px';
+    }
     function setOpen(open) {
       if (open === isOpen() && panel.hidden === !open) return;
       clearTimeout(closeTimer);
@@ -75,21 +76,22 @@
       btn.classList.toggle('active', open);
       if (open) {
         paint();
-        panel.hidden = false; backdrop.hidden = false;
-        void panel.offsetWidth;                  // so the slide-in transition runs
-        panel.classList.add('open'); backdrop.classList.add('open');
+        panel.hidden = false;
+        place();
+        void panel.offsetWidth;                  // so the fade-in runs
+        panel.classList.add('open');
         const first = menu.querySelector('.tool-switcher-item.active') || menu.querySelector('.tool-switcher-item');
         if (first) first.focus({ preventScroll: true });
       } else {
-        panel.classList.remove('open'); backdrop.classList.remove('open');
-        closeTimer = setTimeout(() => { panel.hidden = true; backdrop.hidden = true; }, 240);   // after it has slid back out
+        panel.classList.remove('open');
+        closeTimer = setTimeout(() => { panel.hidden = true; }, 180);
       }
     }
     function sync() { wrap.hidden = HIDDEN_ON.has(current()); if (wrap.hidden) setOpen(false); }
 
     btn.addEventListener('click', (e) => { e.stopPropagation(); setOpen(!isOpen()); });
-    backdrop.addEventListener('click', () => setOpen(false));
-    panel.querySelector('#toolSwitcherClose').addEventListener('click', () => { setOpen(false); btn.focus(); });
+    document.addEventListener('click', (e) => { if (isOpen() && !panel.contains(e.target) && !wrap.contains(e.target)) setOpen(false); });
+    window.addEventListener('resize', () => { if (isOpen()) place(); });
     menu.addEventListener('click', (e) => {
       const item = e.target.closest('.tool-switcher-item'); if (!item) return;
       setOpen(false);

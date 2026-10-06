@@ -38,6 +38,80 @@
   }
 
   // =====================================================================
+  // Understanding the request before a tool is started.
+  //
+  // A tool's keyword appearing in a message is not a request for that tool:
+  //  - "I do not need an assessment format" names it only to refuse it;
+  //  - "help me fix a SOAP note" / "recommend a standardized tool for my
+  //    patient" ask for advice, not for a generated file;
+  //  - "I have a presentation on stroke" or "@format for my patient" do want
+  //    the tool, but say too little to generate from.
+  // The first two go to normal chat (where Lixa answers, and asks for details
+  // with its question form when it needs them). The last opens the tool's
+  // Task Setup form instead of generating straight away from a guess.
+  // =====================================================================
+  const NEGATION_BEFORE_RE = /\b(?:(?:do|does|did|would|will|should|can|could)\s*(?:not|n'?t)|don'?t|dont|won'?t|never|without|no\s+(?:need|more|other)|not\s+(?:need|want|looking|asking|a|an|the|another|any)|stop|instead\s+of|rather\s+than)\b[^.?!\n;,]{0,45}$/i;
+  function isNegatedRequest(text, detected, tool) {
+    const lower = (text || '').toLowerCase();
+    const spots = [];
+    (detected.matchedKeywords || []).forEach((kw) => { const i = lower.indexOf(kw); if (i >= 0) spots.push(i); });
+    if (detected.patternMatched && tool && tool.meta.pattern) { const m = tool.meta.pattern.exec(text); if (m) spots.push(m.index); }
+    return spots.some((i) => {
+      const before = text.slice(Math.max(0, i - 70), i);
+      return NEGATION_BEFORE_RE.test(before) || /\bno\s+(?:an?\s+|the\s+)?$/i.test(before);
+    });
+  }
+
+  const ADVISORY_RE = /\b(recommend|suggest|advise|advice|which|explain|review|fix|correct|improve|check|critique|proofread|feedback|compare|difference|interpret|understand|opinion|should\s+i|how\s+(?:do|to|can|should|would))\b/i;
+  const CREATE_VERB_RE = /\b(generate|create|make|build|draft|prepare|write|produce|compose|put together|draw up|design)\b/i;
+  function wantsAdviceNotAFile(text) {
+    return ADVISORY_RE.test(text || '') && !CREATE_VERB_RE.test(text || '');
+  }
+
+  // What is left of a request once the asking is taken away — "can you make
+  // me an assessment format for my patient with a stroke" -> "stroke". Only
+  // the START of the text is trimmed, so pasted notes are never cut up.
+  const LEAD_INS = [
+    /^@\w+\s*/i,
+    /^(?:hi|hey|hello|ok(?:ay)?|so|well|please|pls|kindly|lixa)[,!.\s]+/i,
+    /^(?:can|could|would|will)\s+you\s+(?:please\s+|kindly\s+)?(?:help\s+me\s+(?:to\s+)?)?/i,
+    /^(?:i\s+(?:want|need|would\s+like|wish|have|got|am\s+(?:doing|preparing|working\s+on|having))|i'?d\s+like|i'?m\s+(?:doing|preparing|working\s+on|having)|we\s+(?:need|want|have))\s+(?:you\s+)?(?:to\s+)?/i,
+    /^(?:help\s+me\s+(?:to\s+)?(?:with\s+)?|let'?s\s+)/i,
+    /^(?:generate|create|make|build|draft|prepare|write|produce|compose|design|do|give|get|send|show|provide|put\s+together|draw\s+up|start|fill\s+out|complete)\s+(?:me\s+|us\s+)?/i,
+    /^(?:a|an|the|my|our|some|one|this|that|new|another|full|complete|quick|short|detailed)\s+/i,
+    /^(?:for|on|about|of|regarding|concerning|around|to|with|in)\s+/i,
+    /^(?:patients?|clients?|case|person|someone|somebody)\b\s*/i
+  ];
+  const TOOL_NOUNS = {
+    format: ['assessment format', 'assessment form', 'clinical assessment', 'patient assessment', 'soap note', 'assessment', 'format', 'template', 'form'],
+    standardized: ['standardized assessment tool', 'standardised assessment tool', 'standardized tool', 'standardised tool', 'standardized assessment', 'standardised assessment', 'assessment tool', 'tool'],
+    presentation: ['case presentation', 'clinical report', 'presentation', 'documentation', 'ward round', 'write-up', 'write up', 'report', 'document'],
+    study: ['study buddy', 'study set', 'study notes', 'flashcards', 'flash cards', 'quiz'],
+    assignment: ['assignment', 'coursework', 'homework', 'essay'],
+    file: ['word document', 'pdf document', 'document', 'write-up', 'write up', 'file', 'copy', 'version']
+  };
+  function cleanTopic(text, toolId) {
+    let t = (text || '').trim();
+    const nouns = (TOOL_NOUNS[toolId] || []).slice().sort((x, y) => y.length - x.length);
+    for (let guard = 0; guard < 40; guard++) {
+      const start = t;
+      t = t.replace(/^[\s:;,.\-–—]+/, '');
+      LEAD_INS.forEach((re) => { t = t.replace(re, ''); });
+      const lower = t.toLowerCase();
+      const noun = nouns.find((n) => lower.startsWith(n) && !/[a-z0-9]/i.test(lower.charAt(n.length)));
+      if (noun) t = t.slice(noun.length);
+      if (t === start) break;
+    }
+    return t.replace(/[\s:;,.\-–—]+$/, '').trim();
+  }
+  const FILLER_WORDS = new Set(['a', 'an', 'the', 'my', 'me', 'for', 'on', 'about', 'of', 'to', 'with', 'please', 'patient', 'patients', 'client', 'clients', 'case', 'some', 'this', 'that', 'it', 'i', 'have', 'has', 'need', 'want', 'is', 'are', 'and', 'or', 'in', 'one', 'now', 'today', 'thanks', 'thank', 'you']);
+  function meaningfulWords(text) {
+    return (text || '').toLowerCase().split(/[^a-z0-9'-]+/).filter((w) => w && !FILLER_WORDS.has(w)).length;
+  }
+  // The least a request must say before it can be generated from without asking.
+  const MIN_DETAIL = { format: 1, standardized: 1, presentation: 3, study: 1, assignment: 2 };
+
+  // =====================================================================
   // Edit-in-place (Lixa History + Intelligence Upgrade #2) — when Lixa has
   // already produced a file/artifact and the user's next message asks to
   // edit/modify/update/reformat/add/remove content "on it", route to that
@@ -78,17 +152,50 @@
   const EXPORT_VERB_RE = /\b(turn\b.{0,20}\binto\b|convert\b.{0,20}\b(?:in)?to\b|export\b.{0,20}\bas\b|save\b.{0,20}\bas\b|make\b.{0,20}\ba\b|give\b.{0,20}\bas\b|download\b.{0,20}\bas\b|get\b.{0,20}\bas\b)/i;
   const EXPORT_FORMATS = [
     { id: 'pdf', re: /\bpdf\b/i },
-    { id: 'docx', re: /\b(word|docx?)\b/i },
+    // "word" on its own is an ordinary word ("a 500 word essay"); it only means
+    // the file type next to "document/file/…" or after as / in / into / to.
+    { id: 'docx', re: /\b(?:ms\s*word|word\s+(?:doc(?:ument)?|file|format|version|copy)|docx?|(?:as|in|into|to)\s+(?:a\s+|an\s+)?(?:ms\s+)?word)\b/i },
     { id: 'pptx', re: /\b(powerpoint|power\s*point|pptx?|slides?)\b/i }
   ];
 
   // Returns 'pdf' | 'docx' | 'pptx' | null. Requires BOTH an export-shaped
   // verb phrase and a recognizable format noun — either alone is too weak
   // a signal (e.g. "save" alone, or "word" alone in an unrelated sentence).
+  // "generate this as a word document", "send it to me in pdf", "I need the pdf copy" —
+  // the same request in other words.
+  const EXPORT_AS_RE = /\b(generate|create|produce|make|give|send|export|download|save|convert|turn|put|get|need|want|have|provide|prepare)\b[\s\S]{0,40}\b(?:as|in|into|to)\s+(?:a\s+|an\s+|the\s+)?(?:ms\s+)?(?:word|pdf|docx?|power\s*point|pptx?)\b/i;
+  const EXPORT_FILE_NOUN_RE = /\b(generate|create|produce|make|give|send|export|download|save|provide|prepare|need|want)\b[\s\S]{0,40}\b(?:word|pdf)\s+(?:doc(?:ument)?|file|version|copy)\b/i;
   function detectExportIntent(text) {
-    if (!text || !EXPORT_VERB_RE.test(text)) return null;
+    if (!text || !(EXPORT_VERB_RE.test(text) || EXPORT_AS_RE.test(text) || EXPORT_FILE_NOUN_RE.test(text))) return null;
     for (const f of EXPORT_FORMATS) { if (f.re.test(text)) return f.id; }
     return null;
+  }
+
+  // File commands: "/word", "/pdf" and "/powerpoint" (with nothing after them
+  // they use what is already in the chat; followed by a topic they make a new one).
+  const FILE_COMMANDS = [
+    { cmd: 'word', format: 'docx', icon: '📝', desc: 'Word document of the last answer, or of a topic you add' },
+    { cmd: 'pdf', format: 'pdf', icon: '📄', desc: 'PDF of the last answer, or of a topic you add' },
+    { cmd: 'powerpoint', format: 'pptx', icon: '🎞️', desc: 'Designed PowerPoint deck (Deck Studio)' }
+  ];
+  const SLASH_RE = /^\/(word|docx?|pdf|powerpoint|power\s*point|pptx?|slides?|deck)\b[\s:,\-]*([\s\S]*)$/i;
+  function parseFileCommand(text) {
+    const m = (text || '').match(SLASH_RE);
+    if (!m) return null;
+    const k = m[1].toLowerCase();
+    return { format: /^(word|doc)/.test(k) ? 'docx' : (k === 'pdf' ? 'pdf' : 'pptx'), rest: m[2].trim() };
+  }
+  // The topic of a request for a NEW document ("make a pdf about falls prevention
+  // in older adults" -> "falls prevention in older adults"); '' when the message
+  // only asks for a file of what is already there.
+  function exportTopic(text) {
+    const stripped = (text || '')
+      .replace(/\b(?:as|in|into|to)\s+(?:a\s+|an\s+|the\s+)?(?:ms\s+)?(?:word|pdf|docx?)(?:\s+(?:doc(?:ument)?|file|format|version|copy))?\b/gi, ' ')
+      .replace(/\b(?:ms\s+)?(?:word|pdf|docx?)\s+(?:doc(?:ument)?|file|format|version|copy)\b/gi, ' document ')
+      .replace(/\b(?:pdf|docx?)\b/gi, ' ')
+      .replace(/\s+/g, ' ');
+    const topic = cleanTopic(stripped, 'file');
+    return meaningfulWords(topic) >= 2 ? topic : '';
   }
 
   // "a specific earlier item" (per the task spec) — lets "turn the study
@@ -272,9 +379,35 @@
       });
     }
 
+    // Typing "/" lists the file commands the same way "@" lists the tools.
+    function renderFileCommandPopup(filterText) {
+      const term = (filterText || '').toLowerCase();
+      const matches = FILE_COMMANDS.filter(c => !term || c.cmd.startsWith(term));
+      if (!matches.length) { mentionPopup.hidden = true; return; }
+      mentionPopup.innerHTML = matches.map(c => `
+        <button type="button" class="mention-item" data-file-command="${c.cmd}">
+          <span class="mention-icon">${c.icon}</span>
+          <span class="mention-text">
+            <span class="mention-name">/${c.cmd}</span>
+            <span class="mention-desc">${core.escapeHtml(c.desc)}</span>
+          </span>
+        </button>`).join('');
+      mentionPopup.hidden = false;
+      mentionPopup.querySelectorAll('.mention-item').forEach(btn => {
+        btn.addEventListener('click', () => {
+          messageInput.value = '/' + btn.dataset.fileCommand + ' ';
+          mentionPopup.hidden = true;
+          messageInput.focus();
+          messageInput.dispatchEvent(new Event('input'));
+        });
+      });
+    }
+
     messageInput.addEventListener('input', () => {
       const m = messageInput.value.match(/^@(\w*)$/);
+      const slash = messageInput.value.match(/^\/(\w*)$/);
       if (m) renderMentionPopup(m[1]);
+      else if (slash) renderFileCommandPopup(slash[1]);
       else mentionPopup.hidden = true;
     });
 
@@ -430,9 +563,29 @@
       }
 
       const collected = (tool.extractFromText ? tool.extractFromText(contentText) : {}) || {};
+      // The tool's own extractor takes the WHOLE sentence as its main input
+      // ("help me with an assessment format for my patient" would become the
+      // diagnosis). Keep only what the request is actually about; if that is
+      // too little to work from, the main input is treated as not given, so
+      // Task Setup asks for it instead of a file being generated from a guess.
+      let reviewFirst = false;
+      if (TASK_SETUP_SCHEMAS[toolId]) {
+        const topic = cleanTopic(contentText, toolId);
+        const requiredKeys = (tool.requiredFields || []).map(f => f.key);
+        if (meaningfulWords(topic) < (MIN_DETAIL[toolId] || 1)) {
+          requiredKeys.forEach(k => { delete collected[k]; });
+        } else if (toolId !== 'standardized' && tool.extractFromText) {
+          const again = tool.extractFromText(topic) || {};
+          requiredKeys.forEach(k => { if (again[k] !== undefined && String(again[k]).trim() !== '') collected[k] = again[k]; else delete collected[k]; });
+        }
+        // A tool Lixa picked by itself (no "@tool") is confirmed in Task Setup
+        // before anything is generated; a named standardized tool is specific
+        // enough to go straight ahead.
+        reviewFirst = !opts.confirmed && toolId !== 'standardized';
+      }
       const missing = missingFieldsFor(tool, collected);
 
-      if (missing.length === 0) {
+      if (missing.length === 0 && !reviewFirst) {
         await runGeneration(toolId, collected);
         return true;
       }
@@ -448,10 +601,12 @@
       // keeps the original behavior exactly: 2+ missing -> modal, exactly
       // 1 missing -> a quick inline chat question (less friction than a
       // whole modal for a single field with nothing else to offer).
-      if (missing.length >= 2 || (missing.length >= 1 && TASK_SETUP_SCHEMAS[toolId])) {
+      if (missing.length >= 2 || (TASK_SETUP_SCHEMAS[toolId] && (missing.length >= 1 || reviewFirst))) {
         showBanner(toolId);
         pending = { toolId, collected, missingQueue: [] };
-        pushAssistantText(`Just need a few details for your **${tool.meta.name}** — I've opened Task Setup for it.`);
+        pushAssistantText(missing.length
+          ? `Just need a few details for your **${tool.meta.name}** — I've opened Task Setup for it.`
+          : `I've filled in what you told me for your **${tool.meta.name}** — check the details in Task Setup, add anything that's missing, then generate.`);
         showTaskSetupModal(tool, missing, collected, async (data) => {
           pending = null;
           hideBanner();
@@ -764,8 +919,13 @@
       const stages = (tool.meta.statusStages && tool.meta.statusStages.length) ? tool.meta.statusStages : GENERIC_STAGES;
       showStatus(stages);
       core.setWaiting(true);
+      // Stop button: the request already sent to the AI cannot be recalled, so
+      // stopping hands the composer back at once and drops the result when it arrives.
+      let stopped = false;
+      if (core.onStop) core.onStop(() => { stopped = true; hideStatus(); core.setWaiting(false); pushAssistantText('Okay, I stopped that. Nothing was added to this chat.'); });
       try {
         const result = await tool.generate(data);
+        if (stopped) return;
         hideStatus();
         if (result && result.ok) {
           const summary = result.summary || `Here's your ${tool.meta.name.toLowerCase()}:`;
@@ -787,12 +947,15 @@
           pushAssistantText(`Sorry, I couldn't generate that: ${(result && result.error) || 'unknown error'}. Want to try again?`);
         }
       } catch (err) {
+        if (stopped) return;
         hideStatus();
         console.error('[lixa] generation failed', err);
         pushAssistantText(`Sorry, something went wrong generating that (${err.message || err}). Want to try again?`);
       } finally {
-        core.setWaiting(false);
-        core.refreshHistoryList && core.refreshHistoryList();
+        if (!stopped) {
+          core.setWaiting(false);
+          core.refreshHistoryList && core.refreshHistoryList();
+        }
       }
     }
 
@@ -811,8 +974,11 @@
       const stages = (tool.meta.editStatusStages && tool.meta.editStatusStages.length) ? tool.meta.editStatusStages : ['Reading the current file…', 'Applying your changes…', 'Updating the file…'];
       showStatus(stages);
       core.setWaiting(true);
+      let stopped = false;
+      if (core.onStop) core.onStop(() => { stopped = true; hideStatus(); core.setWaiting(false); pushAssistantText('Okay, I stopped that.'); });
       try {
         const result = await tool.edit(card.recordId, instruction, card);
+        if (stopped) return true;
         hideStatus();
         if (result && result.ok) {
           pushAssistantText(result.summary || `Here's the updated ${tool.meta.name.toLowerCase()}:`, result.fileCard);
@@ -820,12 +986,15 @@
           pushAssistantText(`Sorry, I couldn't update that: ${(result && result.error) || 'unknown error'}. Want to try again?`);
         }
       } catch (err) {
+        if (stopped) return true;
         hideStatus();
         console.error('[lixa] edit failed', err);
         pushAssistantText(`Sorry, something went wrong updating that (${err.message || err}). Want to try again?`);
       } finally {
-        core.setWaiting(false);
-        core.refreshHistoryList && core.refreshHistoryList();
+        if (!stopped) {
+          core.setWaiting(false);
+          core.refreshHistoryList && core.refreshHistoryList();
+        }
       }
       return true;
     }
@@ -891,14 +1060,19 @@
       return null; // nothing to export — caller asks instead of guessing
     }
 
-    async function startExport(format, text, attachedFiles) {
+    // hintText: what to look for when the visible message is a bare command ("/pdf the study set").
+    async function startExport(format, text, attachedFiles, hintText) {
       pushUserText(text);
-      const target = await resolveExportTarget(text, attachedFiles, core.getMessages());
+      const target = await resolveExportTarget(hintText === undefined ? text : hintText, attachedFiles, core.getMessages().slice(0, -1));
       if (!target) {
-        pushAssistantText(`I don't have anything to turn into a ${EXPORT_FORMAT_LABEL[format]} yet — paste the content you'd like exported, or ask me to create something first.`);
+        pushAssistantText(`I don't have anything to turn into a ${EXPORT_FORMAT_LABEL[format]} yet — ask me to write something first, or add the topic after the command (for example "/${format === 'docx' ? 'word' : format} falls prevention in older adults").`);
         return true;
       }
+      return await deliverExport(format, target);
+    }
 
+    // Hands the content over as a file, always with a file card in the chat.
+    async function deliverExport(format, target) {
       showStatus(['Preparing your file…']);
       core.setWaiting(true);
       try {
@@ -916,7 +1090,14 @@
           const fileBase = (target.title || 'document').replace(/[^a-z0-9]+/gi, '_').slice(0, 60) || 'document';
           await window.RehablixDocx.download(target.html, { title: target.title, fileBase });
           hideStatus();
-          pushAssistantText(`Here's **${target.title}** as a Word document — check your downloads.`);
+          pushAssistantText(`Here's **${target.title}** as a Word document — it has been saved to your downloads.`, {
+            icon: '📝', title: target.title, meta: 'Word document', snippet: 'Saved to your downloads.',
+            toolId: 'standardized', html: target.html,
+            actions: [
+              { type: 'button', id: 'download-docx', label: 'Download Word', primary: true, icon: 'fa-file-word' },
+              { type: 'button', id: 'view-pdf', label: 'Open as PDF', icon: 'fa-file-pdf' }
+            ]
+          });
         } else if (format === 'pptx') {
           const pres = TOOLS.presentation;
           const exportData = target.exportData || { content: target.html, patientName: '', profession: '', diagnosis: '', modeLabel: target.title, mode: 'report' };
@@ -934,25 +1115,68 @@
       return true;
     }
 
+    // "/word falls prevention in older adults" or "make a pdf about …": nothing
+    // in the chat to export yet, so the document is written first (a normal,
+    // visible, stoppable chat turn) and then handed over as the file.
+    async function writeThenExport(format, rawText, topic) {
+      const label = EXPORT_FORMAT_LABEL[format];
+      core.pushMessage({
+        role: 'user',
+        content: `Write a complete, well-structured document on the following, ready to be saved as a ${label}. Start with the document title as a level-1 heading. Use clear headings and short paragraphs, and lists or tables where they help. Do not add any preamble or closing remarks, and do not mention file formats or downloading.\n\nTopic / request: ${topic}`,
+        displayContent: rawText,
+        timestamp: Date.now()
+      });
+      core.render();
+      if (core.getCurrentUser()) await core.save();
+      await core.runTurn(topic);
+      const all = core.getMessages();
+      const last = all[all.length - 1];
+      const body = last && last.role === 'assistant' ? (last.content || '') : '';
+      // Stopped, failed, or Lixa asked for details first: no file yet.
+      if (!body.trim() || last.finishReason === 'stopped' || /```lixa-form/.test(body) || body.trim().split(/\s+/).length < 60) return true;
+      const heading = body.match(/^\s*#{1,3}\s+(.+)$/m);
+      const title = ((heading ? heading[1] : topic) || 'Document').replace(/[*_`#]/g, '').trim().slice(0, 90) || 'Document';
+      const html = (typeof marked !== 'undefined') ? marked.parse(body) : htmlFromPlainText(body);
+      return await deliverExport(format, { title, html });
+    }
+
+    async function startFileCommand(format, rawText, rest, attachedFiles) {
+      const hasAttachment = !!(attachedFiles && attachedFiles.length);
+      if (format === 'pptx') {
+        if (!TOOLS.deck) return await startExport('pptx', rawText, attachedFiles, rest);
+        if (!rest && !hasAttachment) {
+          const target = await resolveExportTarget('', attachedFiles, core.getMessages());
+          if (!target) return await startTool('deck', rawText, '', attachedFiles, { confirmed: true });
+          return await startDeck('Turn this into a PowerPoint', attachedFiles, rawText);
+        }
+        return await startDeck(rest || 'Turn this into a PowerPoint', attachedFiles, rawText);
+      }
+      if (!rest || hasAttachment || DECK_REFERS_BACK_RE.test(rest) || meaningfulWords(cleanTopic(rest, 'file')) < 2) {
+        return await startExport(format, rawText, attachedFiles, rest);
+      }
+      return await writeThenExport(format, rawText, cleanTopic(rest, 'file') || rest);
+    }
+
     // "Turn this into a PowerPoint" builds a designed deck FROM what is
     // already in the chat (an attachment, a named earlier file, or the last
     // real answer); "make a PowerPoint about X" starts a new deck on X.
     const DECK_REFERS_BACK_RE = /\b(this|that|it|these|those|above|previous|last|earlier|the\s+(?:answer|response|report|format|transcript|assignment|notes?|document|summary|essay|plan|study\s+set))\b/i;
-    async function startDeck(text, attachedFiles) {
+    async function startDeck(text, attachedFiles, shownText) {
+      const shown = shownText || text;
       const hasAttachment = !!(attachedFiles && attachedFiles.length);
       if (hasAttachment || DECK_REFERS_BACK_RE.test(text)) {
         const target = await resolveExportTarget(text, attachedFiles, core.getMessages());
         if (target && window.RehablixDeckService) {
           const tool = TOOLS.deck;
-          if (target.deckRecordId) return await startTool('deck', text, text, attachedFiles, { confirmed: true });
-          pushUserText(text);
+          if (target.deckRecordId) return await startTool('deck', shown, text, attachedFiles, { confirmed: true });
+          pushUserText(shown);
           const source = window.RehablixDeckService.stripHtml(target.html || '');
           const data = Object.assign({}, tool.extractFromText(text), { content: target.title && target.title !== 'Lixa Response' ? target.title : text, source, additionalInstructions: text });
           await runGeneration('deck', data);
           return true;
         }
       }
-      return await startTool('deck', text, text, attachedFiles, { confirmed: true });
+      return await startTool('deck', shown, text, attachedFiles, { confirmed: true });
     }
 
     // =====================================================================
@@ -1034,18 +1258,31 @@
 
       if (!text) return false;
 
+      // "/word", "/pdf", "/powerpoint"
+      const fileCommand = parseFileCommand(text);
+      if (fileCommand) return await startFileCommand(fileCommand.format, text, fileCommand.rest, attachedFiles);
+
       // Generic export intent is checked ahead of everything below it —
       // it fires regardless of whether the message matches any of the six
       // registered tools' keywords/patterns (feature: generic export).
       const exportFormat = detectExportIntent(text);
       if (exportFormat === 'pptx' && TOOLS.deck) return await startDeck(text, attachedFiles);
-      if (exportFormat) return await startExport(exportFormat, text, attachedFiles);
+      if (exportFormat) {
+        // "make a pdf about falls prevention": a new document, not a copy of the last answer.
+        const topic = (attachedFiles && attachedFiles.length) || DECK_REFERS_BACK_RE.test(text) ? '' : exportTopic(text);
+        if (topic) return await writeThenExport(exportFormat, text, topic);
+        return await startExport(exportFormat, text, attachedFiles);
+      }
 
       const editTarget = detectEditTarget(text, core.getMessages());
       if (editTarget) return await startEdit(editTarget, text);
 
       const detected = detectToolIntent(text, attachedFiles);
       if (detected && detected.score >= CONFIDENCE_THRESHOLD && isGenuineToolRequest(text, detected, attachedFiles)) {
+        // Naming a tool to refuse it, or asking for advice about one, is a chat
+        // message (an attached audio file is still a transcription request).
+        const audioAttached = detected.toolId === 'audio' && attachedFiles && attachedFiles.some(a => a.type && a.type.startsWith('audio/'));
+        if (!audioAttached && (isNegatedRequest(text, detected, TOOLS[detected.toolId]) || wantsAdviceNotAFile(text))) return false;
         return await startTool(detected.toolId, text, text, attachedFiles, { confirmed: false });
       }
 
@@ -1053,7 +1290,17 @@
     }
 
     function handleFileAction(actionId, card) {
-      if (!card || !card.toolId) return;
+      if (!card) return;
+      // A Word file card (deliverExport): download the same document again.
+      if (actionId === 'download-docx') {
+        if (!window.RehablixDocx || !card.html) { core.showToast('Word export is not available right now.', 'error'); return; }
+        const fileBase = (card.title || 'document').replace(/[^a-z0-9]+/gi, '_').slice(0, 60) || 'document';
+        window.RehablixDocx.download(card.html, { title: card.title, fileBase })
+          .then(() => core.showToast('Saved to your downloads', 'success'))
+          .catch(() => core.showToast('Could not create the Word document. Please try again.', 'error'));
+        return;
+      }
+      if (!card.toolId) return;
       const tool = TOOLS[card.toolId];
       if (tool && typeof tool.handleAction === 'function') {
         tool.handleAction(actionId, card);
@@ -1071,6 +1318,11 @@
     let currentView = 'chats';
     let allFiles = [];
     let selectedFileType = 'all';
+
+    // Where the Files list was scrolled to: re-drawing it or coming back to it
+    // returns there instead of jumping to the top.
+    let filesScrollPos = 0;
+    if (filesList) filesList.addEventListener('scroll', () => { if (!filesList.hidden) filesScrollPos = filesList.scrollTop; });
 
     function setView(view) {
       currentView = view;
@@ -1094,6 +1346,8 @@
       // the last load. Same "cache until something actually changes"
       // pattern onHistoryOpen() already uses for Chats.
       if (!isChats && allFiles.length === 0) loadFilesList();
+      if (isChats) { if (core.restoreHistoryScroll) core.restoreHistoryScroll(); }
+      else if (filesList) filesList.scrollTop = filesScrollPos;
     }
 
     if (filesToggleBtn) {
@@ -1148,7 +1402,7 @@
       if (!user) { showFilesMessage('bx-lock-alt', 'Log in to see your files'); return; }
       if (filesBusy) return;
       filesBusy = true;
-      if (first) { fileCursors = {}; allFiles = []; clearFilesRows(); }
+      if (first) { fileCursors = {}; allFiles = []; filesScrollPos = 0; clearFilesRows(); }
       if (filesLoading) filesLoading.hidden = !first;
       const moreBtn = document.getElementById('filesLoadMoreBtn');
       if (moreBtn) { moreBtn.disabled = true; moreBtn.textContent = 'Loading…'; }
@@ -1192,6 +1446,7 @@
     }
 
     function renderFilesList() {
+      const keepScroll = filesScrollPos;
       const term = (filesSearchInput.value || '').toLowerCase().trim();
       const filtered = allFiles.filter(f =>
         (selectedFileType === 'all' || f.type === selectedFileType) &&
@@ -1226,6 +1481,8 @@
           openFile(el.dataset.type, el.dataset.id);
         });
       });
+      filesScrollPos = keepScroll;
+      if (!filesList.hidden) filesList.scrollTop = keepScroll;
     }
 
     // Permanently removes one saved file (asks first). Only the user's own

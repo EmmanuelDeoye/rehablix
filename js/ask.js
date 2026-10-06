@@ -86,6 +86,49 @@
   let titleIsFinal = false;
   let messages = [];                     // [{role, content, displayContent, attachmentMeta, timestamp, visionImages?, _rawFiles?}]
   let isWaiting = false;
+
+  // ---- Stop / Continue -------------------------------------------------
+  // While a request is running the microphone and Send buttons are replaced by
+  // one Stop button. Stopping a chat reply aborts the stream and keeps what was
+  // already written; that message then offers "Continue" (see renderMessages)
+  // until the user sends or edits another prompt.
+  let stopRequested = false;
+  let activeAbort = null;        // AbortController of the request in flight
+  let stopWaiters = [];          // rejecters of stoppable() promises
+  let externalStop = null;       // js/lixa.js: how to stop a tool generation
+  const stopError = () => { const e = new Error('Stopped'); e.name = 'AbortError'; return e; };
+  const isStop = (e) => stopRequested || !!(e && e.name === 'AbortError');
+  // Lets a step that has no abortable request of its own (planning, suggestions…) end at once on Stop.
+  function stoppable(promise) {
+    return Promise.race([promise, new Promise((_, reject) => { stopWaiters.push(reject); })]);
+  }
+  function beginStoppable() { stopRequested = false; stopWaiters = []; activeAbort = new AbortController(); }
+  function endStoppable() { activeAbort = null; stopWaiters = []; externalStop = null; }
+
+  const stopBtn = document.createElement('button');
+  stopBtn.type = 'button';
+  stopBtn.id = 'stopBtn';
+  stopBtn.className = 'stop-btn';
+  stopBtn.hidden = true;
+  stopBtn.title = 'Stop';
+  stopBtn.setAttribute('aria-label', 'Stop generating');
+  stopBtn.innerHTML = '<i class="fas fa-stop" aria-hidden="true"></i>';
+  if (sendBtn) sendBtn.insertAdjacentElement('afterend', stopBtn);
+  function syncComposer() {
+    if (sendBtn) sendBtn.hidden = isWaiting;
+    if (micBtn) micBtn.hidden = isWaiting;
+    stopBtn.hidden = !isWaiting;
+  }
+  stopBtn.addEventListener('click', () => {
+    if (!isWaiting || stopRequested) return;
+    stopRequested = true;
+    stopBtn.disabled = true;
+    setTimeout(() => { stopBtn.disabled = false; }, 600);
+    if (activeAbort) { try { activeAbort.abort(); } catch (e) { /* already settled */ } }
+    const waiters = stopWaiters; stopWaiters = [];
+    waiters.forEach((reject) => { try { reject(stopError()); } catch (e) { /* ignore */ } });
+    if (externalStop) { const fn = externalStop; externalStop = null; try { fn(); } catch (e) { console.error('[stop]', e); } }
+  });
   let attachedFiles = [];                // [{id, file, name, type, status, extractedText, visionImages, error}]
 
   const database = firebase.database();
@@ -1116,8 +1159,12 @@ ${window.RehablixKnowledge ? window.RehablixKnowledge.text('web') : ''}`;
         // finishReason === 'length' means the model hit its max_tokens
         // ceiling mid-thought (not a natural stop) — offer to continue
         // instead of leaving the response trailing off.
-        const continueBtnHtml = msg.finishReason === 'length'
-          ? `<button class="action-btn continue-btn" title="This response was cut short — continue it"><i class="fas fa-forward"></i> <span class="action-btn-label">Continue</span></button>`
+        // 'stopped' = the user pressed Stop mid-reply. Either way it is only
+        // offered on the latest message: once another prompt is sent (or an
+        // earlier one edited) there is nothing left to continue.
+        const canContinue = (msg.finishReason === 'length' || msg.finishReason === 'stopped') && index === messages.length - 1;
+        const continueBtnHtml = canContinue
+          ? `<button class="action-btn continue-btn" title="${msg.finishReason === 'stopped' ? 'You stopped this response — continue it' : 'This response was cut short — continue it'}"><i class="fas fa-forward"></i> <span class="continue-btn-label">Continue</span></button>`
           : '';
         actionsDiv.innerHTML = `
           ${continueBtnHtml}
@@ -1482,18 +1529,21 @@ ${window.RehablixKnowledge ? window.RehablixKnowledge.text('web') : ''}`;
       const assistantMsg = messages[index];
       const bubbleEl = messageDiv.querySelector('.message-bubble');
       if (!bubbleEl) return;
-      isWaiting = true;
+      isWaiting = true; syncComposer();
+      beginStoppable();
       sendBtn.disabled = true;
       btn.disabled = true;
       btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Continuing…';
       continueAssistantTurn(assistantMsg, bubbleEl, () => {
-        isWaiting = false;
+        endStoppable();
+        isWaiting = false; syncComposer();
         sendBtn.disabled = false;
         renderMessages();
       }).catch((err) => {
         console.error('[continue] failed:', err);
         showToast('Failed to continue the response. Please try again.', 'error');
-        isWaiting = false;
+        endStoppable();
+        isWaiting = false; syncComposer();
         sendBtn.disabled = false;
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-forward"></i> Continue';
@@ -1967,6 +2017,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${config.token}`
       },
+      signal: activeAbort ? activeAbort.signal : undefined,   // the Stop button
       // js/ai-transport.js builds the body: the web-search model needs
       // max_completion_tokens + web_search_options and takes no sampling params.
       body: JSON.stringify(window.RehablixAI
@@ -2194,7 +2245,14 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     }
 
     bubbleEl.classList.add('streaming-text');
-    const result = await streamChatCompletion(config, apiMessages, needsVision, onToken, config.maxTokens);
+    let result;
+    try {
+      result = await streamChatCompletion(config, apiMessages, needsVision, onToken, config.maxTokens);
+    } catch (err) {
+      if (!isStop(err)) throw err;
+      // Stopped again: keep what arrived, and it can be continued once more.
+      result = { text: latestFullSoFar.slice(assistantMsg.content.length), finishReason: 'stopped' };
+    }
     bubbleEl.classList.remove('streaming-text');
     assistantMsg.content = assistantMsg.content + (result.text || '');
     assistantMsg.finishReason = result.finishReason;
@@ -2222,8 +2280,9 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   // full renderMessages() pass once complete to get proper markdown,
   // action buttons, and suggestions.
   async function runAssistantTurn(promptTextForSuggestions) {
-    isWaiting = true;
+    isWaiting = true; syncComposer();
     sendBtn.disabled = true;
+    if (!activeAbort) beginStoppable();   // handleSend may already have started the stoppable window
 
     // Multi-step intelligence (feature 4): plan silently for messages that
     // look complex, then show the plan's steps as short status text (feature
@@ -2233,13 +2292,13 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     const hasFiles = !!(lastMsg && lastMsg.attachmentMeta && lastMsg.attachmentMeta.length > 0);
     let plan = null;
     quickTurn = !hasFiles && isSmallTalk(promptTextForSuggestions);
-    if (!quickTurn && looksComplex(promptTextForSuggestions)) plan = await buildPlan(promptTextForSuggestions);
-    showTyping(quickTurn ? [''] : stagesFromPlan(plan, hasFiles));
+    if (!quickTurn && !stopRequested && looksComplex(promptTextForSuggestions)) plan = await stoppable(buildPlan(promptTextForSuggestions)).catch(() => null);
+    if (!stopRequested) showTyping(quickTurn ? [''] : stagesFromPlan(plan, hasFiles));
 
     // Clinical context awareness (feature 6.3/7): only looked up when the
     // plan flagged that a specific patient is referenced.
     let patientContext = null;
-    if (plan && plan.needsPatientContext) patientContext = await findPatientContext(promptTextForSuggestions);
+    if (!stopRequested && plan && plan.needsPatientContext) patientContext = await stoppable(findPatientContext(promptTextForSuggestions)).catch(() => null);
 
     let assistantMsg = null;
     let bubbleEl = null;
@@ -2287,7 +2346,8 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     }
 
     try {
-      const { text: reply, finishReason } = await callAI(handleToken, { plan, patientContext });
+      if (stopRequested) throw stopError();
+      const { text: reply, finishReason } = await stoppable(callAI(handleToken, { plan, patientContext }));
       removeTyping();
       if (!assistantMsg) {
         // Defensive fallback: streaming produced no visible tokens (e.g. a
@@ -2305,12 +2365,13 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       // Self-verification (feature 6.5): only for clinical requests, and
       // only ever ADDS one short caveat line — it never edits or blocks the
       // model's actual answer.
-      if (plan && plan.clinicalRequest) {
-        const note = await verifyReply(promptTextForSuggestions, reply, patientContext);
+      // The reply itself is complete from here on: Stop only skips these extras.
+      if (plan && plan.clinicalRequest && !stopRequested) {
+        const note = await stoppable(verifyReply(promptTextForSuggestions, reply, patientContext)).catch(() => null);
         if (note) assistantMsg.content = assistantMsg.content + `\n\n> ⚠️ ${note}`;
       }
 
-      const suggestions = await generateSuggestions(promptTextForSuggestions, reply);
+      const suggestions = stopRequested ? [] : await stoppable(generateSuggestions(promptTextForSuggestions, reply)).catch(() => []);
       assistantMsg.suggestions = suggestions;
       renderMessages();
 
@@ -2349,6 +2410,19 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       }
     } catch (error) {
       removeTyping();
+      if (isStop(error)) {
+        // Stopped by the user: what was already written stays, marked so it can be continued.
+        if (assistantMsg) {
+          if ((assistantMsg.content || '').trim()) assistantMsg.finishReason = 'stopped';
+          else { const idx = messages.indexOf(assistantMsg); if (idx !== -1) messages.splice(idx, 1); }
+        }
+        if (currentUser && !titleIsFinal && messages.filter(m => m.role === 'user').length === 1) {
+          conversationTitle = localTitleFallback(promptTextForSuggestions);
+          titleIsFinal = true;
+        }
+        renderMessages();
+        if (currentUser) saveConversation().then((ok) => { if (ok) loadHistoryList(); });
+      } else {
       if (assistantMsg) {
         // Drop the partially-streamed reply rather than leaving/saving a
         // broken half-response — the user sees a clear error toast instead.
@@ -2359,8 +2433,10 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       showToast(`Error: ${errorMsg}`, 'error', 5000);
       renderMessages();
       if (currentUser) saveConversation();
+      }
     } finally {
-      isWaiting = false;
+      endStoppable();
+      isWaiting = false; syncComposer();
       sendBtn.disabled = false;
       messageInput.disabled = false;
       // Don't force the mobile keyboard back open right after a reply lands —
@@ -2388,6 +2464,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       displayContent: m.displayContent || null,
       attachmentMeta: m.attachmentMeta || null,
       fileCard: m.fileCard || null,
+      finishReason: m.finishReason === 'stopped' ? 'stopped' : null,   // so "Continue" survives a reload
       timestamp: m.timestamp || Date.now()
     }));
 
@@ -2480,6 +2557,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
         }
 
         renderMessages();
+        renderHistoryList(allConversations);   // moves the highlight; the list keeps its scroll position
         showToast('Conversation loaded', 'success');
 
         // FIXED: Do NOT automatically save/update the timestamp.
@@ -2505,6 +2583,8 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     try {
       await database.ref(`history/${currentUser.uid}/askConversations/${convId}`).remove();
       if (currentConversationId === convId) newChat();
+      allConversations = allConversations.filter(c => c.id !== convId);
+      renderHistoryList(allConversations);
       loadHistoryList();
       showToast('Conversation deleted', 'success');
     } catch (error) {
@@ -2542,6 +2622,12 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
   let historyOldestKey = null;
   let historyScrollBound = false;
   let historyLoadToken = 0;
+  // Where the list was scrolled to. Re-drawing it (opening a conversation,
+  // re-opening the drawer, a refresh after a save) puts it back there instead
+  // of jumping to the top.
+  let historyScrollPos = 0;
+  let historyUid = null;         // whose conversations allConversations holds
+  function restoreHistoryScroll() { if (historyList && !historyList.hidden) historyList.scrollTop = historyScrollPos; }
 
   // "3:45 PM" for anything within the last 24h, "Sep 14" beyond that.
   function formatRelative(ts) {
@@ -2574,12 +2660,21 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     }
     const token = ++historyLoadToken;
     const uid = currentUser.uid;
+    // Another account signed in: nothing of the previous list carries over.
+    if (historyUid !== uid) { historyUid = uid; allConversations = []; historyOldestKey = null; historyHasMore = true; historyScrollPos = 0; }
     // The skeleton only covers a first load; a refresh keeps the rows on screen.
     if (historyLoading) historyLoading.hidden = allConversations.length > 0;
     try {
       const page = await fetchHistoryPage(uid, null);
       if (token !== historyLoadToken) return;
-      const rows = page.rows;
+      let rows = page.rows;
+      // Only the newest page is re-read. Older pages that were already loaded
+      // stay in the list, so it keeps its length (and its scroll position);
+      // anything newer than this page's oldest key that is no longer in the
+      // page was deleted and drops out.
+      const freshIds = new Set(rows.map(c => c.id));
+      const older = page.oldestKey && page.full ? allConversations.filter(c => !freshIds.has(c.id) && c.id < page.oldestKey && c.id !== currentConversationId) : [];
+      rows = rows.concat(older);
       // An older conversation that is open (and was just continued) may not be
       // in the newest page: keep its row so it doesn't vanish from the list.
       if (currentConversationId && !rows.some(c => c.id === currentConversationId)) {
@@ -2587,8 +2682,10 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
         if (known || conversationTitle) rows.push({ id: currentConversationId, title: (known && known.title) || conversationTitle, updatedAt: Date.now(), createdAt: known && known.createdAt });
       }
       allConversations = sortHistory(rows);
-      historyOldestKey = page.oldestKey;
-      historyHasMore = page.full;
+      if (!(older.length && historyOldestKey && historyOldestKey < page.oldestKey)) {
+        historyOldestKey = page.oldestKey;
+        historyHasMore = page.full;
+      }
       historyLoadingMore = false;
       renderHistoryList(allConversations);
       bindHistoryScroll();
@@ -2650,6 +2747,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     if (historyScrollBound || !historyList) return;
     historyScrollBound = true;
     historyList.addEventListener('scroll', () => {
+      if (!historyList.hidden) historyScrollPos = historyList.scrollTop;
       if (!historyHasMore || historyLoadingMore) return;
       const nearBottom = historyList.scrollHeight - historyList.scrollTop - historyList.clientHeight < HISTORY_SCROLL_THRESHOLD;
       if (nearBottom) loadMoreHistory();
@@ -2664,6 +2762,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
 
   function renderHistoryList(conversations) {
     if (!historyList) return;
+    const keepScroll = historyScrollPos;
     // Loading skeleton is a sibling, not a child we'd clobber — only the
     // rendered rows/empty-state get replaced here.
     historyList.querySelectorAll(':scope > *:not(#historyLoading)').forEach(el => el.remove());
@@ -2712,6 +2811,8 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       historyList.appendChild(div);
     });
     appendHistoryLoadMore();
+    historyScrollPos = keepScroll;
+    restoreHistoryScroll();
     // A first page that doesn't fill the drawer can't be scrolled, so fetch the next one now.
     if (historyHasMore && !historyLoadingMore && !historyList.hidden && historyList.clientHeight > 0 && historyList.scrollHeight <= historyList.clientHeight + 4) loadMoreHistory();
   }
@@ -2739,7 +2840,8 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       }
     }
 
-    isWaiting = true;
+    isWaiting = true; syncComposer();
+    beginStoppable();
     sendBtn.disabled = true;
     messageInput.disabled = true;
 
@@ -2755,7 +2857,7 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
       showToast('Finishing up your file(s) — this can take a bit longer for scanned images or PDFs…', 'info', 4000);
     }
     const waitStart = Date.now();
-    while (attachedFiles.some(a => a.status === 'reading') && Date.now() - waitStart < 45000) {
+    while (!stopRequested && attachedFiles.some(a => a.status === 'reading') && Date.now() - waitStart < 45000) {
       await new Promise(r => setTimeout(r, 250));
     }
     if (attachedFiles.some(a => a.status === 'reading')) {
@@ -2931,10 +3033,17 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     showTyping,
     removeTyping,
     setWaiting: (waiting) => {
-      isWaiting = waiting;
+      if (waiting) stopRequested = false; else endStoppable();
+      isWaiting = waiting; syncComposer();
       sendBtn.disabled = waiting;
       messageInput.disabled = waiting;
     },
+    // Stop button while a tool is generating: js/lixa.js says how to stop it.
+    onStop: (fn) => { externalStop = fn; },
+    // Runs one normal chat turn on the messages as they stand (used by "/word …" and
+    // "/pdf …", which first have the answer written and then turn it into a file).
+    runTurn: (promptText) => runAssistantTurn(promptText),
+    restoreHistoryScroll,
     isWaiting: () => isWaiting,
     scrollToBottom: () => { chatMessages.scrollTop = chatMessages.scrollHeight; },
     refreshHistoryList: () => loadHistoryList(),
