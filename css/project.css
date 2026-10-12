@@ -281,7 +281,7 @@
 /* ===== Independent Scrolling Workspace ===== */
 .project-workspace {
   display: flex;
-  height: calc(100vh - 56px - 45px);
+  height: calc(100vh - 56px - 45px); height: calc(100dvh - 56px - 45px);
   overflow: hidden;
 }
 
@@ -1790,7 +1790,7 @@
   padding: 2rem;
   max-width: 550px;
   width: 90%;
-  max-height: 85vh;
+  max-height: 85vh; max-height: 85dvh;
   overflow-y: auto;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   animation: slideUp 0.3s ease;
@@ -1974,7 +1974,7 @@
   top: 0;
   left: -420px;
   width: 420px;
-  height: 100vh;
+  height: 100vh; height: 100dvh;
   background: var(--card-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -2358,7 +2358,7 @@
    Scoping the layout rules to #projScreenReview.active keeps the same
    override power ONLY while this screen is genuinely the active one. */
 #projScreenReview.active {
-  height: calc(100vh - 56px);
+  height: calc(100vh - 56px); height: calc(100dvh - 56px);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -2543,7 +2543,7 @@
     z-index: 200;
     width: 85%;
     max-width: 320px;
-    height: 100vh;
+    height: 100vh; height: 100dvh;
     transition: left 0.3s ease;
   }
 
@@ -2563,7 +2563,7 @@
     z-index: 200;
     width: 85%;
     max-width: 340px;
-    height: 100vh;
+    height: 100vh; height: 100dvh;
     transition: right 0.3s ease;
   }
 

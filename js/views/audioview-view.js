@@ -188,8 +188,11 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = `${titleEl.textContent.replace(/[^\w\- ]/g, '')}.txt`;
+      document.body.appendChild(a);   // iOS only starts a download from a link that is in the page
       a.click();
-      URL.revokeObjectURL(url);
+      a.remove();
+      // Not released at once: Safari on iOS fetches the file a moment after the click.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     });
 
     backBtn.addEventListener('click', goBack);

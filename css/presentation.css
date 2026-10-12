@@ -935,7 +935,7 @@
     top: 0;
     left: -400px;
     width: 400px;
-    height: 100vh;
+    height: 100vh; height: 100dvh;
     background: var(--card-bg);
     backdrop-filter: blur(20px);
     border-right: 1px solid var(--border-light);

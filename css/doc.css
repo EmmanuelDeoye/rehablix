@@ -27,7 +27,7 @@
   flex-shrink: 0;
   position: sticky;
   top: 70px;
-  height: calc(100vh - 70px);
+  height: calc(100vh - 70px); height: calc(100dvh - 70px);
   overflow-y: auto;
   transition: transform 0.3s ease;
   z-index: 10;
@@ -102,7 +102,7 @@
   min-width: 0;
   padding: 1.2rem 1.5rem 2rem;
   overflow-y: auto;
-  max-height: calc(100vh - 70px);
+  max-height: calc(100vh - 70px); max-height: calc(100dvh - 70px);
 }
 
 .emr-screen {
@@ -1286,7 +1286,7 @@
   }
 
   .emr-sidebar.mobile-open .sidebar-nav-list {
-    max-height: 70vh;
+    max-height: 70vh; max-height: 70dvh;
     overflow-y: auto;
     margin-top: 0.4rem;
   }
@@ -1863,7 +1863,7 @@
 .link-modal-box {
   text-align: left;
   max-width: 480px;
-  max-height: 80vh;
+  max-height: 80vh; max-height: 80dvh;
   overflow-y: auto;
   position: relative;
 }

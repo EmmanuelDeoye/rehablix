@@ -1253,15 +1253,24 @@
             return;
           }
           chunks = [];
+          if (typeof MediaRecorder === 'undefined') {
+            stream.getTracks().forEach(t => t.stop());
+            core.showToast('Recording is not supported in this browser. Attach an audio file with the + button instead.', 'error');
+            return;
+          }
           mediaRecorder = new MediaRecorder(stream);
           mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
           mediaRecorder.onstop = async () => {
             clearInterval(timerInt);
             stream.getTracks().forEach(t => t.stop());
-            const blob = new Blob(chunks, { type: 'audio/webm' });
+            // Use the format the browser really recorded (iPhones produce MP4 audio, not
+            // WebM); labelling it wrongly makes the transcription service reject it.
+            const recordedType = (mediaRecorder && mediaRecorder.mimeType) || (chunks[0] && chunks[0].type) || 'audio/webm';
+            const recordedExt = /mp4|m4a|aac/i.test(recordedType) ? 'm4a' : /ogg/i.test(recordedType) ? 'ogg' : 'webm';
+            const blob = new Blob(chunks, { type: recordedType.split(';')[0] });
             removeRecorder();
             pending = null;
-            await runGeneration('audio', { blob, fileName: 'recording.webm' });
+            await runGeneration('audio', { blob, fileName: 'recording.' + recordedExt });
           };
           mediaRecorder.start();
           startTs = Date.now();

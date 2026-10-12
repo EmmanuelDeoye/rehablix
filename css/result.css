@@ -206,7 +206,7 @@
 .editor-wrapper {
     background: var(--surface);
     min-height: 60vh;
-    max-height: 70vh;
+    max-height: 70vh; max-height: 70dvh;
     overflow-y: auto;
     padding: 1rem;
 }
@@ -543,7 +543,7 @@ input:checked + .slider:before {
         font-size: 0.8rem;
     }
     .editor-wrapper {
-        max-height: 50vh;
+        max-height: 50vh; max-height: 50dvh;
     }
     .editor-content {
         padding: 0.75rem;

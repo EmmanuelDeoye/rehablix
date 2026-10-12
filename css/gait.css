@@ -161,7 +161,7 @@
 /* Taller camera view – portrait orientation for full‑body capture */
 .camera-view.tall {
   aspect-ratio: 9 / 16;
-  max-height: 70vh;
+  max-height: 70vh; max-height: 70dvh;
   width: 100%;
   border-radius: 1.2rem;
 }
@@ -169,7 +169,7 @@
 /* Keep large as fallback */
 .camera-view.large { 
   aspect-ratio: 16 / 9; 
-  max-height: 65vh; 
+  max-height: 65vh; max-height: 65dvh; 
 }
 
 .camera-view video {
@@ -568,7 +568,7 @@
   top: 0; 
   left: -400px; 
   width: 400px; 
-  height: 100vh; 
+  height: 100vh; height: 100dvh; 
   background: var(--card-bg);
   backdrop-filter: blur(20px); 
   border-right: 1px solid var(--border-light); 
@@ -799,7 +799,7 @@
   }
   
   .camera-view.tall {
-    max-height: 55vh;
+    max-height: 55vh; max-height: 55dvh;
   }
   
   .controls-column .record-controls {
@@ -869,7 +869,7 @@
   }
   
   .camera-view.tall {
-    max-height: 50vh;
+    max-height: 50vh; max-height: 50dvh;
   }
   
   .analysis-card {

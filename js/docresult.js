@@ -1120,8 +1120,11 @@
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = `rehablix_document_${Date.now()}.docx`;
+                document.body.appendChild(a);   // iOS only starts a download from a link that is in the page
                 a.click();
-                URL.revokeObjectURL(url);
+                a.remove();
+                // Not released at once: Safari on iOS fetches the file a moment after the click.
+                setTimeout(() => URL.revokeObjectURL(url), 60000);
                 showToast('Document downloaded successfully', 'success');
             } catch (err) {
                 console.error('Download error:', err);

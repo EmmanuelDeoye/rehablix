@@ -565,7 +565,7 @@
   top: 0;
   left: -420px;
   width: 420px;
-  height: 100vh;
+  height: 100vh; height: 100dvh;
   background: var(--assign-surface);
   border-right: 1px solid var(--assign-border);
   z-index: 1000;

@@ -169,7 +169,7 @@
 
 /* ===== History Drawer (shared pattern) ===== */
 .history-drawer {
-  position: fixed; top: 0; right: -340px; width: 320px; height: 100vh; background: var(--exam-surface);
+  position: fixed; top: 0; right: -340px; width: 320px; height: 100vh; height: 100dvh; background: var(--exam-surface);
   border-left: 1px solid var(--exam-border); z-index: 9998; transition: right 0.3s ease; display: flex; flex-direction: column;
   box-shadow: -10px 0 30px rgba(0,0,0,0.1);
 }

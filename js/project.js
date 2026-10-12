@@ -2564,7 +2564,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Not released at once: Safari on iOS fetches the file a moment after the click.
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
 
     const scopeLabel = scope === 'section' ? 'Section' : scope === 'chapter' ? 'Chapter' : 'Project';
     showToast(scopeLabel + ' exported as Word', 'success');

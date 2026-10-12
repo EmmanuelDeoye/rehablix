@@ -22,7 +22,7 @@
   position: relative;
   width: 90%;
   max-width: 450px;
-  max-height: 90vh;
+  max-height: 90vh; max-height: 90dvh;
   overflow-y: auto;
   background: var(--card-bg);
   backdrop-filter: blur(12px);
@@ -617,7 +617,7 @@
 /* Drawer Content */
 .tools-drawer-content {
   padding: 8px 0;
-  max-height: calc(100vh - 120px);
+  max-height: calc(100vh - 120px); max-height: calc(100dvh - 120px);
   overflow-y: auto;
 }
 

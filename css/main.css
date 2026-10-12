@@ -2159,3 +2159,23 @@ body[data-route]:not([data-route="lixa"]):not([data-route="workspace"]) #themeTo
 /* The Rehablix brand typeface (Outfit, SIL Open Font License): the "rehablix" wordmark. */
 @font-face { font-family: 'Rehablix Brand'; src: url('../fonts/outfit.ttf') format('truetype'); font-weight: 100 900; font-display: swap; }
 .logo-lop { font-family: 'Rehablix Brand', system-ui, sans-serif; font-weight: 800; font-size: 1.15rem; letter-spacing: -0.01em; line-height: 1.15; }
+
+/* ==========================================================================
+   iPhone / iPad (js/ios.js adds "ios" to <html>; none of this reaches other devices).
+   Every selector is wrapped in :where(), which gives it NO extra weight: these
+   are defaults, and any rule the pages already have still wins over them.
+   ========================================================================== */
+/* Text keeps its size when the phone is turned sideways (iOS otherwise enlarges it). */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+/* No grey flash on tap, and no wait for a possible double-tap before a tap counts. */
+:where(html.ios) :where(a, button, label, select, input, textarea) {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+/* iOS draws search boxes as its own rounded pill and ignores the site's styling. */
+:where(html.ios) :where(input[type="search"]) { -webkit-appearance: none; appearance: none; }
+:where(html.ios) input[type="search"]::-webkit-search-decoration,
+:where(html.ios) input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
+/* An empty date / time box collapses to a thin line on iOS, and its value is centred. */
+:where(html.ios) :where(input[type="date"], input[type="time"], input[type="datetime-local"], input[type="month"]) { min-height: 2.75em; }
+:where(html.ios) input::-webkit-date-and-time-value { text-align: left; }

@@ -518,7 +518,7 @@
   right: -420px;
   width: 90%;
   max-width: 420px;
-  height: 100vh;
+  height: 100vh; height: 100dvh;
   background: var(--surface);
   border-left: 1px solid var(--border-light);
   box-shadow: -8px 0 32px rgba(0, 0, 0, 0.08);

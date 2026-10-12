@@ -1685,8 +1685,11 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     const a = document.createElement('a');
     a.href = url;
     a.download = `${(sessionMeta.title || 'transcript').replace(/[^\w\- ]/g, '')}.txt`;
+    document.body.appendChild(a);   // iOS only starts a download from a link that is in the page
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    // Not released at once: Safari on iOS fetches the file a moment after the click.
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   });
 
   downloadAudioBtn.addEventListener('click', async () => {
@@ -1697,9 +1700,14 @@ Output ONLY the narrative text, as flowing paragraphs.`;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${(sessionMeta.title || 'recording').replace(/[^\w\- ]/g, '')}.webm`;
+      // The file is named for what it really is: iPhones record MP4 audio, not WebM.
+      const audioExt = /mp4|m4a|aac/i.test(blob.type) ? 'm4a' : /ogg/i.test(blob.type) ? 'ogg' : /mpeg|mp3/i.test(blob.type) ? 'mp3' : /wav/i.test(blob.type) ? 'wav' : 'webm';
+      a.download = `${(sessionMeta.title || 'recording').replace(/[^\w\- ]/g, '')}.${audioExt}`;
+      document.body.appendChild(a);   // iOS only starts a download from a link that is in the page
       a.click();
-      URL.revokeObjectURL(url);
+      a.remove();
+      // Not released at once: Safari on iOS fetches the file a moment after the click.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err) {
       showToast('Could not prepare audio download', 'error');
     }

@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5" />
+    <!-- iPhone / iPad: stops the zoom-in when a text box is tapped (must run before the page draws) -->
+    <script src="js/ios.js"></script>
     <script>
         (function() {
             var stored = localStorage.getItem('rehab-theme');
