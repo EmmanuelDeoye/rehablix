@@ -114,6 +114,8 @@
   <!-- Project Maker (route "project", js/views/project-view.js) — migrated off the old standalone project.html. -->
   <link rel="stylesheet" href="css/project.css">
 <link rel="stylesheet" href="css/deck.css">
+  <!-- Lixa Agent mode (voice mascot over every page): js/lixa-agent/*.js -->
+  <link rel="stylesheet" href="css/lixa-agent.css">
 
   <script>
     if ('serviceWorker' in navigator) {
@@ -300,6 +302,13 @@
   <script src="js/lixa-knowledge.js" defer></script>
 <script src="js/ask.js" defer></script>
   <script src="js/lixa.js" defer></script>
+  <!-- Lixa Agent mode: rules → mascot → voice → brain → session → screen (the navbar icon opens it) -->
+  <script src="js/lixa-agent/agent-rules.js" defer></script>
+  <script src="js/lixa-agent/agent-avatar.js" defer></script>
+  <script src="js/lixa-agent/agent-voice.js" defer></script>
+  <script src="js/lixa-agent/agent-brain.js" defer></script>
+  <script src="js/lixa-agent/agent-session.js" defer></script>
+  <script src="js/lixa-agent/agent-ui.js" defer></script>
 
   <!-- Workspace view -->
   <script src="js/workspace.js" defer></script>

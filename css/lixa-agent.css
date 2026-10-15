@@ -1,0 +1,137 @@
+/* css/lixa-agent.css — Lixa Agent mode (js/lixa-agent/agent-ui.js). Uses the site's
+   own tokens (--bg-page, --surface, --accent, …), so light and dark themes both work. */
+
+.lxa[hidden], .lxa-bubble[hidden], .lxa [hidden] { display: none !important; }
+
+.lxa {
+  position: fixed; left: 0; right: 0; top: 0; bottom: 0;
+  z-index: 850;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 10px 16px 14px;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+.lxa > * { width: 100%; max-width: 720px; }
+
+.lxa-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.lxa-round {
+  width: 44px; height: 44px; border-radius: 50%; flex: none;
+  border: 1px solid var(--border-light); background: var(--surface); color: var(--text-primary);
+  box-shadow: var(--shadow-sm); cursor: pointer; font-size: 1rem;
+}
+.lxa-chip {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 9px 16px; border-radius: 999px;
+  border: 1px solid var(--border-light); background: var(--surface); box-shadow: var(--shadow-sm);
+  font-weight: 600; font-size: 0.95rem;
+}
+.lxa-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lxa-chip i { color: var(--accent); }
+
+.lxa-mode {
+  align-self: center; width: auto; max-width: 100%;
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 10px;
+  padding: 6px 6px 6px 14px; border-radius: 999px;
+  background: var(--accent-soft); border: 1px solid var(--accent); color: var(--text-primary); font-size: 0.85rem; font-weight: 600;
+}
+.lxa-mode i { color: var(--accent); }
+.lxa-mode-score { color: var(--text-secondary); font-weight: 500; }
+.lxa-mode button { border: 0; border-radius: 999px; padding: 5px 12px; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+
+.lxa-stage { position: relative; flex: 1 1 0; min-height: 90px; display: flex; align-items: center; justify-content: center; }
+/* (sized by agent-ui.js to the largest that fits the stage, keeping the kit's 1736 x 1024 shape) */
+.lxa-figure { position: relative; width: min(100%, 560px); }
+.lxa-canvas { display: block; width: 100%; height: 100%; cursor: pointer; touch-action: manipulation; }
+.lxa-working {
+  position: absolute; right: 2%; top: -6%; z-index: 1; max-width: 60%;
+  padding: 6px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+  background: var(--surface); border: 1px solid var(--border-light); box-shadow: var(--shadow-sm);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.lxa-panel {
+  position: absolute; left: 0; right: 0; bottom: 0; max-height: 100%; overflow: auto; z-index: 2;
+  padding: 14px 16px; border-radius: 18px;
+  background: var(--surface); border: 1px solid var(--border-light); box-shadow: var(--shadow-hover);
+}
+.lxa-panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.lxa-panel-head button { border: 0; background: none; color: var(--text-secondary); font-size: 1rem; cursor: pointer; }
+.lxa-details-body { font-size: 0.92rem; line-height: 1.5; overflow-wrap: anywhere; }
+.lxa-details-body a { color: var(--accent); }
+.lxa-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; flex-wrap: wrap; }
+.lxa-row > span { color: var(--text-secondary); font-weight: 600; font-size: 0.88rem; }
+.lxa-seg { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.lxa-seg button {
+  padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
+  border: 1px solid var(--border-light); background: transparent; color: var(--text-primary);
+}
+.lxa-seg button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.lxa-small { margin: 4px 0 0; font-size: 0.8rem; color: var(--text-secondary); }
+
+.lxa-cards { display: flex; flex-direction: column; gap: 8px; max-height: 42vh; max-height: 42dvh; overflow: auto; flex: none; }
+.lxa-cards:empty { display: none; }
+.lxa-card { padding: 12px 14px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border-light); box-shadow: var(--shadow-sm); }
+.lxa-card b { display: block; font-size: 0.92rem; }
+.lxa-card-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.lxa-card-actions button { padding: 7px 16px; border-radius: 10px; border: 1px solid var(--border-light); background: transparent; color: var(--text-primary); font-weight: 600; cursor: pointer; }
+.lxa-card-actions .lxa-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.lxa-confirm { border-color: #F59E0B; }
+.lxa-found-row {
+  display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left;
+  margin-top: 6px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border-light);
+  background: transparent; color: var(--text-primary); cursor: pointer;
+}
+.lxa-found-row small { color: var(--text-secondary); }
+
+.lxa-caption {
+  display: flex; align-items: baseline; gap: 14px; margin-top: 10px;
+  padding: 14px 18px; border-radius: 22px; border: 1px solid var(--border-light); background: var(--surface);
+}
+.lxa-who { color: var(--accent); font-weight: 700; flex: none; }
+.lxa-heard { color: var(--text-primary); max-height: 4.6em; overflow: auto; overflow-wrap: anywhere; }
+.lxa-hint { min-height: 1.3em; margin-top: 6px; text-align: center; font-size: 0.82rem; color: var(--text-secondary); }
+
+.lxa-type { display: flex; gap: 8px; margin-top: 8px; }
+.lxa-type input {
+  flex: 1; min-width: 0; padding: 10px 14px; border-radius: 999px; font-size: 16px;
+  border: 1px solid var(--border-light); background: var(--surface); color: var(--text-primary);
+}
+.lxa-type button { width: 42px; height: 42px; border-radius: 50%; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+
+.lxa-controls { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 10px; }
+.lxa-ctl {
+  width: 52px; height: 52px; border-radius: 50%; cursor: pointer; font-size: 1.05rem;
+  border: 1px solid var(--border-light); background: var(--surface); color: var(--text-secondary);
+}
+.lxa-ctl.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.lxa-ctl:disabled { opacity: 0.45; cursor: default; }
+.lxa-mic {
+  width: 70px; height: 70px; border-radius: 50%; border: 0; cursor: pointer; font-size: 1.5rem;
+  background: var(--surface); color: var(--text-secondary); box-shadow: var(--shadow-sm); border: 1px solid var(--border-light);
+}
+.lxa-mic.on { background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 0 0 6px var(--accent-soft); }
+.lxa-mic:disabled { opacity: 0.45; cursor: default; }
+
+/* the mascot running in the background */
+.lxa-bubble {
+  position: fixed; z-index: 880; width: 124px; height: 82px; padding: 4px;
+  border-radius: 22px; border: 1px solid var(--border-light); background: var(--surface); box-shadow: var(--shadow-hover);
+  cursor: grab; touch-action: none;
+}
+.lxa-bubble-canvas { display: block; width: 100%; height: 100%; pointer-events: none; }
+
+/* the navbar icon */
+.lxa-nav-btn[hidden] { display: none !important; }
+.lxa-nav-btn img { display: block; width: 26px; height: 26px; border-radius: 50%; }
+
+/* the Lixa logo on the empty new-chat screen opens agent mode */
+#chatMessages .empty-chat-icon { cursor: pointer; }
+
+@media (max-width: 480px) {
+  .lxa { padding: 8px 16px 10px; }
+  .lxa-controls { gap: 10px; }
+  .lxa-ctl { width: 46px; height: 46px; }
+  .lxa-mic { width: 64px; height: 64px; }
+}
+@media (prefers-reduced-motion: reduce) { .lxa-mic.on { box-shadow: none; } }

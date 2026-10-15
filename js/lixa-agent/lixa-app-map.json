@@ -1,0 +1,195 @@
+{
+  "version": 1,
+  "note": "Lixa Agent's map of the app: one entry per screen (id = the router route). The build fails if a route in ui/shell/Router.kt has no entry here. 'open': false means the screen only opens from a saved item, never directly.",
+  "entries": [
+    {
+      "id": "lixa", "title": "Lixa", "logo": "comment-dots", "route": "#/lixa", "open": true, "needsLogin": false,
+      "purpose": "The home chat with Lixa: clinical, academic and app questions, and creating files by asking.",
+      "inputs": ["a typed or spoken message", "optional attachments: PDF, Word, images, audio, camera, a pasted link"],
+      "actions": ["ask a question", "attach a file", "pick a model", "create a file with @ and a tool name", "export an answer to PDF, Word or PowerPoint", "open past chats and files from History"],
+      "related": ["workspace", "deck", "format", "standardized", "presentation", "study", "assignment", "audio"],
+      "howTo": ["Tap Lixa in the bottom bar.", "Type a message, or tap the mic to dictate.", "Tap + to attach a file.", "Type @ to pick a tool, or /word, /pdf or /powerpoint to get a file."],
+      "keywords": ["chat", "ask", "question", "copilot", "conversation", "message", "attach", "model", "history", "home"]
+    },
+    {
+      "id": "workspace", "title": "Workspace", "logo": "th-large", "route": "#/workspace", "open": true, "needsLogin": false,
+      "purpose": "All tools as cards, the current plan, and frequently asked questions.",
+      "inputs": [],
+      "actions": ["open any tool", "see the current plan", "send feedback with a star rating"],
+      "related": ["lixa", "subscription", "settings"],
+      "howTo": ["Tap Workspace in the bottom bar.", "Tap a tool card to open it. The most used tools rise to the top."],
+      "keywords": ["tools", "all tools", "cards", "dashboard", "home", "plan", "faq", "feedback"]
+    },
+    {
+      "id": "emr", "title": "Smart EMR", "logo": "notes-medical", "route": "#/emr", "open": true, "needsLogin": true,
+      "purpose": "Patient records: registration, intake, AI clinical summaries, treatment plans, session notes, progress notes and discharge summaries.",
+      "inputs": ["patient details", "intake and assessment findings", "session notes"],
+      "actions": ["add a patient", "open a patient record", "write a session or progress note", "create a treatment plan", "generate a clinical summary", "write a discharge summary", "switch between personal and center records"],
+      "related": ["audio", "motion", "presentation"],
+      "howTo": ["Open Workspace, then Smart EMR.", "Tap the add button to register a patient, or tap a patient to open the record.", "Inside a record, use the tabs for intake, plans, notes and discharge."],
+      "keywords": ["patient", "patients", "record", "records", "emr", "notes", "progress note", "session note", "treatment plan", "discharge", "intake", "registration", "clinical summary", "soap"]
+    },
+    {
+      "id": "motion", "title": "Motion & Gait Analyzer", "logo": "walking", "route": "#/motion", "open": true, "needsLogin": false,
+      "purpose": "Camera-based, voice-guided assessment of joint range of motion, gait and assistive devices, with a report.",
+      "inputs": ["the camera", "the assessment type", "optional patient details"],
+      "actions": ["measure a joint's range of motion", "analyse gait", "check an assistive device", "view and save the report"],
+      "related": ["emr", "lixa"],
+      "howTo": ["Open Workspace, then Motion & Gait.", "Choose the assessment type at the top.", "Allow the camera, follow the spoken guidance, then read the report."],
+      "keywords": ["motion", "gait", "range of motion", "rom", "goniometer", "joint", "angle", "walking", "camera", "scan", "posture", "assistive device"]
+    },
+    {
+      "id": "audio", "title": "Audio Transcription", "logo": "microphone", "route": "#/audio", "open": true, "needsLogin": true,
+      "purpose": "Records or uploads a session and turns it into a transcript and session narrative; Coach mode supports a live session.",
+      "inputs": ["a live recording or an audio file", "session details: patient, session type, profession"],
+      "actions": ["record live", "upload audio", "choose Transcribe or Coach mode", "set session details under the sliders icon", "link a transcript to an EMR patient", "open past transcripts from History"],
+      "related": ["audioview", "emr"],
+      "howTo": ["Open Workspace, then Audio Transcription.", "Choose Record live or Upload Audio.", "Tap the sliders icon to add session details.", "Tap to record, and tap stop when finished."],
+      "keywords": ["audio", "record", "recording", "transcribe", "transcription", "transcript", "dictate", "voice note", "coach", "session recording", "upload audio"]
+    },
+    {
+      "id": "deck", "title": "Deck Studio", "logo": "file-powerpoint", "route": "#/deck", "open": true, "needsLogin": true,
+      "purpose": "Designs PowerPoint decks from a topic or notes, with a preview, restyling and a .pptx download.",
+      "inputs": ["a topic or notes", "audience", "number of slides", "style"],
+      "actions": ["create a deck", "preview slides", "change the style", "ask for changes", "download the .pptx"],
+      "related": ["presentation", "pptexport", "lixa"],
+      "howTo": ["Open Workspace, then Deck Studio.", "Enter the topic or paste notes, then choose audience, slide count and style.", "Tap create, review the preview, then download."],
+      "keywords": ["deck", "slides", "powerpoint", "pptx", "presentation slides", "slide deck", "design"]
+    },
+    {
+      "id": "presentation", "title": "Presentation Maker", "logo": "file-alt", "route": "#/presentation", "open": true, "needsLogin": true,
+      "purpose": "Writes case presentations, clinical reports and documentation from notes.",
+      "inputs": ["case notes or findings", "the kind of document"],
+      "actions": ["write a case presentation", "write a clinical report", "write documentation", "open the result in the editor"],
+      "related": ["result", "docresult", "deck", "pptexport"],
+      "howTo": ["Open Workspace, then Presentation Maker.", "Choose the kind of document and enter the notes.", "Tap generate; the result opens in the editor."],
+      "keywords": ["case presentation", "clinical report", "report", "documentation", "case study", "write up", "presentation"]
+    },
+    {
+      "id": "format", "title": "Assessment Format", "logo": "clipboard-list", "route": "#/format", "open": true, "needsLogin": true,
+      "purpose": "Generates printable assessment forms for a condition or speciality.",
+      "inputs": ["the condition or area", "the profession or setting"],
+      "actions": ["generate an assessment format", "open past formats from History"],
+      "related": ["formatview", "standardized"],
+      "howTo": ["Open Workspace, then Assessment Format.", "Enter the condition and details, then tap generate.", "The form opens ready to edit, print or export."],
+      "keywords": ["assessment format", "assessment form", "format", "template", "evaluation form", "form", "printable"]
+    },
+    {
+      "id": "standardized", "title": "Standardized Tools", "logo": "balance-scale", "route": "#/standardized", "open": true, "needsLogin": true,
+      "purpose": "Full standardized outcome measures and scales, ready to use.",
+      "inputs": ["the name of the outcome measure or what needs measuring"],
+      "actions": ["find an outcome measure", "generate the full tool", "open past tools from History"],
+      "related": ["format", "docresult"],
+      "howTo": ["Open Workspace, then Standardized Tools.", "Search or enter the measure you need, then tap generate."],
+      "keywords": ["standardized", "outcome measure", "scale", "questionnaire", "berg", "barthel", "score", "index", "test"]
+    },
+    {
+      "id": "assignment", "title": "Assignment Maker", "logo": "pen-nib", "route": "#/assignment", "open": true, "needsLogin": false,
+      "purpose": "Writes referenced academic assignments and write-ups.",
+      "inputs": ["the topic or question", "length and referencing style"],
+      "actions": ["write an assignment", "open the result in the editor"],
+      "related": ["result", "project", "study"],
+      "howTo": ["Open Workspace, then Assignment Maker.", "Enter the topic and requirements, then tap generate."],
+      "keywords": ["assignment", "essay", "write-up", "references", "academic", "coursework", "term paper"]
+    },
+    {
+      "id": "project", "title": "Project Maker", "logo": "book", "route": "#/project", "open": true, "needsLogin": true,
+      "purpose": "A full research project, chapters 1 to 5, with Project AI, review and export.",
+      "inputs": ["the project topic", "resources or notes", "chapter requirements"],
+      "actions": ["start a project", "generate a chapter", "ask Project AI", "run a consistency check", "export the project", "switch between personal and center projects"],
+      "related": ["assignment", "study"],
+      "howTo": ["Open Workspace, then Project Maker.", "Create a project and enter the topic.", "Open a chapter and tap generate; use Project AI for questions and review."],
+      "keywords": ["project", "research", "thesis", "dissertation", "chapter", "literature review", "methodology", "project ai", "supervisor"]
+    },
+    {
+      "id": "study", "title": "Study Buddy", "logo": "brain", "route": "#/study", "open": true, "needsLogin": true,
+      "purpose": "Flashcards, summaries and quizzes made from the user's notes.",
+      "inputs": ["notes or a topic", "the kind of study material"],
+      "actions": ["make flashcards", "make a summary", "make a quiz", "review a saved set"],
+      "related": ["exam", "assignment"],
+      "howTo": ["Open Workspace, then Study Buddy.", "Paste notes or enter a topic, choose flashcards, summary or quiz, then tap generate."],
+      "keywords": ["study", "flashcards", "flash cards", "summary", "quiz", "revise", "revision", "notes", "learn"]
+    },
+    {
+      "id": "exam", "title": "Exam Simulator", "logo": "stopwatch", "route": "#/exam", "open": true, "needsLogin": true,
+      "purpose": "Timed AI-generated practice exams with analytics on weak areas.",
+      "inputs": ["subject", "number of questions", "duration", "difficulty"],
+      "actions": ["set up an exam", "take the exam", "flag questions", "see results and analytics", "switch between personal and center subjects"],
+      "related": ["study"],
+      "howTo": ["Open Workspace, then Exam Simulator.", "Pick a subject, the number of questions, the duration and difficulty.", "Tap Generate Exam, answer, then submit to see the analysis."],
+      "keywords": ["exam", "test", "practice exam", "mock", "questions", "mcq", "timed", "simulator", "analytics", "weak areas"]
+    },
+    {
+      "id": "settings", "title": "Settings", "logo": "cog", "route": "#/settings", "open": true, "needsLogin": true,
+      "purpose": "Account settings: profile, theme, center and organisation, notifications, legal documents, logout and account deletion.",
+      "inputs": [],
+      "actions": ["edit the profile", "change the theme", "create or manage a center", "invite center members", "choose notifications", "read legal documents", "log out", "delete the account"],
+      "related": ["subscription", "partner"],
+      "howTo": ["Tap the profile picture in the top bar, then Settings.", "Scroll to the section you need: Center & Organization, Notifications, or Account."],
+      "keywords": ["settings", "account", "profile", "theme", "dark mode", "center", "organisation", "organization", "members", "invite", "notifications", "logout", "log out", "delete account", "privacy", "legal"]
+    },
+    {
+      "id": "subscription", "title": "Subscription Plans", "logo": "crown", "route": "#/subscription", "open": true, "needsLogin": false,
+      "purpose": "Shows the plans (Free, Basic, Pro, Max) with prices for the user's country, and where to upgrade.",
+      "inputs": [],
+      "actions": ["compare plans", "choose monthly or yearly", "upgrade (the user completes payment themselves)"],
+      "related": ["workspace", "settings"],
+      "howTo": ["Open Workspace and tap the plan card, or tap Upgrade wherever it appears.", "Choose monthly or yearly, then the plan."],
+      "keywords": ["subscription", "plan", "plans", "upgrade", "price", "pricing", "pay", "payment", "billing", "pro", "basic", "max", "tokens"]
+    },
+    {
+      "id": "partner", "title": "Rehablix Partner", "logo": "handshake", "route": "#/partner", "open": true, "needsLogin": true,
+      "purpose": "The partner programme: apply, get a referral link, and see referrals, commissions and payouts.",
+      "inputs": [],
+      "actions": ["apply to be a partner", "copy the referral link", "see referrals and commissions", "edit payout details"],
+      "related": ["settings"],
+      "howTo": ["Tap the profile picture in the top bar, then Rehablix Partner."],
+      "keywords": ["partner", "referral", "refer", "commission", "earn", "payout", "affiliate"]
+    },
+    {
+      "id": "result", "title": "Result editor", "logo": "file-alt", "route": "#/result", "open": false, "needsLogin": false,
+      "purpose": "The editor a generated presentation, report or assignment opens in: edit, share a link, print, save as PDF, export to Word or PowerPoint.",
+      "inputs": ["a saved result"],
+      "actions": ["edit the text", "share a link", "print or save as PDF", "export to Word", "export to PowerPoint"],
+      "related": ["presentation", "assignment", "pptexport"],
+      "howTo": ["Generate something in Presentation Maker or Assignment Maker, or open it from History, Files.", "Use the buttons at the top to share, print or export."],
+      "keywords": ["result", "editor", "edit", "share", "print", "export", "pdf", "word", "docx"]
+    },
+    {
+      "id": "docresult", "title": "Documentation result", "logo": "file-alt", "route": "#/docresult", "open": false, "needsLogin": false,
+      "purpose": "The viewer and editor for generated documentation and standardized tools.",
+      "inputs": ["a saved document"],
+      "actions": ["read and edit", "print or save as PDF", "export"],
+      "related": ["presentation", "standardized"],
+      "howTo": ["Generate documentation or a standardized tool, or open it from History, Files."],
+      "keywords": ["documentation", "document", "viewer", "print", "export"]
+    },
+    {
+      "id": "formatview", "title": "Assessment Format view", "logo": "clipboard-list", "route": "#/formatview", "open": false, "needsLogin": false,
+      "purpose": "Shows a generated assessment form, ready to edit, print or export.",
+      "inputs": ["a saved assessment format"],
+      "actions": ["read and edit the form", "print or save as PDF", "export"],
+      "related": ["format"],
+      "howTo": ["Generate a form in Assessment Format, or open one from its History."],
+      "keywords": ["assessment form", "format view", "print form"]
+    },
+    {
+      "id": "audioview", "title": "Audio Transcript", "logo": "microphone", "route": "#/audioview", "open": false, "needsLogin": false,
+      "purpose": "Shows a saved transcript and its session narrative.",
+      "inputs": ["a saved transcript"],
+      "actions": ["read the transcript", "read the session narrative", "copy or export", "link to an EMR patient"],
+      "related": ["audio", "emr"],
+      "howTo": ["Finish a recording in Audio Transcription, or open a transcript from its History."],
+      "keywords": ["transcript", "session narrative", "audio result"]
+    },
+    {
+      "id": "pptexport", "title": "Presentation export", "logo": "file-powerpoint", "route": "#/pptexport", "open": false, "needsLogin": false,
+      "purpose": "Turns a finished presentation or report into PowerPoint slides for download.",
+      "inputs": ["a result opened from the editor"],
+      "actions": ["choose a slide style", "download the PowerPoint file"],
+      "related": ["result", "deck"],
+      "howTo": ["Open a result in the editor and choose export to PowerPoint."],
+      "keywords": ["export powerpoint", "pptx export", "slides export"]
+    }
+  ]
+}
