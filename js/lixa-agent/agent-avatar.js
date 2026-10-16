@@ -18,6 +18,17 @@
   const TONGUE_TOP = '#F2939C', TONGUE_BOTTOM = '#C9566A', TONGUE_LINE = '#A9404F';
   const TEETH = '#F8F6F1', TEETH_EDGE = '#C9C3B8';
   const WORK_AIM = -18;
+  // her resting mouth: a small, closed, gently curved smile (the kit's wide smile image is no longer used)
+  const REST = { hw: 52, up: 20, lo: 46, y: 580 };
+  // her face for each feeling (when she is not speaking): mouth [half-width, upper curve, lower curve, height] or "o"; brows [ly, lr, ry, rr]
+  const FEEL = {
+    happy: { mouth: [78, 26, 84, 572], brows: [-12, 0, -12, 0], squint: 0.14 },
+    excited: { mouth: [88, 18, 140, 560], brows: [-18, 0, -18, 0], squint: 0.06, eyes: 0.06 },
+    sad: { mouth: [58, -44, -18, 636], brows: [-4, -24, -4, 24], squint: 0.08, look: 6 },
+    angry: { mouth: [52, -12, 10, 612], brows: [12, 22, 12, -22], squint: 0.2 },
+    surprised: { mouth: 'o', brows: [-28, 0, -28, 0], eyes: 0.14 },
+    worried: { mouth: [50, -30, -10, 628], brows: [-9, -17, -9, 17] }
+  };
 
   // The kit layout is fetched once and shared by every avatar on the page.
   let layoutPromise = null;
@@ -55,7 +66,8 @@
     constructor(canvas) {
       this.canvas = canvas;
       this.ctx = canvas.getContext('2d');
-      this.p = { state: 'Idle', mouthOpen: 0, mouthShape: 0.5, asking: false, waving: false, gentle: false, gazeX: 0, gazeY: 0 };
+      // emotion: neutral | happy | excited | sad | angry | surprised | worried; body (patient mode): normal | left_weak | right_weak | tremor | pain | frail
+      this.p = { state: 'Idle', mouthOpen: 0, mouthShape: 0.5, asking: false, waving: false, gentle: false, gazeX: 0, gazeY: 0, emotion: 'neutral', body: 'normal' };
       this.still = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
       this.lay = null;
       this.reset();
@@ -81,7 +93,8 @@
         mHalfW: 158, mUpper: 120, mLower: 184, mY: 554, mRound: 0, mImage: 1, mShape: 0.5,
         armL: 'rest', armLPrev: 'rest', armLFade: 1, armLRot: 0, armR: 'rest', armRPrev: 'rest', armRFade: 1, armRRot: 0,
         speakL: 'rest', speakR: 'rest', gestureAt: 0, relaxAt: 0, lastMovedLeft: false, voiceLevel: 0, prevOpen: 0, quietFor: 0, armRAim: 0,
-        ring: 0, dots: 0, spinner: 0, badgeCheck: 0, badgeAsk: 0
+        ring: 0, dots: 0, spinner: 0, badgeCheck: 0, badgeAsk: 0,
+        pace: 1, weakL: false, weakR: false, moody: 'neutral'
       });
     }
 
@@ -126,13 +139,22 @@
       if (P.state !== this.state) { this.state = P.state; this.stateTime = 0; } else this.stateTime += dt;
       const state = this.state, speaking = state === 'Speaking';
       const gazeMax = this.lay ? this.lay.gazeMax : 10;
+      // (her feelings show only in the calm states; working, asking to confirm and errors keep their own face)
+      const calm = state === 'Idle' || state === 'Listening' || state === 'Thinking' || speaking;
+      const feel = calm && FEEL[P.emotion] ? P.emotion : 'neutral', F = FEEL[feel] || {};
+      const body = P.body || 'normal';
+      // how lively she moves: slower and smaller when sad, in pain or frail; bigger when excited
+      this.pace = body === 'frail' ? 0.5 : body === 'pain' ? 0.6 : feel === 'sad' ? 0.55 : feel === 'excited' ? 1.4 : 1;
+      this.weakL = body === 'right_weak';             // (the patient's right arm is on the left of the screen)
+      this.weakR = body === 'left_weak';
+      this.moody = feel;
 
       const o = Math.min(1, Math.max(0, P.mouthOpen || 0));
       if (!still && speaking && o > 0.55 && this.lastOpen <= 0.55 && this.emph < 0.3) this.emph = 1;
       this.lastOpen = o;
       this.emph = Math.max(0, this.emph - dt * 2.2);
 
-      this.bob = still ? 0 : 10 * Math.sin(this.time * 1.55);
+      this.bob = still ? 0 : body === 'frail' ? 4 * Math.sin(this.time * 0.9) : feel === 'sad' ? 6 * Math.sin(this.time * 1.1) : feel === 'excited' ? 13 * Math.sin(this.time * 2.4) : 10 * Math.sin(this.time * 1.55);
       this.pulse = !still && speaking ? 1 + 0.01 * Math.sin(this.time * 5.2) : 1;
       this.shake = !still && state === 'Error' && this.stateTime < 0.9 ? 16 * Math.sin(this.stateTime * 42) * Math.exp(-this.stateTime * 5.5) : 0;
 
@@ -155,6 +177,7 @@
       let tx = Math.max(-1, Math.min(1, P.gazeX || 0)) * gazeMax, ty = Math.max(-1, Math.min(1, P.gazeY || 0)) * gazeMax;
       if (state === 'Thinking') { tx += still ? 4 : 6 * Math.sin(this.time * 0.9); ty += -7 + (still ? 0 : 2 * Math.sin(this.time * 1.3)); }
       if (state === 'Working') ty += 6;
+      ty += F.look || 0;                                  // sad: she looks a little down
       if (still || state === 'Thinking' || state === 'Working') { this.sacX = 0; this.sacY = 0; }
       else if (this.time >= this.nextSaccade) {
         if (Math.random() < 0.4) { this.sacX = 0; this.sacY = 0; }
@@ -164,8 +187,8 @@
       tx += this.sacX; ty += this.sacY;
       this.gazeXv = approach(this.gazeXv, Math.max(-gazeMax, Math.min(gazeMax, tx)), dt, 18 * fast);
       this.gazeYv = approach(this.gazeYv, Math.max(-gazeMax, Math.min(gazeMax, ty)), dt, 18 * fast);
-      this.eyeScale = approach(this.eyeScale, (state === 'Listening' ? 1.07 : state === 'Success' ? 1.03 : 1) + 0.04 * this.emph, dt, 10 * fast);
-      this.eyeSquint = approach(this.eyeSquint, state === 'Success' ? 0.14 : state === 'Idle' ? 0.04 : 0, dt, 8 * fast);
+      this.eyeScale = approach(this.eyeScale, (state === 'Listening' ? 1.07 : state === 'Success' ? 1.03 : 1) + 0.04 * this.emph + (F.eyes || 0), dt, 10 * fast);
+      this.eyeSquint = approach(this.eyeSquint, Math.max(state === 'Success' ? 0.14 : state === 'Idle' ? 0.04 : 0, F.squint || 0), dt, 8 * fast);
 
       // brows
       let ly = 0, lr = 0, ry = 0, rr = 0;
@@ -178,6 +201,7 @@
         case 'NeedsConfirmation': ly = -17; lr = -7; ry = 3; break;
         case 'Error': ly = -3; ry = -3; lr = -13; rr = 13; break;
       }
+      if (F.brows) { ly = F.brows[0]; lr = F.brows[1]; ry = F.brows[2]; rr = F.brows[3]; }
       if (P.gentle && (speaking || state === 'Listening' || state === 'Idle')) { lr -= 5; rr += 5; ly -= 3; ry -= 3; }
       if (P.asking && speaking) { ly -= 9; lr -= 4; }
       ly -= 6 * this.emph; ry -= 6 * this.emph;
@@ -185,17 +209,20 @@
       this.browRY = approach(this.browRY, ry, dt, 11 * fast); this.browRRot = approach(this.browRRot, rr, dt, 11 * fast);
 
       // mouth
-      let hw = 158, up = 120, lo = 184, my = 554, round = 0, img = 0;
+      let hw = REST.hw, up = REST.up, lo = REST.lo, my = REST.y, round = 0;
+      const img = 0;
+      if (state === 'Success') { hw = 166; up = 34; lo = 238; my = 552; }               // wide and happy
+      else if (state === 'NeedsConfirmation') round = 1;                                 // a small "o"
+      else if (state === 'Error') { hw = 72; up = -46; lo = -20; my = 628; }            // small and worried
+      else if (F.mouth === 'o') round = 1;
+      else if (F.mouth) { hw = F.mouth[0]; up = F.mouth[1]; lo = F.mouth[2]; my = F.mouth[3]; }
       this.mShape = approach(this.mShape, Math.min(1, Math.max(0, P.mouthShape == null ? 0.5 : P.mouthShape)), dt, 14 * fast);
       if (o > 0.02 || speaking) {
-        const w = this.mShape;
-        hw = 96 + 48 * w; up = 78 - o * (44 - 18 * w); lo = 112 + o * (150 - 46 * w); my = 560;
-      } else switch (state) {
-        case 'Idle': img = 1; break;
-        case 'Listening': case 'Thinking': case 'Working': hw = 60; up = 30; lo = 54; my = 584; break;
-        case 'Success': hw = 166; up = 34; lo = 238; my = 552; break;
-        case 'NeedsConfirmation': round = 1; break;
-        case 'Error': hw = 72; up = -46; lo = -20; my = 628; break;
+        // speaking: opens with the voice; between words it closes back to her resting mouth (or her feeling's), never a wide flat line
+        const w = this.mShape, k = Math.min(1, Math.max(0, o / 0.3));
+        hw += (96 + 48 * w - hw) * k; up += (78 - o * (44 - 18 * w) - up) * k;
+        lo += (112 + o * (150 - 46 * w) - lo) * k; my += (560 - my) * k;
+        round *= 1 - k;
       }
       this.mHalfW = approach(this.mHalfW, hw, dt, 14 * fast); this.mUpper = approach(this.mUpper, up, dt, 18 * fast);
       this.mLower = approach(this.mLower, lo, dt, 18 * fast); this.mY = approach(this.mY, my, dt, 14 * fast);
@@ -208,24 +235,36 @@
       } else { this.quietFor = 0; this.prevOpen = 0; }
       if (speaking) { this.layer(this.armName(true, 'open')); this.layer(this.armName(false, 'open')); this.layer(this.armName(true, 'point')); this.layer(this.armName(false, 'point')); }
       this.voiceLevel = approach(this.voiceLevel, speaking ? o : 0, dt, 9 * fast);
-      const wantL = speaking ? this.speakL : poseFor(state, true);
-      const wantR = speaking ? this.speakR : poseFor(state, false);
+      // (a patient's weak arm hangs at rest whatever she is doing)
+      const wantL = this.weakL ? 'rest' : speaking ? this.speakL : poseFor(state, true);
+      const wantR = this.weakR ? 'rest' : speaking ? this.speakR : poseFor(state, false);
       if (wantL !== this.armL && this.layer(this.armName(true, wantL))) { this.armLPrev = this.armL; this.armL = wantL; this.armLFade = 0; }
       if (wantR !== this.armR && this.layer(this.armName(false, wantR))) { this.armRPrev = this.armR; this.armR = wantR; this.armRFade = 0; }
       const fadeStep = still ? 1 : dt / (speaking ? 0.22 : 0.15);
       this.armLFade = Math.min(1, this.armLFade + fadeStep); this.armRFade = Math.min(1, this.armRFade + fadeStep);
       const clamp = (v, pose) => Math.max(-limit(pose), Math.min(limit(pose), v));
+      const pace = this.pace;
       if (speaking && !still) {
-        const liftL = this.voiceLevel * (this.armL === 'rest' ? 5 : 8) + (this.armL === 'rest' ? 0 : 6 * this.emph);
-        const liftR = this.voiceLevel * (this.armR === 'rest' ? 5 : 8) + (this.armR === 'rest' ? 0 : 6 * this.emph);
-        this.armLRot = clamp(3.5 * Math.sin(this.time * 2.3) + liftL, this.armL);
-        this.armRRot = clamp(-3.5 * Math.sin(this.time * 1.7 + 1.1) - liftR, this.armR);
+        const liftL = (this.voiceLevel * (this.armL === 'rest' ? 5 : 8) + (this.armL === 'rest' ? 0 : 6 * this.emph)) * pace;
+        const liftR = (this.voiceLevel * (this.armR === 'rest' ? 5 : 8) + (this.armR === 'rest' ? 0 : 6 * this.emph)) * pace;
+        this.armLRot = clamp(3.5 * pace * Math.sin(this.time * 2.3) + liftL, this.armL);
+        this.armRRot = clamp(-3.5 * pace * Math.sin(this.time * 1.7 + 1.1) - liftR, this.armR);
         if (P.waving && this.armR === 'open') this.armRRot = clamp(-4 - 9 * Math.sin(this.time * 15), this.armR);
       } else {
-        const sway = still ? 0 : state === 'Working' ? 6 : 3;
+        const sway = (still ? 0 : state === 'Working' ? 6 : 3) * Math.min(1, pace);
         const swayR = this.armR === 'point' ? Math.min(3, sway) : sway;
         this.armLRot = clamp(sway * Math.sin(this.time * 1.9), this.armL);
         this.armRRot = clamp(-swayR * Math.sin(this.time * 1.9 + 0.6), this.armR);
+      }
+      // Patient mode: a weak arm hangs still, a little turned in; a tremor shakes the hands a little (about 5 a second);
+      // with pain the arms stay close to the body.
+      if (this.weakL) this.armLRot = 2;
+      if (this.weakR) this.armRRot = -2;
+      if (body === 'pain') { this.armLRot = Math.max(-4, Math.min(4, this.armLRot)) + 2; this.armRRot = Math.max(-4, Math.min(4, this.armRRot)) - 2; }
+      if (body === 'tremor' && !still) {
+        const t = 1.8 * Math.sin(this.time * 31.4);
+        if (!this.weakL) this.armLRot += t;
+        if (!this.weakR) this.armRRot -= t * 0.8;
       }
       this.armRAim = approach(this.armRAim, state === 'Working' && this.armR === 'point' ? WORK_AIM : 0, dt, 10 * fast);
       this.armRRot += this.armRAim;
@@ -243,10 +282,12 @@
       this.quietFor = open < 0.06 ? this.quietFor + dt : 0;
       const stressed = open > 0.45 && this.prevOpen <= 0.45;
       this.prevOpen = open;
+      const pace = this.pace || 1;
       if (begin) {
-        this.lastMovedLeft = Math.random() < 0.5;
+        // (never a patient's weak side)
+        this.lastMovedLeft = this.weakL ? false : this.weakR ? true : Math.random() < 0.5;
         this.speakL = this.lastMovedLeft ? 'open' : 'rest'; this.speakR = this.lastMovedLeft ? 'rest' : 'open';
-        this.gestureAt = this.time + 0.8 + Math.random() * 0.7;
+        this.gestureAt = this.time + (0.8 + Math.random() * 0.7) / pace;
         return;
       }
       if (this.quietFor > 0.5) {
@@ -262,16 +303,17 @@
       }
       if (this.time < this.gestureAt) return;
       if (!stressed && this.time < this.gestureAt + 0.8) return;
-      const left = Math.random() < 0.8 ? !this.lastMovedLeft : this.lastMovedLeft;
+      const left = this.weakL ? false : this.weakR ? true : Math.random() < 0.8 ? !this.lastMovedLeft : this.lastMovedLeft;
       const current = left ? this.speakL : this.speakR, other = left ? this.speakR : this.speakL;
+      // (sad or slow: more often down; angry: a raised finger more often)
       const wOpen = current === 'open' ? 0 : 5;
-      const wPoint = current === 'point' || other === 'point' ? 0 : 2;
-      const wRest = current === 'rest' || other === 'rest' ? 0 : 3;
+      const wPoint = current === 'point' || other === 'point' ? 0 : this.moody === 'angry' ? 5 : 2;
+      const wRest = current === 'rest' || (other === 'rest' && !this.weakL && !this.weakR) ? 0 : pace < 1 ? 7 : 3;
       const pick = Math.random() * (wOpen + wPoint + wRest);
       const next = wOpen + wPoint + wRest <= 0 ? current : pick < wOpen ? 'open' : pick < wOpen + wPoint ? 'point' : 'rest';
       if (left) this.speakL = next; else this.speakR = next;
       this.lastMovedLeft = left;
-      this.gestureAt = this.time + 0.7 + Math.random() * 1.1;
+      this.gestureAt = this.time + (0.7 + Math.random() * 1.1) / pace;
     }
 
     // ------------------------------------------------------------------ drawing

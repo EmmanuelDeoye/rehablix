@@ -15,6 +15,7 @@
   const R = () => window.LixaAgentRules;
   const B = () => window.LixaAgentBrain;
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const ANDROID = /Android/i.test(navigator.userAgent || '');
 
   const SHORT_SENTENCES = 3;
   const HOLD_MS = 900, HOLD_UNFINISHED_MS = 1000, TALK_EXTRA_WAIT_MS = 600;
@@ -35,7 +36,8 @@
       this.view = {
         state: 'Idle', heard: '', note: null, status: null, waiting: null, mouth: 0, shape: 0.5, asking: false, waving: false,
         talkMode: null, talkScore: null, details: null, found: [], confirm: null, upgrade: false, reply: '', listening: false,
-        canListen: !!SR, moreWaiting: false
+        canListen: !!SR, moreWaiting: false,
+        emotion: 'neutral', body: 'normal'          // her feeling (from what she says) and, in patient mode, the patient's body
       };
       this.muted = pref(PREFS.muted, '0') === '1';
       this.shortAnswers = pref(PREFS.short, '0') === '1';
@@ -146,7 +148,9 @@
       const r = new SR();
       const lang = (navigator.language || 'en-US');
       r.lang = /^en\b/i.test(lang) ? lang : 'en-US';
-      r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+      // (Chrome on Android repeats earlier words in "continuous" mode — the caption showed words said once several times —
+      // so there it listens one sentence at a time and starts again by itself, as the Lixa chat's mic does)
+      r.continuous = !ANDROID; r.interimResults = true; r.maxAlternatives = 1;
       r.onresult = e => this.onResult(e);
       r.onerror = e => {
         const noMic = e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'audio-capture';
@@ -183,7 +187,11 @@
       // her own voice coming back just after she stopped (a long run of her words in her order) is not the user
       if (finals && Date.now() - this.lastSoundAt < ECHO_WINDOW_MS && R().Interruptions.isEchoRun(finals, this.flow.join(' '))) return;
       clearTimeout(this.holdTimer);
-      if (finals) this.said = (this.said + ' ' + R().fixName(finals)).trim();
+      if (finals) {
+        // the same words delivered twice (some browsers do) are kept once
+        const f = R().fixName(finals), low = this.said.toLowerCase();
+        if (!low.endsWith(f.toLowerCase())) this.said = (f.toLowerCase().startsWith(low) && low ? f : this.said + ' ' + f).trim();
+      }
       const shown = (this.said + ' ' + R().fixName(interim)).trim();
       this.set({ heard: shown, note: null });
       if (!this.said || interim) return;
@@ -274,7 +282,7 @@
       if (page) { this.openPage(text, page); return; }
       if (Rr.ClearScreen.isClear(text)) { this.host.clearScreen(); this.sayAndDo(text, 'Done, the screen is clear.', false); return; }
       const change = Rr.Talk.change(text, this.view.talkMode);
-      if (change && change.start) { this.voice.role = null; this.set({ talkMode: change.start, talkScore: null }); this.endingTalk = false; }
+      if (change && change.start) { this.voice.role = null; this.set({ talkMode: change.start, talkScore: null, body: 'normal' }); this.learnPatientBody(text); this.endingTalk = false; }
       else if (change && change.end) this.endingTalk = true;
       this.set({ moreWaiting: false }); this.remainder = [];
       this.run(signal => this.answer(text, cutOff, again, signal));
@@ -321,6 +329,7 @@
           if (ev.sentence !== this.playingIndex) {
             const s = this.flow[ev.sentence] || '';
             v.asking = /\?\s*$/.test(s); v.waving = R().GREETING.test(s);
+            this.showMood(s);
             this.playingIndex = Math.max(this.playingIndex, ev.sentence);
           }
           if (!this.statusIdx.has(ev.sentence) && (this.state === 'Thinking')) { this.setState('Speaking'); return; }
@@ -393,7 +402,8 @@
           if (!(e instanceof HandOff)) throw e;
           streamedLength = 0; splitter = new Rr.SentenceSplitter();
         }
-        if (ending) { this.voice.role = null; this.set({ talkMode: null }); }
+        if (ending) { this.voice.role = null; this.set({ talkMode: null, body: 'normal' }); }
+        if (outcome) this.learnPatientBody(outcome.reply);       // patient mode: the patient's body, once they describe themselves
         if (!outcome && !this.muted && !again && !reaction) { const r = Rr.Reactions.pick(said); if (r) this.queueStatus(job, r); }
       }
       if (!outcome) {
@@ -543,7 +553,29 @@
     /** A tap on an item in the found list: opened at once (no AI needed). */
     openFound(ref) { const r = B().openFound(this.found, ref, this.toolHost()); if (!r.ok) this.set({ note: r.text }); }
 
-    endTalkMode() { this.voice.role = null; this.endingTalk = false; this.set({ talkMode: null, talkScore: null }); }
+    endTalkMode() {
+      const was = this.view.talkMode;
+      this.voice.role = null; this.endingTalk = false; this.set({ talkMode: null, talkScore: null, body: 'normal' });
+      // Live: she is told the lesson, quiz or role-play is over (she wraps up in a few words)
+      if (was && this.live && this.live.on) this.live.modeEnded(was.kind);
+    }
+
+    // ------------------------------------------------------------------ her feelings and a patient's body (see LixaAgentRules.Moods / PatientBodies)
+    /** Her face follows a sentence she is saying (the feeling stays a few seconds, then her normal face returns). */
+    showMood(sentence) {
+      const m = R().Moods.of(sentence);
+      if (!m) return;
+      this.view.emotion = m;
+      clearTimeout(this.moodTimer);
+      this.moodTimer = setTimeout(() => { this.view.emotion = 'neutral'; }, R().Moods.HOLD_MS);
+    }
+    /** Patient mode: the patient's body from the case (what the user asked for, then how the patient describes it). */
+    learnPatientBody(text) {
+      const mode = this.view.talkMode;
+      if (!mode || mode.kind !== 'PATIENT' || this.view.body !== 'normal') return;
+      const b = R().PatientBodies.of(text);
+      if (b) this.view.body = b;
+    }
 
     // ------------------------------------------------------------------ Live mode (agent-live.js) uses these
     /** Live starts: Standard stops listening and speaking. */
@@ -551,7 +583,7 @@
       this.handsFree = false;
       this.stop();
       this.stopRecog();
-      this.set({ heard: '', talkMode: null, talkScore: null, moreWaiting: false });
+      this.set({ heard: '', moreWaiting: false });     // (a lesson, quiz or role-play under way carries on in Live)
       this.setState('Idle');
       this.loadPatientIds();
     }

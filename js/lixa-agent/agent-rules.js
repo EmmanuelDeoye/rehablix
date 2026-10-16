@@ -296,6 +296,8 @@
     systemPrompt(mode, page, ending) {
       let p = `You are Lixa, the voice of Rehablix, an app for rehabilitation professionals and students (occupational therapy, physiotherapy, speech therapy and related fields). You are talking with the user out loud, like a knowledgeable, warm colleague: natural, friendly, confident and evidence-based.
 
+About yourself: you are an AI assistant. You have no sexual orientation, romantic life or relationships of your own; never describe yourself as gay, lesbian, bisexual, transgender or LGBTQ. If asked about your orientation or private life, say simply that you are an AI here to help with rehabilitation and study.
+
 How you speak:
 - Everything you write is read aloud. Plain spoken sentences only: no markdown, lists, bullet points, headings, symbols, emojis, URLs or tables. Say numbers and abbreviations the way a person would say them.
 - Match the length to what was asked. A greeting, thanks or a quick remark gets one or two friendly sentences. A simple question gets a short, direct answer. When the user asks you to explain, describe, teach, compare or go into detail, give a full spoken explanation: as long as it needs to be (often eight to twenty sentences), organised with spoken signposts such as "first", "next", "the key point is", and finish it completely. Never cut a requested explanation short or stop to ask whether to continue unless you are teaching in tutor mode.
@@ -377,8 +379,53 @@ PATIENT MODE (case-study practice) is on. The user started it by saying: "${said
   /** A sentence that says hello or goodbye: she waves while saying it. */
   const GREETING = /^(hi|hello|hey|good (morning|afternoon|evening)|welcome|bye|goodbye|good ?bye|okay, bye|alright, talk soon|talk soon|see you)\b/i;
 
+  // ------------------------------------------------------------------ her feelings, a patient's body, a spoken score (as AgentExpression.kt)
+  /** Her face follows what she is saying, sentence by sentence (first match wins: the strongest feelings first). */
+  const Moods = {
+    RULES: [
+      [/\b(i'?m (so |really |very )?sorry (to hear|for your loss|that happened)|so sorry|sadly|unfortunately|my condolences|that'?s (so )?(sad|hard|heartbreaking)|that sounds (really |so )?(hard|difficult|painful|tough|sad)|passed away|i feel (so )?(sad|down|low|hopeless)|i'?m (so )?(sad|depressed|lonely))\b/i, 'sad'],
+      [/\b(i'?m (so |really )?(angry|furious|annoyed|fed up|frustrated)|this is (so )?(frustrating|annoying|ridiculous|unacceptable)|that'?s not fair|how dare|leave me alone|stop asking)\b/i, 'angry'],
+      [/\b(be careful|careful|warning|danger(ous)?|emergency|call 112|seek (urgent|immediate) (help|care)|please see a doctor|red flag|i'?m (worried|concerned|scared|afraid|nervous)|it hurts|ouch|that hurts|too painful|i can'?t (move|feel|breathe))\b/i, 'worried'],
+      [/\b(wow|whoa|oh my( goodness)?|no way|what a surprise|i didn'?t expect( that)?|really\?)/i, 'surprised'],
+      [/\b(congratulations|congrats|well done|excellent|fantastic|amazing|awesome|brilliant|great job|great work|great answer|perfect|spot on|exactly right|that'?s (right|correct)|you got it|correct!?|wonderful|outstanding|impressive)\b/i, 'excited'],
+      [/\b(great|glad|happy to|good news|nice|lovely|thank you|thanks|you'?re welcome|my pleasure|of course|hello|hi there|welcome|good (morning|afternoon|evening)|i'?d love to|sounds good)\b/i, 'happy']
+    ],
+    /** The feeling a sentence shows (null: nothing in particular). */
+    of(sentence) { const s = String(sentence || ''); const r = Moods.RULES.find(x => x[0].test(s)); return r ? r[1] : null; },
+    HOLD_MS: 5000
+  };
+  /** Which body a patient she plays has, from the case (sides are the patient's own). */
+  const PatientBodies = {
+    of(text) {
+      const t = String(text || '');
+      if (/\b(parkinson'?s?|tremor|shak(y|ing|es) (hand|hands|arm|arms)|my hands? (shake|shakes|tremble))/i.test(t)) return 'tremor';
+      const m = /\b(stroke|cva|hemipleg\w*|hemipares\w*|one[- ]sided weakness|weak(ness)? (on|in) (my|the|his|her) (left|right)|(left|right)[- ]sided weakness|paralys\w* (on|of) (my|the|his|her) (left|right))/i.exec(t);
+      if (m) {
+        if (/\bleft\b/i.test(m[0])) return 'left_weak';
+        if (/\bright\b/i.test(m[0])) return 'right_weak';
+        if (/\bleft\b/i.test(t) && !/\bright\b/i.test(t)) return 'left_weak';
+        return 'right_weak';
+      }
+      if (/\b(pain|painful|fractur\w*|broken (arm|leg|wrist|hip)|injur\w*|sprain\w*|arthritis|frozen shoulder|post[- ]?op\w*|after (my |the )?surgery|back ?ache|low back|whiplash|tendin\w*|bursitis|it hurts)/i.test(t)) return 'pain';
+      const age = /\b([6-9]\d|1[01]\d)[- ]?(years?|yrs?)[- ]?old\b/i.exec(t);
+      if (/\b(elderly|frail|very old|old (man|woman|lady)|aged|copd|heart failure|cancer|dementia|exhausted|always tired|fatigue)/i.test(t) || (age && Number(age[1]) >= 70)) return 'frail';
+      return null;
+    }
+  };
+  /** Game mode in Live: the running score as she says it ("your score is 17 out of 30") -> "17/30". */
+  const SpokenScore = {
+    of(text) {
+      const re = /\b(?:score|you (?:have|'ve got|got)|that'?s|total|tally)\D{0,24}?(\d{1,3})\s*(?:out of|\/|of)\s*(\d{1,3})\b/gi;
+      let m, last = null;
+      while ((m = re.exec(String(text || '')))) last = m;
+      if (!last) return null;
+      const got = Number(last[1]), of = Number(last[2]);
+      return of >= 1 && of <= 500 && got <= of ? got + '/' + of : null;
+    }
+  };
+
   root.LixaAgentRules = {
     fixName, Reactions, Interruptions, Farewell, OpenPage, ClearScreen, Unfinished, askAgainLine, StatusLines,
-    SpeechText, SentenceSplitter, speakable, Talk, TalkFilter, WANTS_MORE, GREETING
+    SpeechText, SentenceSplitter, speakable, Talk, TalkFilter, WANTS_MORE, GREETING, Moods, PatientBodies, SpokenScore
   };
 })(typeof window !== 'undefined' ? window : globalThis);

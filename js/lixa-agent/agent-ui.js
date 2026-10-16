@@ -94,7 +94,10 @@
     avatar = new window.LixaAgentAvatar(root.querySelector('.lxa-canvas'));
     avatar.source = () => {
       const v = session ? session.view : { state: 'Idle' };
-      return { state: v.state, mouthOpen: v.mouth || 0, mouthShape: v.shape, asking: v.asking, waving: v.waving, gentle: !!(v.talkMode && v.talkMode.kind === 'THERAPIST') };
+      return {
+        state: v.state, mouthOpen: v.mouth || 0, mouthShape: v.shape, asking: v.asking, waving: v.waving, gentle: !!(v.talkMode && v.talkMode.kind === 'THERAPIST'),
+        emotion: v.emotion || 'neutral', body: v.talkMode && v.talkMode.kind === 'PATIENT' ? (v.body || 'normal') : 'normal'
+      };
     };
 
     if ('ResizeObserver' in window) new ResizeObserver(fitFigure).observe(root.querySelector('.lxa-stage'));
@@ -257,10 +260,13 @@
     const hint = v.waiting || v.note || (live ? (
       live.phase === 'connecting' ? 'Connecting to Live…' : live.micMuted ? 'Microphone off. Tap the mic to talk.' :
       v.state === 'Speaking' ? 'Just talk to interrupt her, or tap her to stop.' : v.state === 'Working' ? (v.status || '') :
+      v.state === 'Listening' ? 'Listening… just talk.' + (live.minutesLeft != null ? ' · ' + live.minutesLeft + ' min of Live left' : '') :
       live.minutesLeft != null ? 'Live · ' + live.minutesLeft + ' min left' : '') :
       (v.state === 'Listening' ? 'Listening…' : v.state === 'Thinking' ? (v.status || 'Thinking…') : ''));
     root.querySelector('.lxa-heard').textContent = v.heard || (live ? (v.state === 'Listening' ? 'Listening… just talk.' : '…') : window.LixaAgentSession.canListen ? 'Tap the mic or Lixa to talk.' : 'Type below to talk to Lixa.');
     root.querySelector('.lxa-hint').textContent = hint;
+    // (Live: no caption of what the user says, at the user's request; the hint line stays)
+    root.querySelector('.lxa-caption').hidden = !!live;
     // Standard | Live, and the red sign while Live hears the microphone
     root.querySelectorAll('.lxa-switch button').forEach(btn => { const on = (btn.dataset.act === 'live') === !!live; btn.classList.toggle('on', on); btn.setAttribute('aria-pressed', on ? 'true' : 'false'); });
     const micLive = !!(live && live.micLive);
@@ -276,7 +282,7 @@
     } else {
       mic.classList.toggle('live', false);
       mic.classList.toggle('on', !!v.listening);
-      mic.querySelector('i').className = 'fas ' + (v.listening ? 'fa-microphone' : 'fa-microphone-slash');
+      mic.querySelector('i').className = 'fas fa-microphone';
       mic.setAttribute('aria-label', v.listening ? 'Stop listening' : 'Talk to Lixa');
       mic.disabled = !window.LixaAgentSession.canListen;
     }
