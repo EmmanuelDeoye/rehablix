@@ -409,5 +409,5 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
     return { reply: "I couldn't finish that in the steps I'm allowed, so I stopped." };
   }
 
-  window.LixaAgentBrain = { loadMap, AppMap, stream, runAgent, openFound, Quota, QuotaError, AiError, user, plan, clock, parse, streamedReply };
+  window.LixaAgentBrain = { loadMap, AppMap, stream, runAgent, openFound, Quota, QuotaError, AiError, user, plan, clock, parse, streamedReply, makeTools };
 })();

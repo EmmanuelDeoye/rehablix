@@ -34,6 +34,8 @@
       minimize();                                     // the page is what the user wants to see now
     },
     close: () => close(),
+    /** Brings the agent screen back from the background (a card that needs it). */
+    restore() { if (active && !showing) open(); },
     clearScreen() { if (session) session.set({ found: [], details: null }); panel = null; render(); },
     onChange: () => render(),
     /** A few lines about what is on the page now, de-identified (patients are never named to the AI). */
@@ -60,6 +62,13 @@
         <button type="button" class="lxa-round" data-act="min" aria-label="Put Lixa Agent in the background" title="Keep her running in the background"><i class="fas fa-chevron-down"></i></button>
         <div class="lxa-chip lxa-page"><i class="fas fa-comment-dots"></i><span></span></div>
         <button type="button" class="lxa-round" data-act="close" aria-label="Close Lixa Agent" title="Close"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="lxa-modes">
+        <div class="lxa-switch" role="group" aria-label="How Lixa talks">
+          <button type="button" data-act="standard" aria-pressed="true">Standard</button>
+          <button type="button" data-act="live" aria-pressed="false"><i class="fas fa-bolt"></i> Live</button>
+        </div>
+        <span class="lxa-miclive" role="status" hidden><span class="lxa-dot"></span>Mic live</span>
       </div>
       <div class="lxa-mode" hidden><i class="fas"></i><span class="lxa-mode-label"></span><span class="lxa-mode-score"></span><button type="button" data-act="endmode">End</button></div>
       <div class="lxa-stage">
@@ -90,7 +99,12 @@
 
     if ('ResizeObserver' in window) new ResizeObserver(fitFigure).observe(root.querySelector('.lxa-stage'));
     root.addEventListener('click', onClick);
-    root.querySelector('.lxa-canvas').addEventListener('click', () => { if (!session) return; session.voice.unlock(); if (session.state === 'Speaking') session.voice.skipSentence(); else if (!session.view.listening) session.listen(); });
+    root.querySelector('.lxa-canvas').addEventListener('click', () => {
+      if (!session) return;
+      // Live: a tap stops her talking (she listens), or carries on after a pause
+      if (session.live && session.live.on) { session.live.sound.unlock(); if (session.state === 'Speaking') session.live.stopHer(); else if (session.live.phase === 'paused') session.live.resume(); return; }
+      session.voice.unlock(); if (session.state === 'Speaking') session.voice.skipSentence(); else if (!session.view.listening) session.listen();
+    });
     root.querySelector('.lxa-type').addEventListener('submit', e => {
       e.preventDefault();
       const input = root.querySelector('.lxa-type input');
@@ -124,13 +138,21 @@
     const b = e.target.closest('[data-act]');
     if (!b || !session) return;
     const act = b.dataset.act;
+    const live = session.live;
     session.voice.unlock();
+    if (live && live.on) live.sound.unlock();
     switch (act) {
       case 'min': minimize(); break;
       case 'close': close(); break;
-      case 'mic': if (session.view.listening) session.stopListening(); else session.listen(); break;
-      case 'skip': if (session.state === 'Speaking') session.voice.skipSentence(); break;
-      case 'settings': case 'details': panel = panel === act ? null : act; render(); break;
+      case 'standard': if (live) live.end(true); break;
+      case 'live': if (live && !live.on) live.start(); break;
+      case 'livestandard': live.prompt = null; render(); session.listen(); break;
+      case 'liveupgrade': live.prompt = null; hostApi.open('#/subscription'); break;
+      case 'mic':
+        if (live && live.on) { live.toggleMic(); break; }
+        if (session.view.listening) session.stopListening(); else session.listen(); break;
+      case 'skip': if (session.state === 'Speaking') { if (live && live.on) live.stopHer(); else session.voice.skipSentence(); } break;
+      case 'settings': case 'details': panel = panel === act ? null : act; if (panel === 'settings' && live) live.refreshUsage(); render(); break;
       case 'closepanel': panel = null; render(); break;
       case 'type': { const f = root.querySelector('.lxa-type'); f.hidden = !f.hidden; if (!f.hidden) f.querySelector('input').focus(); break; }
       case 'endmode': session.endTalkMode(); break;
@@ -145,7 +167,7 @@
         if (k === 'short') session.setShort(v === '1');
         if (k === 'muted') session.setMuted(v === '1');
         if (k === 'accent') session.setAccent(v);
-        if (k === 'bargein') session.setBargeIn(v === '1');
+        if (k === 'livevoice' && live) live.chooseVoice(v);
         break;
       }
     }
@@ -204,8 +226,8 @@
       `<div class="lxa-row"><span>Voice answers</span>${seg('short', [['0', 'Full'], ['1', 'Short']], session.shortAnswers ? '1' : '0')}</div>` +
       `<div class="lxa-row"><span>Mute Lixa's voice</span>${seg('muted', [['0', 'Off'], ['1', 'On']], session.muted ? '1' : '0')}</div>` +
       `<div class="lxa-row"><span>Accent</span>${seg('accent', [['us', 'US'], ['gb', 'UK'], ['au', 'AU'], ['in', 'India']], session.accent)}</div>` +
-      `<div class="lxa-row"><span>Interrupt her by speaking</span>${seg('bargein', [['0', 'Off'], ['1', 'On']], session.bargeIn ? '1' : '0')}</div>` +
-      `<p class="lxa-small">On: only your real words stop her, not noise, her own voice or "okay". Works best with earphones.</p>` +
+      (session.live ? `<div class="lxa-row"><span>Live voice</span>${seg('livevoice', window.LixaAgentLive.VOICES.map(([n, sound]) => [n, n + ' · ' + sound]), session.live.voice)}</div>` +
+        `<p class="lxa-small">Live minutes: ${esc(session.live.usage || (B().plan() === 'free' ? 'paid plans only' : '…'))}. In Live you can talk over her any time; Standard waits until she has finished.</p>` : '') +
       (window.LixaAgentSession.canListen ? '' : `<p class="lxa-small">This browser can't listen. Use Chrome, Edge or Safari to talk to her, or type.</p>`);
 
     // details
@@ -223,20 +245,41 @@
     let cards = '';
     if (!B().user()) cards += `<div class="lxa-card"><b>Log in to talk to Lixa</b><p class="lxa-small">Her answers are saved in your Lixa chat.</p><div class="lxa-card-actions"><button type="button" class="lxa-primary" data-act="login">Log in</button></div></div>`;
     if (v.upgrade) cards += `<div class="lxa-card"><b>You've used your free tokens</b><p class="lxa-small">Upgrade to keep talking to Lixa, or wait for your tokens to reset.</p><div class="lxa-card-actions"><button type="button" data-act="notnow">Not now</button><button type="button" class="lxa-primary" data-act="upgrade">Upgrade Plan</button></div></div>`;
+    const lp = session.live && session.live.prompt;
+    if (lp) cards += `<div class="lxa-card"><b>${esc(lp.title)}</b><p class="lxa-small">${esc(lp.text)}</p><div class="lxa-card-actions"><button type="button" data-act="livestandard">Continue in Standard</button>${lp.upgrade ? '<button type="button" class="lxa-primary" data-act="liveupgrade">Upgrade Plan</button>' : ''}</div></div>`;
     if (v.confirm) cards += `<div class="lxa-card lxa-confirm"><b>${esc(v.confirm.text)}</b><div class="lxa-card-actions"><button type="button" data-act="cancel">Cancel</button><button type="button" class="lxa-primary" data-act="confirm">Confirm</button></div></div>`;
     if (v.found && v.found.length) cards += `<div class="lxa-card lxa-found"><b>Found</b>${v.found.map(f => `<button type="button" class="lxa-found-row" data-act="openfound" data-ref="${esc(f.ref)}"><span>${esc(f.title)}</span><small>${esc(f.label)}${f.patient ? ' <i class="fas fa-lock" title="Patient data"></i>' : ''}</small></button>`).join('')}</div>`;
     const cardsEl = root.querySelector('.lxa-cards');
     if (cardsEl.dataset.html !== cards) { cardsEl.innerHTML = cards; cardsEl.dataset.html = cards; }
 
     // what she heard, and the hint line
-    const hint = v.waiting || v.note || (v.state === 'Listening' ? 'Listening…' : v.state === 'Thinking' ? (v.status || 'Thinking…') : v.state === 'Speaking' ? (session.bargeIn ? 'Speak to interrupt her.' : '') : '');
-    root.querySelector('.lxa-heard').textContent = v.heard || (window.LixaAgentSession.canListen ? 'Tap the mic or Lixa to talk.' : 'Type below to talk to Lixa.');
+    const live = session.live && session.live.on ? session.live : null;
+    const hint = v.waiting || v.note || (live ? (
+      live.phase === 'connecting' ? 'Connecting to Live…' : live.micMuted ? 'Microphone off. Tap the mic to talk.' :
+      v.state === 'Speaking' ? 'Just talk to interrupt her, or tap her to stop.' : v.state === 'Working' ? (v.status || '') :
+      live.minutesLeft != null ? 'Live · ' + live.minutesLeft + ' min left' : '') :
+      (v.state === 'Listening' ? 'Listening…' : v.state === 'Thinking' ? (v.status || 'Thinking…') : ''));
+    root.querySelector('.lxa-heard').textContent = v.heard || (live ? (v.state === 'Listening' ? 'Listening… just talk.' : '…') : window.LixaAgentSession.canListen ? 'Tap the mic or Lixa to talk.' : 'Type below to talk to Lixa.');
     root.querySelector('.lxa-hint').textContent = hint;
+    // Standard | Live, and the red sign while Live hears the microphone
+    root.querySelectorAll('.lxa-switch button').forEach(btn => { const on = (btn.dataset.act === 'live') === !!live; btn.classList.toggle('on', on); btn.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+    const micLive = !!(live && live.micLive);
+    root.querySelector('.lxa-miclive').hidden = !micLive;
+    if (bubble) bubble.classList.toggle('mic-live', micLive);
     const mic = root.querySelector('.lxa-mic');
-    mic.classList.toggle('on', !!v.listening);
-    mic.querySelector('i').className = 'fas ' + (v.listening ? 'fa-microphone' : 'fa-microphone-slash');
-    mic.setAttribute('aria-label', v.listening ? 'Stop listening' : 'Talk to Lixa');
-    mic.disabled = !window.LixaAgentSession.canListen;
+    if (live) {
+      mic.classList.toggle('on', false);
+      mic.classList.toggle('live', micLive);
+      mic.querySelector('i').className = 'fas ' + (live.micMuted ? 'fa-microphone-slash' : 'fa-microphone');
+      mic.setAttribute('aria-label', micLive ? 'Turn the microphone off' : live.phase === 'paused' ? 'Carry on with Live' : 'Turn the microphone on');
+      mic.disabled = false;
+    } else {
+      mic.classList.toggle('live', false);
+      mic.classList.toggle('on', !!v.listening);
+      mic.querySelector('i').className = 'fas ' + (v.listening ? 'fa-microphone' : 'fa-microphone-slash');
+      mic.setAttribute('aria-label', v.listening ? 'Stop listening' : 'Talk to Lixa');
+      mic.disabled = !window.LixaAgentSession.canListen;
+    }
     root.querySelector('[data-act="skip"]').disabled = v.state !== 'Speaking';
     root.querySelector('[data-act="settings"]').classList.toggle('on', panel === 'settings');
     root.querySelector('[data-act="details"]').classList.toggle('on', panel === 'details');

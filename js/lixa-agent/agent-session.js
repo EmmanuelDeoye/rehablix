@@ -5,10 +5,8 @@
 // - talk (greetings, questions, explanations, lessons, quizzes, therapist and
 //   patient modes) goes the fast way, streamed straight to her voice; clear work
 //   in the app goes to the agent; the AI hands talk over to the agent when needed;
-// - "Interrupt her by speaking": only real words stop her (not her own voice coming
-//   back, not "okay" / "mm-hmm"), and she knows where she was cut off;
-// - while she works, what the user adds is added to the request (her own "On it!"
-//   heard back is never taken as an addition);
+// - Standard waits until she has finished (talking over her is Live mode's, in
+//   agent-live.js, which this session hosts: enterLive / leaveLive / liveExchange);
 // - every exchange is written into the Lixa chat, as a voice conversation leaves
 //   its transcript behind.
 // The UI (agent-ui.js) renders `session.view` whenever onChange fires.
@@ -41,7 +39,9 @@
       };
       this.muted = pref(PREFS.muted, '0') === '1';
       this.shortAnswers = pref(PREFS.short, '0') === '1';
-      this.bargeIn = pref(PREFS.bargeIn, '1') !== '0';
+      // Standard never listens for the user talking over her: since 2026-10-16 (the user's decision) that is Live
+      // mode's job (agent-live.js). The interruption code below is kept but never runs while this is false.
+      this.bargeIn = false;
       this.accent = pref(PREFS.accent, 'us');
       this.handsFree = false;
       this.history = [];
@@ -58,6 +58,8 @@
       this.voice.accent = this.accent;
       this.recog = null; this.ears = 'off'; this.said = ''; this.holdTimer = null;
       B().loadMap().then(m => { this.map = m; });
+      // Live mode (agent-live.js): a live voice conversation next to this one, with the same tools and chat
+      this.live = window.LixaAgentLive ? new window.LixaAgentLive(this) : null;
     }
 
     set(patch) { Object.assign(this.view, patch); this.host.onChange(); }
@@ -67,7 +69,6 @@
     // ------------------------------------------------------------------ settings
     setMuted(on) { this.muted = on; setPref(PREFS.muted, on ? '1' : '0'); if (on) this.voice.stop(); this.host.onChange(); }
     setShort(on) { this.shortAnswers = on; setPref(PREFS.short, on ? '1' : '0'); this.host.onChange(); }
-    setBargeIn(on) { this.bargeIn = on; setPref(PREFS.bargeIn, on ? '1' : '0'); this.syncEars(); this.host.onChange(); }
     setAccent(a) {
       if (window.LixaAgentVoice.ACCENTS.indexOf(a) < 0) return;
       this.accent = a; this.voice.accent = a; setPref(PREFS.accent, a);
@@ -85,6 +86,7 @@
 
     release() {
       this.released = true;
+      if (this.live) this.live.release();
       this.stop();
       this.handsFree = false;
       this.stopRecog();
@@ -253,6 +255,8 @@
     typed(text) {
       const t = String(text || '').trim();
       if (!t) return;
+      // in Live, what is typed goes to her there
+      if (this.live && this.live.on) { if (this.live.typed(t)) this.set({ heard: t }); return; }
       this.voice.unlock();
       this.stop();
       this.set({ heard: t });
@@ -540,6 +544,30 @@
     openFound(ref) { const r = B().openFound(this.found, ref, this.toolHost()); if (!r.ok) this.set({ note: r.text }); }
 
     endTalkMode() { this.voice.role = null; this.endingTalk = false; this.set({ talkMode: null, talkScore: null }); }
+
+    // ------------------------------------------------------------------ Live mode (agent-live.js) uses these
+    /** Live starts: Standard stops listening and speaking. */
+    enterLive() {
+      this.handsFree = false;
+      this.stop();
+      this.stopRecog();
+      this.set({ heard: '', talkMode: null, talkScore: null, moreWaiting: false });
+      this.setState('Idle');
+      this.loadPatientIds();
+    }
+    /** Live has ended: Standard again, listening hands-free when [listen]. */
+    leaveLive(listen) {
+      this.set({ mouth: 0, shape: 0.5, status: null });
+      if (listen && SR && !this.micDenied && !this.released) this.listen(); else this.setState('Idle');
+    }
+    /** One exchange from Live: into this conversation (so Standard carries on from it) and into the Lixa chat. */
+    liveExchange(said, answer) {
+      const D = window.RehablixDeidentify;
+      this.history.push({ role: 'user', content: D ? D.scrubText(said, this.patientIds || []) : said }, { role: 'assistant', content: answer });
+      if (this.history.length > 60) this.history.splice(0, this.history.length - 60);
+      this.set({ reply: answer });
+      this.recordInChat(said, answer);
+    }
   }
 
   AgentSession.canListen = !!SR;

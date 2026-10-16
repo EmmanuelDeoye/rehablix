@@ -29,6 +29,28 @@
 .lxa-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lxa-chip i { color: var(--accent); }
 
+/* Standard | Live, and the red "Mic live" sign while Live hears the microphone */
+.lxa-modes { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.lxa-switch { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; border: 1px solid var(--border-light); background: var(--surface); box-shadow: var(--shadow-sm); }
+.lxa-switch button {
+  border: 0; border-radius: 999px; padding: 6px 16px; cursor: pointer; font-weight: 600; font-size: 0.85rem;
+  background: transparent; color: var(--text-primary);
+}
+.lxa-switch button i { color: var(--accent); margin-right: 4px; }
+.lxa-switch button.on { background: var(--accent); color: #fff; }
+.lxa-switch button.on i { color: #fff; }
+.lxa-miclive {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px;
+  font-size: 0.8rem; font-weight: 700; color: #DC2626; background: rgba(220, 38, 38, 0.1); border: 1px solid rgba(220, 38, 38, 0.5);
+}
+.lxa-dot { width: 8px; height: 8px; border-radius: 50%; background: #DC2626; animation: lxa-pulse 1.4s ease-in-out infinite; }
+@keyframes lxa-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.lxa-mic.live { background: #DC2626; color: #fff; border-color: #DC2626; box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.15); }
+.lxa-bubble.mic-live::after {
+  content: ""; position: absolute; top: 6px; right: 8px; width: 10px; height: 10px; border-radius: 50%;
+  background: #DC2626; border: 2px solid var(--surface); animation: lxa-pulse 1.4s ease-in-out infinite;
+}
+
 .lxa-mode {
   align-self: center; width: auto; max-width: 100%;
   display: inline-flex; align-items: center; gap: 8px; margin-top: 10px;
@@ -134,4 +156,4 @@
   .lxa-ctl { width: 46px; height: 46px; }
   .lxa-mic { width: 64px; height: 64px; }
 }
-@media (prefers-reduced-motion: reduce) { .lxa-mic.on { box-shadow: none; } }
+@media (prefers-reduced-motion: reduce) { .lxa-mic.on, .lxa-mic.live { box-shadow: none; } .lxa-dot, .lxa-bubble.mic-live::after { animation: none; } }
