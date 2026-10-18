@@ -114,7 +114,8 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
     const setRef = database.ref(`history/${user.uid}/study/sets`).push();
     const setRecord = {
       subjectId,
-      title: `${subjectName} — ${new Date().toLocaleDateString()}`,
+      // named after what it covers, so sets on the same subject can be told apart
+      title: parsed.topics.length ? `${subjectName} — ${parsed.topics.slice(0, 2).join(', ')}`.slice(0, 90) : `${subjectName} — ${new Date().toLocaleDateString()}`,
       summary: parsed.summary,
       topics: parsed.topics,
       flashcards,

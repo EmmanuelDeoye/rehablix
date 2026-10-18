@@ -16,11 +16,12 @@
 
   let root = null, bubble = null, navBtn = null, session = null, avatar = null, bubbleAvatar = null, map = null;
   let showing = false, active = false, panel = null;      // panel: 'settings' | 'details' | null
+  let warnNoConfirm = false;                                // the warning before "Ask before changes" is turned off
   let bubblePos = null;
   try { bubblePos = JSON.parse(localStorage.getItem('rehab-agent-bubble') || 'null'); } catch (e) { bubblePos = null; }
 
   const MODE_INFO = {
-    TUTOR: { icon: 'fa-graduation-cap', label: 'Tutor mode' }, GAME: { icon: 'fa-trophy', label: 'Game mode' },
+    TUTOR: { icon: 'fa-graduation-cap', label: 'Tutor mode' }, GAME: { icon: 'fa-trophy', label: 'Quiz (game mode)' },
     THERAPIST: { icon: 'fa-user-md', label: 'Therapist mode' }, PATIENT: { icon: 'fa-user', label: 'Patient mode' }
   };
 
@@ -163,6 +164,8 @@
       case 'cancel': session.answerConfirm(false); break;
       case 'upgrade': session.set({ upgrade: false }); hostApi.open('#/subscription'); break;
       case 'notnow': session.set({ upgrade: false }); break;
+      case 'keepasking': warnNoConfirm = false; render(); break;
+      case 'stopasking': warnNoConfirm = false; session.setAutoApprove(true); render(); break;
       case 'login': { const l = document.getElementById('loginBtn'); if (l) l.click(); break; }
       case 'openfound': session.openFound(b.dataset.ref); break;
       case 'set': {
@@ -171,6 +174,8 @@
         if (k === 'muted') session.setMuted(v === '1');
         if (k === 'accent') session.setAccent(v);
         if (k === 'livevoice' && live) live.chooseVoice(v);
+        // turning confirmations off needs the warning first; turning them back on is immediate
+        if (k === 'confirm') { if (v === '0') { if (!session.autoApprove) { warnNoConfirm = true; panel = null; } } else { warnNoConfirm = false; session.setAutoApprove(false); } render(); }
         break;
       }
     }
@@ -229,6 +234,8 @@
       `<div class="lxa-row"><span>Voice answers</span>${seg('short', [['0', 'Full'], ['1', 'Short']], session.shortAnswers ? '1' : '0')}</div>` +
       `<div class="lxa-row"><span>Mute Lixa's voice</span>${seg('muted', [['0', 'Off'], ['1', 'On']], session.muted ? '1' : '0')}</div>` +
       `<div class="lxa-row"><span>Accent</span>${seg('accent', [['us', 'US'], ['gb', 'UK'], ['au', 'AU'], ['in', 'India']], session.accent)}</div>` +
+      `<div class="lxa-row"><span>Ask before changes</span>${seg('confirm', [['1', 'On'], ['0', 'Off']], session.autoApprove ? '0' : '1')}</div>` +
+      `<p class="lxa-small${session.autoApprove ? ' lxa-danger' : ''}">${session.autoApprove ? 'Off: Lixa creates, edits and deletes as soon as you ask, without a Confirm card. Turn it back on any time.' : 'On: Lixa shows a Confirm card before she creates, edits or deletes anything.'}</p>` +
       (session.live ? `<div class="lxa-row"><span>Live voice</span>${seg('livevoice', window.LixaAgentLive.VOICES.map(([n, sound]) => [n, n + ' · ' + sound]), session.live.voice)}</div>` +
         `<p class="lxa-small">Live minutes: ${esc(session.live.usage || (B().plan() === 'free' ? 'paid plans only' : '…'))}. In Live you can talk over her any time; Standard waits until she has finished.</p>` : '') +
       (window.LixaAgentSession.canListen ? '' : `<p class="lxa-small">This browser can't listen. Use Chrome, Edge or Safari to talk to her, or type.</p>`);
@@ -250,7 +257,10 @@
     if (v.upgrade) cards += `<div class="lxa-card"><b>You've used your free tokens</b><p class="lxa-small">Upgrade to keep talking to Lixa, or wait for your tokens to reset.</p><div class="lxa-card-actions"><button type="button" data-act="notnow">Not now</button><button type="button" class="lxa-primary" data-act="upgrade">Upgrade Plan</button></div></div>`;
     const lp = session.live && session.live.prompt;
     if (lp) cards += `<div class="lxa-card"><b>${esc(lp.title)}</b><p class="lxa-small">${esc(lp.text)}</p><div class="lxa-card-actions"><button type="button" data-act="livestandard">Continue in Standard</button>${lp.upgrade ? '<button type="button" class="lxa-primary" data-act="liveupgrade">Upgrade Plan</button>' : ''}</div></div>`;
-    if (v.confirm) cards += `<div class="lxa-card lxa-confirm"><b>${esc(v.confirm.text)}</b><div class="lxa-card-actions"><button type="button" data-act="cancel">Cancel</button><button type="button" class="lxa-primary" data-act="confirm">Confirm</button></div></div>`;
+    if (warnNoConfirm) cards += `<div class="lxa-card lxa-warn"><b>Stop asking before changes?</b><p class="lxa-small">Lixa will create, edit and delete things the moment you ask, with no Confirm card first. If she mishears you, she may change something you didn't want. You can turn it back on in her settings.</p><div class="lxa-card-actions"><button type="button" data-act="stopasking">Turn off</button><button type="button" class="lxa-primary" data-act="keepasking">Keep asking</button></div></div>`;
+    // her plan for a job in several parts: every step, and how far it has got
+    if (v.plan && v.plan.steps && v.plan.steps.length) cards += `<div class="lxa-card lxa-plan"><b>Lixa's plan</b><ol>${v.plan.steps.map((s, i) => `<li class="${esc(s.status || 'pending')}"><span class="lxa-step-mark">${s.status === 'done' ? '✓' : s.status === 'failed' ? '✕' : i + 1}</span><span>${esc(s.what)}</span>${s.risk && s.risk !== 'READ' ? '<small>change</small>' : ''}</li>`).join('')}</ol></div>`;
+    if (v.confirm) cards += `<div class="lxa-card lxa-confirm"><b>${esc(v.confirm.text)}</b><div class="lxa-card-actions"><button type="button" data-act="cancel">Cancel</button><button type="button" class="lxa-primary" data-act="confirm">${v.confirm.plan ? 'Start' : 'Confirm'}</button></div></div>`;
     if (v.found && v.found.length) cards += `<div class="lxa-card lxa-found"><b>Found</b>${v.found.map(f => `<button type="button" class="lxa-found-row" data-act="openfound" data-ref="${esc(f.ref)}"><span>${esc(f.title)}</span><small>${esc(f.label)}${f.patient ? ' <i class="fas fa-lock" title="Patient data"></i>' : ''}</small></button>`).join('')}</div>`;
     const cardsEl = root.querySelector('.lxa-cards');
     if (cardsEl.dataset.html !== cards) { cardsEl.innerHTML = cards; cardsEl.dataset.html = cards; }
@@ -263,7 +273,10 @@
       v.state === 'Listening' ? 'Listening… just talk.' + (live.minutesLeft != null ? ' · ' + live.minutesLeft + ' min of Live left' : '') :
       live.minutesLeft != null ? 'Live · ' + live.minutesLeft + ' min left' : '') :
       (v.state === 'Listening' ? 'Listening…' : v.state === 'Thinking' ? (v.status || 'Thinking…') : ''));
-    root.querySelector('.lxa-heard').textContent = v.heard || (live ? (v.state === 'Listening' ? 'Listening… just talk.' : '…') : window.LixaAgentSession.canListen ? 'Tap the mic or Lixa to talk.' : 'Type below to talk to Lixa.');
+    const heardEl = root.querySelector('.lxa-heard');
+    const heardText = v.heard || (live ? (v.state === 'Listening' ? 'Listening… just talk.' : '…') : window.LixaAgentSession.canListen ? 'Tap the mic or Lixa to talk.' : 'Type below to talk to Lixa.');
+    // one line that follows the words as they come (and can be scrolled back by hand)
+    if (heardEl.textContent !== heardText) { heardEl.textContent = heardText; heardEl.scrollLeft = heardEl.scrollWidth; }
     root.querySelector('.lxa-hint').textContent = hint;
     // (Live: no caption of what the user says, at the user's request; the hint line stays)
     root.querySelector('.lxa-caption').hidden = !!live;

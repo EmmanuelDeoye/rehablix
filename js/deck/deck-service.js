@@ -80,9 +80,10 @@
     await a.check();
     const config = await a.resolve();
     if (!config) throw new Error('AI service is not configured.');
-    const want = Math.max(6, Math.min(20, parseInt(input.slideCount, 10) || 10));
+    // A slide count asked for is kept (up to what the model can write); none asked for: the AI decides (0).
+    const want = parseInt(input.slideCount, 10) > 0 ? Math.max(6, Math.min(20, parseInt(input.slideCount, 10))) : 0;
     const fits = Math.max(6, Math.floor(((config.maxTokens || 9000) - 900) / 420));
-    const prompt = Deck.buildPrompt(Object.assign({}, input, { slideCount: Math.min(want, fits), topic: scrub(input.topic), content: scrub(input.content), instructions: scrub(input.instructions) }));
+    const prompt = Deck.buildPrompt(Object.assign({}, input, { slideCount: want ? Math.min(want, fits) : 0, maxSlides: Math.min(16, fits), topic: scrub(input.topic), content: scrub(input.content), instructions: scrub(input.instructions) }));
     const messages = [{ role: 'system', content: prompt.system }, { role: 'user', content: prompt.user }];
     const maxTokens = Math.max(prompt.maxTokens, Math.min(config.maxTokens || prompt.maxTokens, prompt.maxTokens + 600));
     let raw = '', spec = null, lastErr = null;

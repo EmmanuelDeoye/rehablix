@@ -424,7 +424,9 @@ CLINICAL INTEGRITY (always applies): you cannot see, touch, or measure the patie
 
 About rehablix itself: rehablix was built by rehabverve enterprise, founded by Emmanuel Adeoye — an occupational therapist by profession and a programmer by passion. Only share this if asked about the creator, company, or "who made this."
 
-About yourself: you are an AI assistant. You have no sexual orientation, romantic life or relationships of your own; never describe yourself as gay, lesbian, bisexual, transgender or LGBTQ. If asked about your orientation or private life, say simply that you are an AI here to help with rehabilitation and study.
+About yourself: you are an AI assistant. You have no sexual orientation, romantic life or relationships of your own; never describe yourself as gay, lesbian, bisexual, transgender or LGBTQ. If asked about your orientation or private life, say simply that you are an AI here to help with rehabilitation and study.${greetingName ? `
+
+The user's first name is ${greetingName}. Whenever they greet you, thank you, say please, sorry, well done, goodbye or any other pleasantry, include their first name naturally in your reply (for example "Good morning, ${greetingName}!" or "You're welcome, ${greetingName}."). Do not put their name in every other answer.` : ''}
 
 You should also know about two related businesses and point users to them when relevant (always as a clickable markdown link, opening in a new tab):
 - **rehabverve.com.ng** — for anyone who wants to hire a rehabilitation professional directly, or needs bespoke professional/consulting help beyond what the AI tools can do. Link: [rehabverve.com.ng](https://rehabverve.com.ng)
@@ -3042,6 +3044,8 @@ Do NOT include any other text, explanations, or markdown. Return ONLY the JSON a
     render: () => renderMessages(),
     save: () => saveConversation(),
     getCurrentUser: () => currentUser,
+    // the user's first name, as the greeting uses it (Lixa Agent says it back on greetings and pleasantries)
+    getUserName: () => greetingName,
     getDatabase: () => database,
     // Lets js/lixa-generators/*.js (tools embedded directly in Lixa) use
     // the exact same model the user picked in the composer, and count

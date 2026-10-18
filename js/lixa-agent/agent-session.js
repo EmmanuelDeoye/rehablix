@@ -22,7 +22,7 @@
   const ECHO_WINDOW_MS = 1500;
   const STILL_FIRST_MS = 8000, STILL_NEXT_MS = 15000;
   const TALK_MAX_TOKENS = 1800;
-  const PREFS = { short: 'rehab-agent-short', muted: 'rehab-agent-muted', accent: 'rehab-agent-accent', bargeIn: 'rehab-agent-bargein' };
+  const PREFS = { short: 'rehab-agent-short', muted: 'rehab-agent-muted', accent: 'rehab-agent-accent', bargeIn: 'rehab-agent-bargein', noConfirm: 'rehab-agent-no-confirm' };
   const STOCK_LINES = ['On it!', 'Let me check.', 'One moment.', 'Shall I go on?', 'Done, the screen is clear.'].concat(['Still working on it.', 'Nearly there, just a moment.']);
   const pref = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } };
   const setPref = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } };
@@ -45,6 +45,7 @@
       // mode's job (agent-live.js). The interruption code below is kept but never runs while this is false.
       this.bargeIn = false;
       this.accent = pref(PREFS.accent, 'us');
+      this.autoApprove = pref(PREFS.noConfirm, '0') === '1';   // ("Ask before changes" off: see setAutoApprove)
       this.handsFree = false;
       this.history = [];
       this.turnBusy = false;
@@ -130,6 +131,8 @@
     /** What the recogniser should be doing now. */
     wantedEars() {
       if (this.released || !SR || this.micDenied) return 'off';
+      // (Live has the microphone: a yes or no to a Confirm card is heard by Live itself)
+      if (this.live && this.live.on) return 'off';
       if (this.view.confirm) return 'confirm';
       const s = this.state;
       if (s === 'Listening' || s === 'Idle') return this.handsFree && !this.turnBusy ? 'listen' : 'off';
@@ -386,7 +389,7 @@
       if (direct) {
         // talk: a short spoken-style prompt, the reply streamed straight to her voice (null: it needs the app after all)
         const page = (this.map && this.map.entry(this.host.route()) || {}).title || 'Lixa';
-        const messages = [{ role: 'system', content: Rr.Talk.systemPrompt(talk, page, ending) }].concat(this.history.slice(talk ? -24 : -10), [{ role: 'user', content: request }]);
+        const messages = [{ role: 'system', content: Rr.Talk.systemPrompt(talk, page, ending, B().userName()) }].concat(this.history.slice(talk ? -24 : -10), [{ role: 'user', content: request }]);
         const filter = new Rr.TalkFilter();
         try {
           const full = await Br.stream(messages, { maxTokens: TALK_MAX_TOKENS, temperature: talk ? 0.6 : 0.5 }, f => {
@@ -397,10 +400,12 @@
           }, signal);
           if (filter.score) this.set({ talkScore: filter.score });
           const text = filter.visible(full).trim();
+          // She said she made (or is making) something, but talk cannot make anything: the agent does it now.
+          if (!talk && Rr.Talk.claimsAction(text)) throw new HandOff();
           outcome = { reply: text || 'Sorry, I lost my train of thought there. Could you say that again?' };
         } catch (e) {
           if (!(e instanceof HandOff)) throw e;
-          streamedLength = 0; splitter = new Rr.SentenceSplitter();
+          streamedLength = 0; queued = 0; splitter = new Rr.SentenceSplitter();
         }
         if (ending) { this.voice.role = null; this.set({ talkMode: null, body: 'normal' }); }
         if (outcome) this.learnPatientBody(outcome.reply);       // patient mode: the patient's body, once they describe themselves
@@ -422,7 +427,9 @@
             this.stillTimer = setTimeout(still, STILL_FIRST_MS);
           },
           onToolEnd: () => { clearTimeout(this.stillTimer); this.set({ status: 'Thinking…' }); if (this.state === 'Working') this.setState('Thinking'); },
-          confirm: text => this.askToConfirm(text)
+          confirm: text => this.askToConfirm(text),
+          approvePlan: steps => this.askToStart(steps),
+          onPlanProgress: steps => this.set({ plan: { steps: steps.map(s => Object.assign({}, s)), awaiting: false } })
         }, signal, this.found);
       }
       clearTimeout(this.stillTimer);
@@ -493,14 +500,33 @@
     }
 
     // ------------------------------------------------------------------ confirming a change (tap, or a spoken yes / no)
-    askToConfirm(text) {
+    /** "Ask before changes" off (the user was warned first): changes go ahead without the Confirm card. */
+    setAutoApprove(on) { this.autoApprove = !!on; setPref(PREFS.noConfirm, on ? '1' : '0'); this.host.onChange(); }
+
+    /** A plan for a job in several parts: on screen and said aloud; Start / Cancel (or a spoken yes / no). */
+    askToStart(steps) {
+      const said = steps.slice(0, 5).map((s, i) => (i === 0 ? 'first, ' : i === steps.length - 1 ? 'and finally, ' : 'then, ') + String(s.what).trim().replace(/\.$/, ''));
+      const told = 'Here is my plan, in ' + steps.length + ' steps: ' + said.join('; ') + (steps.length > 5 ? '; and ' + (steps.length - 5) + ' more on your screen. ' : '. ');
+      this.set({ plan: { steps: steps.map(s => Object.assign({}, s)), awaiting: !this.autoApprove } });
+      const job = this.speechJob;
+      const say = line => { if (job && !job.closed && !job.stopped && !this.muted) R().SpeechText.sentences(line).forEach(x => this.queueStatus(job, x)); };
+      if (this.autoApprove) { say(told + "I'm starting now."); return Promise.resolve(true); }
+      return this.askToConfirm('Start this plan?', told + 'Shall I start?', true).then(yes => {
+        this.set({ plan: yes ? Object.assign({}, this.view.plan, { awaiting: false }) : null });
+        return yes;
+      });
+    }
+
+    askToConfirm(text, spoken, isPlan) {
+      // (confirmations turned off: it goes ahead, as if the user had tapped Confirm)
+      if (this.autoApprove && !isPlan) return Promise.resolve(true);
       return new Promise(resolve => {
         this.confirmResolve = resolve;
-        this.set({ confirm: { text } });
+        this.set({ confirm: { text, plan: !!isPlan } });
         this.setState('NeedsConfirmation');
         // (said within this turn's own speech, so nothing of the answer is cut off)
         const job = this.speechJob;
-        if (job && !job.closed && !job.stopped) this.queueStatus(job, text.replace(/\?$/, '') + '? Just tell me, or tap Confirm.');
+        if (job && !job.closed && !job.stopped && !this.muted) R().SpeechText.sentences(spoken || (text.replace(/\?$/, '') + '? Just tell me, or tap Confirm.')).forEach(x => this.queueStatus(job, x));
         this.syncEars();
         clearTimeout(this.confirmTimer);
         this.confirmTimer = setTimeout(() => this.answerConfirm(false), 60000);
@@ -592,6 +618,23 @@
       this.set({ mouth: 0, shape: 0.5, status: null });
       if (listen && SR && !this.micDenied && !this.released) this.listen(); else this.setState('Idle');
     }
+    /**
+     * Live wants to change something: the same Confirm / Cancel card, without holding Live up (she carries on talking).
+     * Answered by a tap, or a spoken yes or no that Live heard (answerLive); no answer in 60 seconds is a no.
+     */
+    liveAsk(text) {
+      if (this.confirmResolve) this.answerConfirm(false);
+      return new Promise(resolve => {
+        this.confirmResolve = resolve;
+        this.set({ confirm: { text } });
+        if (this.host.restore) this.host.restore();
+        clearTimeout(this.confirmTimer);
+        this.confirmTimer = setTimeout(() => { this.set({ note: 'No answer, so I left it. Nothing was changed.' }); this.answerConfirm(false); }, 60000);
+      });
+    }
+    /** Live heard the user say yes or no while a Confirm card is up. */
+    answerLive(yes) { if (this.confirmResolve) this.answerConfirm(!!yes); }
+
     /** One exchange from Live: into this conversation (so Standard carries on from it) and into the Lixa chat. */
     liveExchange(said, answer) {
       const D = window.RehablixDeidentify;

@@ -71,10 +71,16 @@ ${data.additionalInstructions ? `\nADDITIONAL INSTRUCTIONS FROM THE CLINICIAN:\n
     );
     window.LixaCore.reportToolTokenUsage(systemPrompt + userContent + rawMarkdown, config.weight);
     const htmlContent = marked.parse(rawMarkdown);
+    // named after the patient when a name was given, else the diagnosis, else the document's own title (never just "Patient")
+    const FT = window.RehablixFileTitles;
+    const fromDoc = FT ? FT.fromAnswer(rawMarkdown, data.content) : '';
+    const label = (data.patientName && String(data.patientName).trim()) ||
+      (diagnosis !== 'Not specified' ? (FT ? FT.titleCase(String(diagnosis).slice(0, 60)) : String(diagnosis).slice(0, 60)) : '') ||
+      (fromDoc && fromDoc !== 'Lixa document' ? fromDoc : '') || new Date().toLocaleDateString();
 
     const historyItem = {
       contentType: mode,
-      fileName: `${modeText} - ${patientName}`,
+      fileName: `${modeText} - ${label}`,
       documentType: modeText,
       patientName,
       diagnosis,
@@ -89,10 +95,10 @@ ${data.additionalInstructions ? `\nADDITIONAL INSTRUCTIONS FROM THE CLINICIAN:\n
 
     return {
       ok: true,
-      summary: `Here's your ${modeText.toLowerCase()} for **${patientName}**:`,
+      summary: `Here's your ${modeText.toLowerCase()} for **${label}**:`,
       fileCard: {
         icon: '📑',
-        title: `${modeText} — ${patientName}`,
+        title: `${modeText} — ${label}`,
         meta: modeText,
         snippet: rawMarkdown.replace(/[#*`_>-]/g, '').slice(0, 150).trim(),
         toolId: 'presentation',

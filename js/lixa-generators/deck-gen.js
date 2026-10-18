@@ -58,7 +58,8 @@
       topic: data.content,
       content: data.source || '',
       audience: data.audience || '',
-      slideCount: data.slideCount || detectCount(data.content) || 10,
+      // (no number asked for: the AI decides how many slides the topic needs)
+      slideCount: data.slideCount || detectCount(data.content) || 0,
       style: data.style || detectStyle(data.content),
       instructions: data.additionalInstructions || '',
     }, adapter());

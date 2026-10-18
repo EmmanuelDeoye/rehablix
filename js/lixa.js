@@ -973,7 +973,7 @@
       if (core.onStop) core.onStop(() => { stopped = true; hideStatus(); core.setWaiting(false); pushAssistantText('Okay, I stopped that. Nothing was added to this chat.'); });
       try {
         const result = await tool.generate(data);
-        if (stopped) return;
+        if (stopped) return { ok: false, error: 'It was stopped.' };
         hideStatus();
         if (result && result.ok) {
           const summary = result.summary || `Here's your ${tool.meta.name.toLowerCase()}:`;
@@ -991,14 +991,17 @@
               core.refineTitleAndSave(firstUserMsg.displayContent || firstUserMsg.content, summary);
             }
           }
+          return result;
         } else {
           pushAssistantText(`Sorry, I couldn't generate that: ${(result && result.error) || 'unknown error'}. Want to try again?`);
+          return { ok: false, error: (result && result.error) || 'unknown error' };
         }
       } catch (err) {
-        if (stopped) return;
+        if (stopped) return { ok: false, error: 'It was stopped.' };
         hideStatus();
         console.error('[lixa] generation failed', err);
         pushAssistantText(`Sorry, something went wrong generating that (${err.message || err}). Want to try again?`);
+        return { ok: false, error: err.message || String(err) };
       } finally {
         if (!stopped) {
           core.setWaiting(false);
@@ -1102,7 +1105,12 @@
           if (content) return content;
         }
         const html = (typeof marked !== 'undefined') ? marked.parse(lastMsg.content || '') : htmlFromPlainText(lastMsg.content);
-        return { title: 'Lixa Response', html };
+        // named after the answer itself (its heading, or what the question asked), not "Lixa Response"
+        const before = messages.slice(0, Math.max(0, messages.indexOf(lastMsg)));
+        const askedMsg = before.reverse().find(m => m && m.role === 'user');
+        const asked = askedMsg ? (askedMsg.displayContent || askedMsg.content) : '';
+        const FT = window.RehablixFileTitles;
+        return { title: FT ? FT.fromAnswer(lastMsg.content || '', typeof asked === 'string' ? asked : '') : 'Lixa Response', html };
       }
 
       return null; // nothing to export — caller asks instead of guessing
@@ -1364,7 +1372,37 @@
       }
     }
 
-    window.LixaOrchestrator = { tryHandle, handleFileAction };
+    // Lixa Agent's create_document: the file is made at once with the tool's own reading of the request — no Task
+    // Setup form waiting unseen behind the agent screen (that is what made the agent say a file was being made when
+    // nothing was). The request and the finished file card go into this chat, as when it is typed here.
+    // Returns {ok, fileCard} | {ok: false, missing: [questions]} | {ok: false, error}.
+    let agentCreating = false;
+    async function agentCreate(toolId, request) {
+      const tool = TOOLS[toolId];
+      if (!tool || toolId === 'audio') return { ok: false, error: 'there is no generator called "' + toolId + '"' };
+      if (agentCreating || pending) return { ok: false, error: 'the Lixa chat is busy with another file right now; try again in a moment' };
+      const text = String(request || '').trim();
+      const collected = (tool.extractFromText ? tool.extractFromText(text) : {}) || {};
+      // (the same reading of the request as startTool: too little detail means the main input is missing)
+      if (TASK_SETUP_SCHEMAS[toolId] && toolId !== 'standardized') {
+        const topic = cleanTopic(text, toolId);
+        const requiredKeys = (tool.requiredFields || []).map(f => f.key);
+        if (meaningfulWords(topic) < (MIN_DETAIL[toolId] || 1)) requiredKeys.forEach(k => { delete collected[k]; });
+        else if (tool.extractFromText) {
+          const again = tool.extractFromText(topic) || {};
+          requiredKeys.forEach(k => { if (again[k] !== undefined && String(again[k]).trim() !== '') collected[k] = again[k]; });
+        }
+      }
+      const missing = missingFieldsFor(tool, collected);
+      if (missing.length) return { ok: false, missing: missing.map(f => f.prompt) };
+      agentCreating = true;
+      try {
+        pushUserText(text);
+        return await runGeneration(toolId, collected);
+      } finally { agentCreating = false; }
+    }
+
+    window.LixaOrchestrator = { tryHandle, handleFileAction, agentCreate };
 
     // =====================================================================
     // History drawer: Chats / Files toggle (single icon button — the icon

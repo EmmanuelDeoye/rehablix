@@ -393,13 +393,15 @@
   function chooseTheme(spec, forced) {
     if (forced && THEMES[forced]) return forced;
     if (spec.style && THEMES[spec.style]) return spec.style;
+    // (only when the AI gave no usable style: "clinical" is kept for research-type decks, not every health topic)
     const t = (spec.title + ' ' + spec.subtitle + ' ' + spec.audience).toLowerCase();
-    if (/research|trial|evidence|clinical|protocol|anatomy|patho/.test(t)) return 'clinical';
-    if (/board|strategy|business|budget|executive|investor/.test(t)) return 'midnight';
-    if (/wellbeing|mental|mindful|holistic|community|palliative/.test(t)) return 'botanic';
-    if (/paediatric|pediatric|child|play|youth/.test(t)) return 'sunrise';
-    if (/tech|ai|digital|robot|innovation|sensor/.test(t)) return 'graphite';
-    if (/history|philosophy|ethic|essay|case study/.test(t)) return 'editorial';
+    if (/paediatric|pediatric|child|infant|play|youth|school/.test(t)) return 'sunrise';
+    if (/wellbeing|well-being|mental|mindful|holistic|community|palliative|patient education|caregiver/.test(t)) return 'botanic';
+    if (/board|strategy|business|budget|executive|investor|leadership|management/.test(t)) return 'midnight';
+    if (/\btech|\bai\b|digital|robot|innovation|sensor|telehealth|virtual/.test(t)) return 'graphite';
+    if (/history|philosophy|ethic|essay|case study|case report|reflection/.test(t)) return 'editorial';
+    if (/research|trial|systematic|meta-analysis|protocol|anatomy|patho/.test(t)) return 'clinical';
+    if (/student|teaching|workshop|seminar|class|lecture/.test(t)) return 'coral';
     return 'aurora';
   }
 
@@ -823,8 +825,14 @@
   // ===================================================================
   function buildPrompt(input) {
     input = input || {};
-    const count = Math.max(6, Math.min(20, parseInt(input.slideCount, 10) || 10));
+    // No slide count asked for: the AI decides how many the topic needs (up to maxSlides, what the model can write).
+    const auto = !(parseInt(input.slideCount, 10) > 0);
+    const count = auto ? 0 : Math.max(6, Math.min(20, parseInt(input.slideCount, 10)));
+    const maxAuto = Math.max(7, Math.min(16, parseInt(input.maxSlides, 10) || 16));
     const styles = Object.entries(THEMES).map(([id, th]) => `${id} (${th.mood})`).join('; ');
+    const howMany = auto
+      ? `Choose the number of slides yourself, between 7 and ${maxAuto} including cover and closing, to fit how deep the topic is and what the deck is for (a short briefing, patient talk or ward update needs fewer; a lecture, case study, seminar or full module needs more). Never pad with filler slides.`
+      : `${count} slides total including cover and closing.`;
     const system = `You are a world-class presentation designer and clinical educator creating a premium, Gamma-quality slide deck for rehabilitation and healthcare professionals.
 
 Return ONLY valid JSON (no markdown fences, no commentary) with this shape:
@@ -851,15 +859,16 @@ Layouts and their fields (use the one that best fits each idea, and VARY them �
 Every slide may also have "notes": 2-4 sentences of speaker notes.
 "icon" must be one of: ${Object.keys(ICONS).join(', ')}.
 
-Rules: ${count} slides total including cover and closing. Tell a story: hook → context → core content (grouped into sections with "section" slides for decks of 10+) → application → takeaways. Keep on-slide text short, specific and scannable; put detail in notes. Use accurate, current, evidence-informed clinical content; if a claim is uncertain, phrase it cautiously. Never include patient-identifying details. Pick the "style" that suits the topic: ${styles}.`;
+Rules: ${howMany} Tell a story: hook → context → core content (grouped into sections with "section" slides for decks of 10+) → application → takeaways. Keep on-slide text short, specific and scannable; put detail in notes. Use accurate, current, evidence-informed clinical content; if a claim is uncertain, phrase it cautiously. Never include patient-identifying details.
+Style: pick the "style" that genuinely suits THIS deck's subject, audience and purpose; do not default to "clinical". Use clinical only for research, protocols, evidence reviews or anatomy and pathology; botanic for wellbeing, mental health, community work or patient education; sunrise for paediatrics, play or young audiences; coral for student teaching, workshops and lively talks; editorial for case studies, ethics, history or reflective pieces; midnight for leadership, management, business or keynotes; graphite for technology, AI, devices or innovation; aurora for modern general talks and Rehablix-branded decks. Options: ${styles}.`;
     const parts = [];
     if (input.topic) parts.push(`TOPIC / REQUEST:\n${input.topic}`);
     if (input.content) parts.push(`SOURCE CONTENT (build the deck from this; keep facts faithful):\n${String(input.content).slice(0, 24000)}`);
     if (input.audience) parts.push(`AUDIENCE: ${input.audience}`);
     if (input.instructions) parts.push(`EXTRA INSTRUCTIONS: ${input.instructions}`);
     if (input.style && THEMES[input.style]) parts.push(`Use style: ${input.style}`);
-    parts.push(`Create the ${count}-slide deck JSON now.`);
-    return { system, user: parts.join('\n\n'), maxTokens: 900 + count * 420 };
+    parts.push(auto ? 'Create the deck JSON now.' : `Create the ${count}-slide deck JSON now.`);
+    return { system, user: parts.join('\n\n'), maxTokens: 900 + (auto ? maxAuto : count) * 420 };
   }
 
   async function render(specOrText, opts) {
@@ -987,5 +996,5 @@ Rules: ${count} slides total including cover and closing. Tell a story: hook →
     return c.toDataURL('image/jpeg', 0.85);
   }
 
-  root.RehablixDeck = { THEMES, ICONS, LAYOUTS, buildPrompt, parseSpec, normalize, plan, chooseTheme, render, renderBase64, previewHtml, coverPreview, version: 3 };
+  root.RehablixDeck = { THEMES, ICONS, LAYOUTS, buildPrompt, parseSpec, normalize, plan, chooseTheme, render, renderBase64, previewHtml, coverPreview, version: 4 };
 })(typeof window !== 'undefined' ? window : this);

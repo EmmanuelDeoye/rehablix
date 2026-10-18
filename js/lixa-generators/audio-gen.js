@@ -95,7 +95,11 @@
     if (!rawText) return { ok: false, error: "I couldn't detect any speech in that audio." };
     const cleaned = await cleanupTranscript(rawText);
 
-    const title = data.title || `Transcript – ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    // a title that says what the session was about, with its date: not just "Transcript"
+    const FT = window.RehablixFileTitles;
+    const aiTitle = data.title ? null : FT ? await FT.aiTitle('clinical or therapy session transcript', cleaned || rawText) : null;
+    const title = data.title || (aiTitle ? `${aiTitle} — ${new Date().toLocaleDateString()}` : null) ||
+      `Transcript – ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     const payload = {
       title,
       sessionType: 'session',

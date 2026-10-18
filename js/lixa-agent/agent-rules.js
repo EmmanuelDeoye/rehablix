@@ -271,7 +271,13 @@
     "smart emr|project maker|deck studio|study buddy|exam simulator|audio transcription|assessment format|standardized tools|motion (and|&) gait|gait analy[sz]er|(app|voice|agent) settings)\\b", 'i');
 
   const TUTOR = /\b(tutor mode|tutor me|be my tutor|teach me|give me a (lesson|class|tutorial)|lesson (on|about)|lecture me|take me through|walk me through|explain .{3,120}\b(and|then) (quiz|ask|test|question) me)\b/i;
-  const GAME = /\b(game mode|quiz me|test me|play (a |the )?(quiz|game)|clinical (quiz|questions|game|cases)|ask me (some |a few |\w+ )?(clinical |rehab |exam |hard |easy )?questions|let'?s play|start (a |the )?(quiz|game))\b/i;
+  // ("quiz" in any of its usual forms is game mode too: "quiz mode", "give me a quiz", "let's do a quiz on…")
+  const GAME = /\b(game mode|quiz mode|quiz me|quiz time|test me|play (a |the )?(quiz|game)|clinical (quiz|questions|game|cases)|ask me (some |a few |\w+ )?(clinical |rehab |exam |hard |easy )?questions|let'?s play|let'?s (do|have|try) (a |the )?quiz|(give|set) me (a |some )?quiz(zes)?|(do|take|have|try|run|want|need) (a |the |some )?quiz|start (a |the )?(quiz|game)|(a |the )?quiz (on|about|for|with) )/i;
+  // Asking for a file in other words ("I need a PowerPoint on…", "can you prepare an assessment format for…"): work in the
+  // app (a document is made and saved), never just talk. ("The presentation of a stroke" is clinical talk.)
+  const MAKE_FILE = /\b(i need|i want|i'?d like|can you|could you|would you|will you|please|help me|give me|get me|prepare|produce|put together|do me|let'?s (do|make|create))\b.{0,60}?\b(power ?points?|pptx?|slides?|slide ?decks?|decks?|presentations?(?! of)|assessment formats?|formats?|standardi[sz]ed (tools?|assessments?)|assignments?|essays?|study sets?|flash ?cards?|transcripts?|reports?|word (docs?|documents?|files?)|pdfs?|documents?|handouts?)\b/i;
+  // What she says when she claims to have done (or to be doing) something in the app. With no tool run it is not true.
+  const CLAIMS = /\b(i'?ve (just )?(created|made|generated|prepared|saved|built|designed)|i have (just )?(created|made|generated|prepared|saved|built|designed)|i'?m (now )?(creating|making|generating|preparing|building|designing|saving)|i'?ll (create|make|generate|prepare|build|design)|(is|are) (now )?being (created|generated|prepared|made|built)|it'?s ready|(is|are) ready (for you|now)|here'?s your (new )?(document|presentation|power ?point|deck|slides|format|assignment|study set|flash ?cards|report|file|transcript))\b/i;
   const THERAPIST = /\b(therapist mode|counsel+(or|ing) mode|be my (therapist|counsel+or|psychologist|psychiatrist|coach|life coach|supervisor|clinical supervisor|mentor)|act as (my |a |an )?(therapist|counsel+or|psychologist|psychiatrist|psychotherapist|clinical supervisor|supervisor|mentor|coach|social worker|senior colleague)|talk to me (as|like) (a|my) (therapist|counsel+or|psychologist)|i need (a therapist|someone to talk to|to talk to someone|to vent))\b/i;
   const PATIENT = /\b(patient mode|act as (a|my|the) patient|be (a|my|the) patient|play (a|the) patient|role ?-?play (as )?(a |the )?patient|pretend (to be|you are|you're) (a|my|the) patient|simulate (a|the) patient|(i want to |let me |let'?s )?practi[cs]e (a |my )?(case|case study|assessment|interview|history taking|treatment|therapy session|intervention|follow[- ]up) (with|on) (you|a patient))\b/i;
   const END = /\b(stop|end|exit|quit|finish|leave|close|cancel)( the| this| our)? (tutor mode|tutoring|tutor|lesson|class|tutorial|game mode|game|quiz|therapist mode|therapy|counsel+ing|session|patient mode|role ?-?play|simulation|case study|case)\b|\b(that'?s enough (for )?(the )?(lesson|quiz|game|questions))\b|\bstep out of (the )?(role|character)\b/i;
@@ -281,7 +287,14 @@
     HAND_OFF,
     KIND: { TUTOR: 'TUTOR', GAME: 'GAME', THERAPIST: 'THERAPIST', PATIENT: 'PATIENT' },
     /** Whether [said] is clearly a request to do something in the app; if not, it is talk. */
-    needsApp(said) { return APP.test(String(said || '')); },
+    needsApp(said) { const s = String(said || ''); return APP.test(s) || MAKE_FILE.test(s); },
+    /** She says she made (or is making) something. */
+    claimsAction(text) { return CLAIMS.test(String(text || '')); },
+    /** How she treats greetings and pleasantries: with the user's first name (blank when unknown). Same text as Android. */
+    nameLine(name) {
+      return !name || !String(name).trim() ? '' :
+        `\n\nThe user's first name is ${name}. Whenever they greet you, thank you, say please, sorry, well done, goodbye or any other pleasantry, include their first name naturally in your reply (for example "Good morning, ${name}!" or "You're welcome, ${name}."). Do not put their name in every other answer.`;
+    },
     /** {start: mode} | {end: true} | null. A mode is {kind, startedWith}. */
     change(said, current) {
       const s = String(said || '');
@@ -293,7 +306,7 @@
       if (GAME.test(s) && !(current && current.kind === 'GAME')) return start('GAME');
       return null;
     },
-    systemPrompt(mode, page, ending) {
+    systemPrompt(mode, page, ending, userName) {
       let p = `You are Lixa, the voice of Rehablix, an app for rehabilitation professionals and students (occupational therapy, physiotherapy, speech therapy and related fields). You are talking with the user out loud, like a knowledgeable, warm colleague: natural, friendly, confident and evidence-based.
 
 About yourself: you are an AI assistant. You have no sexual orientation, romantic life or relationships of your own; never describe yourself as gay, lesbian, bisexual, transgender or LGBTQ. If asked about your orientation or private life, say simply that you are an AI here to help with rehabilitation and study.
@@ -302,11 +315,12 @@ How you speak:
 - Everything you write is read aloud. Plain spoken sentences only: no markdown, lists, bullet points, headings, symbols, emojis, URLs or tables. Say numbers and abbreviations the way a person would say them.
 - Match the length to what was asked. A greeting, thanks or a quick remark gets one or two friendly sentences. A simple question gets a short, direct answer. When the user asks you to explain, describe, teach, compare or go into detail, give a full spoken explanation: as long as it needs to be (often eight to twenty sentences), organised with spoken signposts such as "first", "next", "the key point is", and finish it completely. Never cut a requested explanation short or stop to ask whether to continue unless you are teaching in tutor mode.
 - Be accurate. If you are not sure, say so. Never invent patient details, studies, figures or sources.
+- When the user describes symptoms or a case, reason like an experienced clinician: give the likely diagnosis and the other possibilities worth considering (a differential), why, and what assessment or test would confirm them. Do not hide behind "I'm not a doctor" or "I can't diagnose"; you cannot examine anyone, so say what you would check.
 - You know the conversation so far; refer back to it naturally.
 
 You can also work inside the Rehablix app, but not in this reply: if the user wants something DONE in the app (open a page or tool, find, open, create, change, delete or export their saved work, anything about their own patients, projects, files or what is on their screen), reply with exactly ${HAND_OFF} and nothing else.
 
-The user is on this page of the app: ${page}.`;
+The user is on this page of the app: ${page}.` + Talk.nameLine(userName);
       const said = mode ? String(mode.startedWith || '').slice(0, 400) : '';
       if (mode && mode.kind === 'TUTOR') p += `
 
@@ -327,7 +341,9 @@ GAME MODE (clinical quiz) is on. The user started it by saying: "${said}". Follo
 THERAPIST MODE is on. The user started it by saying: "${said}". Be the professional they asked for (by default, a warm, experienced counselling therapist; for clinical matters such as a difficult case, ethics, burnout or supervision, a supportive senior colleague or clinical supervisor).
 - This is a real conversation about real things in their life or work, sometimes sensitive. Listen first. Reflect back what you hear and how they seem to feel, ask one open question at a time, and let them lead. Never judge, never lecture, never rush to fix.
 - Use sound, evidence-based approaches that fit the role (for example CBT-informed questions, motivational interviewing, solution-focused or person-centred listening), offered gently and in plain words. Usually two to six spoken sentences; longer when they ask for guidance or an explanation.
-- Respect their privacy; do not ask for names or identifying details. Do not diagnose. If asked, be honest that you are an AI and not a replacement for a licensed professional, and suggest one when it would help.
+- Be genuinely useful, like a skilled senior clinician, not a cautious leaflet. When what they describe fits a recognisable picture, say so: name the possible diagnoses or explanations (for example burnout, an adjustment disorder, generalised anxiety, low mood or depression, insomnia, compassion fatigue), say which seems most likely and why, what would help tell them apart, and what they can do about it. Give clear, practical guidance and techniques.
+- Do NOT keep repeating disclaimers such as "I'm not a doctor", "I can't diagnose" or "please see a professional". Mention that you are an AI only if they ask, and suggest a professional in person only when it would really change things (risk, severe or persistent symptoms, medication), once, naturally.
+- Respect their privacy; do not ask for names or identifying details.
 - SAFETY: if they mention thoughts of suicide or self-harm, harming someone, abuse, or a medical emergency, respond with care and calm, and clearly encourage them to contact emergency services now (112 in Nigeria and many other countries) or a crisis line, and a trusted person nearby. Stay with them in the conversation.`;
       if (mode && mode.kind === 'PATIENT') p += `
 
