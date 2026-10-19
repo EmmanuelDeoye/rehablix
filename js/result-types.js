@@ -149,7 +149,7 @@
           ? 'N/A'
           : measuredCount === measurements.length
             ? `${measuredCount}/${measurements.length} measured`
-            : `${measuredCount}/${measurements.length} measured, rest AI estimate`;
+            : `${measuredCount}/${measurements.length} measured, rest SI estimate`;
         return [
           { icon: 'fa-user', text: data.patientName || 'Unnamed Patient' },
           { icon: 'fa-running', text: data.fileName || 'ROM Analysis' },
@@ -175,15 +175,15 @@
     // ================= Ask AI response =================
     ask: {
       accent: '#009688',
-      pageTitle: 'AI Response',
-      shortLabel: 'AI response',
+      pageTitle: 'SI Response',
+      shortLabel: 'SI response',
       historyPath: (uid, id) => `history/${uid}/askResults/${id}`,
       validate: () => true,
-      titleFor: (data) => data.question ? `Re: ${data.question}` : 'AI Response',
-      shortTitleFor: () => 'AI response',
+      titleFor: (data) => data.question ? `Re: ${data.question}` : 'SI Response',
+      shortTitleFor: () => 'SI response',
       fileBase: () => `Ask_AI_Response`,
       metadata: (data) => [
-        { icon: 'fa-comment-dots', text: data.question || 'Ask AI' },
+        { icon: 'fa-comment-dots', text: data.question || 'Ask SI' },
         { icon: 'fa-calendar-alt', text: data.date || new Date().toLocaleDateString() },
         { icon: 'fa-clock', text: data.lastEditedDate || data.date || '-' }
       ],
@@ -191,7 +191,7 @@
       buildSaveUpdates: ({ html, markdown }) => ({ resultsMarkdown: markdown, resultsHtml: html }),
       closeUrl: 'index.html',
       showPptExport: false,
-      shareSubject: (data) => data.question ? `AI answer: ${data.question}` : 'AI Response',
+      shareSubject: (data) => data.question ? `SI answer: ${data.question}` : 'SI Response',
       printMeta: (data) => [
         ['Question', data.question || 'N/A']
       ]

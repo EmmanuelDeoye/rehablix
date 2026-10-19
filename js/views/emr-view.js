@@ -365,7 +365,7 @@
     // =========================================================================
     // Loading Overlay
     // =========================================================================
-    function showLoading(message = 'Generating with AI…', progress = 0) {
+    function showLoading(message = 'Generating with SI…', progress = 0) {
         loadingMessage.textContent = message;
         loadingProgress.style.width = progress + '%';
         loadingOverlay.style.display = 'flex';
@@ -611,7 +611,7 @@
         });
 
         if (pending.length === 0) {
-            dashPendingDocs.innerHTML = `<div class="emr-empty-state"><i class="bx bx-check-circle"></i><p>All AI-generated content has been reviewed!</p></div>`;
+            dashPendingDocs.innerHTML = `<div class="emr-empty-state"><i class="bx bx-check-circle"></i><p>All SI-generated content has been reviewed!</p></div>`;
             return;
         }
 
@@ -620,7 +620,7 @@
                 <i class="bx bx-magic" style="color:var(--accent);" aria-hidden="true"></i>
                 <div style="flex:1;">
                     <div style="font-weight:600;font-size:0.85rem;">${escapeHtml(item.patientName)} — ${escapeHtml(item.label)}</div>
-                    <div style="font-size:0.75rem;color:var(--text-secondary);">${item.date ? escapeHtml(item.date) + ' · ' : ''}<span class="tag tag-amber" style="font-size:0.65rem;">AI draft, review before use.</span></div>
+                    <div style="font-size:0.75rem;color:var(--text-secondary);">${item.date ? escapeHtml(item.date) + ' · ' : ''}<span class="tag tag-amber" style="font-size:0.65rem;">SI draft, review before use.</span></div>
                 </div>
                 <i class="bx bx-chevron-right" aria-hidden="true"></i>
             </div>
@@ -814,14 +814,14 @@
         const when = d.dischargedAt ? new Date(d.dischargedAt).toLocaleDateString() : '';
         banner.innerHTML = `
             <i class="bx bx-lock-alt" aria-hidden="true"></i>
-            <div class="emr-locked-text"><strong>Discharged${when ? ' on ' + escapeHtml(when) : ''}${d.dischargedBy ? ' by ' + escapeHtml(d.dischargedBy) : ''}.</strong> This record is in the Discharged list and is read-only: nothing can be added or changed, by hand or with AI.</div>
+            <div class="emr-locked-text"><strong>Discharged${when ? ' on ' + escapeHtml(when) : ''}${d.dischargedBy ? ' by ' + escapeHtml(d.dischargedBy) : ''}.</strong> This record is in the Discharged list and is read-only: nothing can be added or changed, by hand or with SI.</div>
             <button type="button" class="btn btn-secondary" id="readmitPatientBtn"><i class="bx bx-undo" aria-hidden="true"></i> Re-admit</button>`;
         banner.querySelector('#readmitPatientBtn').addEventListener('click', readmitPatient);
     }
 
     async function readmitPatient() {
         if (!currentPatientId || !currentUser || !Store()) return;
-        if (!confirm('Re-admit this patient? Their record moves back to the Active list and can be edited again (by hand and with AI). This is recorded in the audit log.')) return;
+        if (!confirm('Re-admit this patient? Their record moves back to the Active list and can be edited again (by hand and with SI). This is recorded in the audit log.')) return;
         try {
             await Store().readmitPatient(scopeUid, currentPatientId);
             showToast('Patient re-admitted. Their record can be edited again.', 'success');
@@ -1082,7 +1082,7 @@
         if (!container) return;
         const problems = (currentPatientData?.problemList || []).filter(Boolean);
         if (problems.length === 0) {
-            container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-list-check"></i><p>No problems identified yet. Click "AI Generate" to analyze intake data.</p></div>`;
+            container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-list-check"></i><p>No problems identified yet. Click "SI Generate" to analyze intake data.</p></div>`;
             return;
         }
         container.innerHTML = problems.map((p, i) => {
@@ -1255,7 +1255,7 @@
     async function generateProblemListAI() {
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
         showLoading('Analyzing patient data for problems…', 10);
         try {
@@ -1331,7 +1331,7 @@
     async function generateSummaryReport() {
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
         showLoading('Generating summary report…', 10);
         try {
@@ -1444,7 +1444,7 @@
                     <div class="session-card-x-content">${escapeHtml(stripMarkdown(plan.content || '')) || '<em>No content.</em>'}</div>
                     <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.6rem;">
                         ${reviewButton('treatmentPlans', String(plan._index), plan)}
-                        <button class="btn btn-secondary treatment-regenerate-btn" data-index="${plan._index}" style="font-size:0.7rem;padding:0.2rem 0.8rem;"><i class="bx bx-magic"></i> ${plan.reviewed ? 'Draft a revision with AI' : 'Regenerate with AI'}</button>
+                        <button class="btn btn-secondary treatment-regenerate-btn" data-index="${plan._index}" style="font-size:0.7rem;padding:0.2rem 0.8rem;"><i class="bx bx-magic"></i> ${plan.reviewed ? 'Draft a revision with SI' : 'Regenerate with SI'}</button>
                     </div>
                 </div>
             </div>`;
@@ -1530,7 +1530,7 @@
     document.getElementById('generateTreatmentPlanBtn')?.addEventListener('click', async function() {
         if (!currentPatientId) { showToast('Open a patient first', 'warning'); return; }
         const result = await showCustomModal({
-            title: 'Generate Treatment Plan with AI',
+            title: 'Generate Treatment Plan with SI',
             subtitle: 'Optionally add instructions below. The most recent progress note (if any) is automatically factored in for clinical accuracy.',
             fields: [{ id: 'instructions', type: 'textarea', rows: 8, label: 'Additional instructions (optional)', placeholder: 'e.g. Focus on home exercise program, twice-weekly sessions, prioritize balance training…' }]
         });
@@ -1541,7 +1541,7 @@
     async function generateTreatmentPlanAI(instructions) {
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
         showLoading('Generating treatment plan…', 10);
         try {
@@ -1556,7 +1556,7 @@
             const response = await callDeepSeek(systemPrompt, userPrompt, 1500, d);
             updateLoadingProgress(80, 'Saving plan…');
             await Store().addItem(scopeUid, pid, 'treatmentPlans', {
-                title: `AI Plan - ${new Date().toLocaleDateString()}`,
+                title: `SI Plan - ${new Date().toLocaleDateString()}`,
                 content: stripMarkdown(response),
                 date: new Date().toLocaleDateString(),
                 category: d?.category || '',
@@ -1582,14 +1582,14 @@
         const asNewDraft = !!plan.reviewed;
         const result = await showCustomModal({
             title: 'Regenerate Treatment Plan',
-            subtitle: 'Tell the AI what to change. The current plan and most recent progress note are used as context automatically.',
+            subtitle: 'Tell the SI what to change. The current plan and most recent progress note are used as context automatically.',
             fields: [{ id: 'instructions', type: 'textarea', rows: 8, label: 'Regeneration instructions', placeholder: 'e.g. Increase frequency to 3x/week, add balance training, patient reports less pain now…' }]
         });
         if (!result || !result.instructions) { showToast('Regeneration cancelled — no instructions given', 'info'); return; }
 
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
         showLoading('Regenerating treatment plan…', 10);
         try {
@@ -1605,7 +1605,7 @@
             updateLoadingProgress(80, 'Saving…');
             if (asNewDraft) {
                 await Store().addItem(scopeUid, pid, 'treatmentPlans', {
-                    title: `Revised plan (AI draft) - ${new Date().toLocaleDateString()}`,
+                    title: `Revised plan (SI draft) - ${new Date().toLocaleDateString()}`,
                     content: stripMarkdown(response),
                     date: new Date().toLocaleDateString(),
                     category: plan.category || '', profession: plan.profession || plan.department || '', state: plan.state || '',
@@ -1617,10 +1617,10 @@
                     if (item.reviewed) return null; // reviewed elsewhere meanwhile — don't overwrite
                     return Object.assign(item, { content: stripMarkdown(response), lastEdited: new Date().toLocaleString(), aiGenerated: true, reviewed: false });
                 });
-                if (!saved) throw new Error('This plan was reviewed or changed elsewhere, so the AI draft was not applied.');
+                if (!saved) throw new Error('This plan was reviewed or changed elsewhere, so the SI draft was not applied.');
             }
             updateLoadingProgress(100, 'Done!');
-            setTimeout(() => { hideLoading(); showToast(asNewDraft ? 'Reviewed plan kept — the AI revision was added as a new draft.' : 'Treatment plan updated!', 'success', 4500); loadPatientTreatmentPlans(); }, 400);
+            setTimeout(() => { hideLoading(); showToast(asNewDraft ? 'Reviewed plan kept — the SI revision was added as a new draft.' : 'Treatment plan updated!', 'success', 4500); loadPatientTreatmentPlans(); }, 400);
         } catch (error) {
             console.error(error);
             hideLoading();
@@ -1662,7 +1662,7 @@
                         <div class="session-therapist">${escapeHtml(session.therapist || currentUser?.displayName) || 'Clinician'}</div>
                         ${session.signed && session.signedBy ? `<div class="session-signed-line"><i class="bx bx-pen" aria-hidden="true"></i> Signed by ${escapeHtml(session.signedBy)}${signedWhen ? ' · ' + escapeHtml(signedWhen) : ''}</div>` : ''}
                         <div class="session-tags">
-                            ${session.aiGenerated && !session.signed ? reviewBadge(session) : (session.aiGenerated ? '<span class="tag tag-blue">AI Generated</span>' : '')}
+                            ${session.aiGenerated && !session.signed ? reviewBadge(session) : (session.aiGenerated ? '<span class="tag tag-blue">SI Generated</span>' : '')}
                             ${session.codes ? session.codes.map(code => `<span class="tag tag-blue">${escapeHtml(code)}</span>`).join('') : ''}
                             ${session.signed ? '<span class="tag tag-green">Signed</span>' : '<span class="tag tag-amber">Draft</span>'}
                         </div>
@@ -1768,7 +1768,7 @@
         if (!currentPatientId || !currentUser) return;
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
 
         const selectedIds = Array.from(document.querySelectorAll('.sessionGenProblemCheck:checked')).map(cb => cb.value);
@@ -1851,7 +1851,7 @@
         const activities = nextPlan?.activities || [];
 
         if (!nextPlan || activities.length === 0) {
-            container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-calendar"></i><p>No next session planned yet. Click "AI Generate" above, or "Add Activity" to build one manually.</p></div>`;
+            container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-calendar"></i><p>No next session planned yet. Click "SI Generate" above, or "Add Activity" to build one manually.</p></div>`;
             return;
         }
 
@@ -2184,7 +2184,7 @@
     document.getElementById('submitAiProgressAnswers')?.addEventListener('click', async function() {
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
 
         const cards = document.querySelectorAll('#aiProgressQuestions .problem-progress-card');
@@ -2276,7 +2276,7 @@
         if (!currentPatientId) { showToast('Open a patient first', 'warning'); return; }
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
 
         showToast('Gathering all patient data – this may take a moment…', 'info', 4000);
@@ -2363,7 +2363,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
     async function dischargePatient() {
         if (!currentPatientId || !currentUser) return;
         if (patientLocked()) { lockedToast(); return; }
-        if (!confirm('Discharge this patient?\n\nTheir record moves to the Discharged list and becomes read-only: nothing can be added or changed, by hand or with AI. You can re-admit them later if they return.')) return;
+        if (!confirm('Discharge this patient?\n\nTheir record moves to the Discharged list and becomes read-only: nothing can be added or changed, by hand or with SI. You can re-admit them later if they return.')) return;
         try {
             await Store().dischargePatient(scopeUid, currentPatientId);
             showToast('Patient discharged. Their record is now in the Discharged list and is read-only.', 'success', 4500);
@@ -2443,7 +2443,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         if (!currentPatientId) { showToast('Open a patient first', 'warning'); return; }
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
         const body = document.getElementById('clinicalInsightsBody');
         if (body) {
@@ -2465,7 +2465,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
                     <div class="ai-strip" style="align-items:flex-start;">
                         <div class="ai-icon"><i class="bx bx-bulb"></i></div>
                         <div class="ai-text">
-                            <strong>AI Clinical Insights <span class="tag tag-amber ai-draft-tag" style="margin-left:0.3rem;">AI draft, review before use.</span></strong>
+                            <strong>SI Clinical Insights <span class="tag tag-amber ai-draft-tag" style="margin-left:0.3rem;">SI draft, review before use.</span></strong>
                             <div style="white-space:pre-wrap;margin-top:0.4rem;">${escapeHtml(stripMarkdown(response))}</div>
                         </div>
                     </div>`;
@@ -2775,7 +2775,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
             }
 
             if (isDraft) {
-                showToast('Saved as draft. No AI report was generated yet.', 'success');
+                showToast('Saved as draft. No SI report was generated yet.', 'success');
             } else {
                 showToast('Patient created!', 'success');
                 // Only spend an AI call if there's actually something to summarize.
@@ -2937,7 +2937,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         if (!currentUser) { showToast('Please log in first', 'error'); return; }
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
         showLoading('Finding pending notes…', 5);
         try {
@@ -2960,7 +2960,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
 
             if (pendingRefs.length === 0) {
                 hideLoading();
-                showToast('No pending notes need AI drafting.', 'info');
+                showToast('No pending notes need SI drafting.', 'info');
                 return;
             }
 
@@ -2968,7 +2968,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
                 const { patientId, patient, sessionId } = pendingRefs[i];
                 updateLoadingProgress(10 + (80 * i) / pendingRefs.length, `Drafting note ${i + 1} of ${pendingRefs.length}…`);
                 try {
-                    const systemPrompt = `You are a rehabilitation clinician writing a session note. Write a concise, professional note based on the patient's diagnosis and goals. Note clearly that this is an AI-drafted note pending clinician review. Do not use markdown formatting.`;
+                    const systemPrompt = `You are a rehabilitation clinician writing a session note. Write a concise, professional note based on the patient's diagnosis and goals. Note clearly that this is an SI-drafted note pending clinician review. Do not use markdown formatting.`;
                     const userPrompt = patientBrief(patient);
                     const response = await callDeepSeek(systemPrompt, userPrompt, 800, patient);
                     const content = stripMarkdown(response);
@@ -2989,13 +2989,13 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
             updateLoadingProgress(100, 'Done!');
             setTimeout(() => {
                 hideLoading();
-                showToast(`AI drafted ${pendingRefs.length} note(s). Please review and sign each one.`, 'success', 4500);
+                showToast(`SI drafted ${pendingRefs.length} note(s). Please review and sign each one.`, 'success', 4500);
                 loadDashboardData();
             }, 400);
         } catch (error) {
             console.error(error);
             hideLoading();
-            showToast('Error completing notes with AI: ' + (error.message || 'unknown error'), 'error', 6000);
+            showToast('Error completing notes with SI: ' + (error.message || 'unknown error'), 'error', 6000);
         }
     });
 
@@ -3112,7 +3112,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         let cfg = !plain && window.RehablixModelChoice ? await window.RehablixModelChoice.resolve() : null;
         if (!cfg) {
             if (!aiConfig.token) await fetchTokens();
-            if (!aiConfig.token) throw new Error('AI is not configured yet (no API key loaded). Try again in a moment, or reload the page.');
+            if (!aiConfig.token) throw new Error('SI is not configured yet (no API key loaded). Try again in a moment, or reload the page.');
             cfg = { token: aiConfig.token, endpoint: aiConfig.endpoint, model: aiConfig.model, maxTokens: 9000, weight: 1 };
         }
         // EMR AI UPGRADE (item 9): one quota check here covers every Smart
@@ -3152,18 +3152,18 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
             // fetch() throws a generic TypeError for both network failures and CORS blocks.
             // The browser hides the real reason from JS — check the DevTools Console/Network tab for specifics.
             console.error('[EMR] AI request failed before reaching the server (network/CORS):', networkErr);
-            throw new Error('Could not reach the AI service (network or CORS issue). Check the browser console/Network tab for details.');
+            throw new Error('Could not reach the SI service (network or CORS issue). Check the browser console/Network tab for details.');
         }
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
-            const msg = errData?.error?.message || `AI service returned an error (HTTP ${response.status}).`;
+            const msg = errData?.error?.message || `SI service returned an error (HTTP ${response.status}).`;
             console.error('[EMR] AI API error response:', response.status, errData);
             throw new Error(msg);
         }
         const data = await response.json();
         if (!data?.choices?.[0]?.message?.content) {
             console.error('[EMR] AI response missing expected content:', data);
-            throw new Error('AI service returned an unexpected response format.');
+            throw new Error('SI service returned an unexpected response format.');
         }
         const content = data.choices[0].message.content;
         if (currentUser && window.RehabPlanTiers) { // EMR AI UPGRADE (item 9)

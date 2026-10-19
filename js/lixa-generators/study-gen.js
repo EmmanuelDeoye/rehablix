@@ -18,7 +18,7 @@
         temperature: config.temperature ?? 0.5
       })
     });
-    if (!response.ok) throw new Error(`AI service error (${response.status})`);
+    if (!response.ok) throw new Error(`SI service error (${response.status})`);
     const data = await response.json();
     return (data.choices?.[0]?.message?.content || '').trim();
   }
@@ -31,7 +31,7 @@
   async function callAI(systemPrompt, userPrompt, config) {
     let content = await callAIOnce(systemPrompt, userPrompt, config);
     if (!content) content = await callAIOnce(systemPrompt, userPrompt, config);
-    if (!content) throw new Error('The AI returned an empty response. Please try again.');
+    if (!content) throw new Error('The SI returned an empty response. Please try again.');
     return content;
   }
 
@@ -40,11 +40,11 @@
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start !== -1 && end !== -1) cleaned = cleaned.slice(start, end + 1);
-    if (!cleaned) throw new Error('The AI returned an empty response. Please try again.');
+    if (!cleaned) throw new Error('The SI returned an empty response. Please try again.');
     try {
       return JSON.parse(cleaned);
     } catch (err) {
-      throw new Error('The AI response was not in the expected format. Please try again.');
+      throw new Error('The SI response was not in the expected format. Please try again.');
     }
   }
 
@@ -84,7 +84,7 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
 
     await window.LixaCore.checkToolQuota();
     const config = await window.LixaCore.resolveToolModelConfig();
-    if (!config) throw new Error('AI service is not configured.');
+    if (!config) throw new Error('SI service is not configured.');
     // 15 flashcards + 8 quiz questions (each with 4 options + an
     // explanation) + a 200-400 word summary, all as one JSON blob, needs a
     // real token budget — this now rides on whichever Lixa model is
@@ -94,7 +94,7 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
     const response = await callAI(systemPrompt, userPrompt, config);
     window.LixaCore.reportToolTokenUsage(systemPrompt + userPrompt + response, config.weight);
     const parsed = parseAIJson(response);
-    if (!parsed.flashcards || !parsed.quiz || !parsed.topics) throw new Error('The AI response was missing required fields.');
+    if (!parsed.flashcards || !parsed.quiz || !parsed.topics) throw new Error('The SI response was missing required fields.');
 
     const database = firebase.database();
     const subjectId = await getOrCreateSubject(user.uid, subjectName);
@@ -155,7 +155,7 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
 
     await window.LixaCore.checkToolQuota();
     const config = await window.LixaCore.resolveToolModelConfig();
-    if (!config) throw new Error('AI service is not configured.');
+    if (!config) throw new Error('SI service is not configured.');
     const systemPrompt = `You are revising the written summary of an existing study set for a rehabilitation/healthcare student. Return ONLY the complete revised markdown summary.`;
     const userPrompt = `CURRENT SUMMARY:\n${record.summary}\n\nREQUESTED CHANGE:\n${instruction}`;
     const summary = (await callAI(systemPrompt, userPrompt, config)) || record.summary;

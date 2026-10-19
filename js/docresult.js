@@ -286,7 +286,7 @@
 
     async function callDeepSeek(systemPrompt, userPrompt, maxTokens = 2000) {
         const cfg = await chosenModel();
-        if (!cfg) throw new Error('AI service not available');
+        if (!cfg) throw new Error('SI service not available');
         // Same shared quota as every other AI feature (was unmetered here).
         if (currentUser && window.RehabPlanTiers) {
             const plan = currentPlanId();
@@ -322,7 +322,7 @@
         }
         const data = await response.json();
         const content = data?.choices?.[0]?.message?.content;
-        if (!content) throw new Error('AI service returned an unexpected response format.');
+        if (!content) throw new Error('SI service returned an unexpected response format.');
         if (currentUser && window.RehabPlanTiers) {
             window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlanId(), window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + content), cfg.weight || 1).catch(() => {});
         }
@@ -495,7 +495,7 @@
             banner.id = 'docAiDraftBanner';
             banner.className = 'doc-ai-draft-banner';
             banner.setAttribute('role', 'status');
-            banner.innerHTML = '<i class="fas fa-robot" aria-hidden="true"></i> <span>AI draft, review before use.</span> <button type="button" class="doc-review-btn">Mark as reviewed</button>';
+            banner.innerHTML = '<i class="fas fa-robot" aria-hidden="true"></i> <span>SI draft, review before use.</span> <button type="button" class="doc-review-btn">Mark as reviewed</button>';
             editor.parentNode.insertBefore(banner, editor);
             banner.querySelector('.doc-review-btn').addEventListener('click', markDocumentReviewed);
         }
@@ -731,7 +731,7 @@
 
         // Reviewed / signed content is never overwritten by AI.
         if (documentData && (documentData.reviewed || documentData.signed)) {
-            showToast('This document has been reviewed' + (documentData.signed ? ' and signed' : '') + ', so AI regeneration is turned off to protect it. Create a new document for an AI draft.', 'warning', 6000);
+            showToast('This document has been reviewed' + (documentData.signed ? ' and signed' : '') + ', so SI regeneration is turned off to protect it. Create a new document for an SI draft.', 'warning', 6000);
             return;
         }
 
@@ -799,7 +799,7 @@
         const systemPrompt = prompts.system;
         const userPrompt = prompts.user;
 
-        showLoading('Regenerating document with AI…', 10);
+        showLoading('Regenerating document with SI…', 10);
         try {
             updateLoadingProgress(30, 'Analyzing patient context…');
             const ids = D ? D.identifiersOf(patientData) : [];
@@ -909,7 +909,7 @@
     loadingOverlay.innerHTML = `
         <div style="background:var(--card-bg);backdrop-filter:blur(12px);border-radius:1.5rem;padding:2rem 3rem;max-width:400px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
             <div style="width:48px;height:48px;border:4px solid var(--border-light);border-top-color:var(--accent);border-right-color:var(--accent);border-radius:50%;margin:0 auto 1rem;animation:spin 0.8s linear infinite;"></div>
-            <p id="aiLoadingMessage" style="color:var(--text-primary);font-size:1rem;font-weight:600;margin-bottom:0.5rem;">Generating with AI…</p>
+            <p id="aiLoadingMessage" style="color:var(--text-primary);font-size:1rem;font-weight:600;margin-bottom:0.5rem;">Generating with SI…</p>
             <div style="height:4px;background:var(--border-light);border-radius:2px;overflow:hidden;margin-top:0.8rem;">
                 <div id="aiLoadingProgress" style="height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-light));border-radius:2px;transition:width 0.3s ease;width:0%;"></div>
             </div>
@@ -917,7 +917,7 @@
     `;
     document.body.appendChild(loadingOverlay);
 
-    function showLoading(message = 'Generating with AI…', progress = 0) {
+    function showLoading(message = 'Generating with SI…', progress = 0) {
         const msgEl = document.getElementById('aiLoadingMessage');
         const progressEl = document.getElementById('aiLoadingProgress');
         if (msgEl) msgEl.textContent = message;

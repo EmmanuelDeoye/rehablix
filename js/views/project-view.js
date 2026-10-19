@@ -250,7 +250,7 @@
       if (msg.includes('network') || msg.includes('fetch') || msg.includes('timeout')) return 'Network error. Please check your connection and try again.';
       if (msg.includes('permission') || msg.includes('unauthorized')) return 'You do not have permission to perform this action.';
       if (msg.includes('quota') || msg.includes('rate limit')) return 'Too many requests. Please wait a moment and try again.';
-      if (msg.includes('api') || msg.includes('token')) return 'AI service temporarily unavailable. Please try again later.';
+      if (msg.includes('api') || msg.includes('token')) return 'SI service temporarily unavailable. Please try again later.';
       if (context.includes('save')) return 'Failed to save your work. Please try again.';
       if (context.includes('generate')) return 'Content generation failed. Please try again.';
       return 'An error occurred' + (context ? ' during ' + context : '') + '. Please try again.';
@@ -344,7 +344,7 @@
         const daysLeft = getDaysUntilReset();
         notice.style.cssText = 'background: #fef3c7; border: 2px solid #fbbf24; border-radius: 1rem; padding: 0.8rem 1rem; margin: 0 0 0.75rem 0; text-align: center; font-size: 0.82rem; color: #92400e;';
         notice.innerHTML = '<div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem;">No Active Plan</div>' +
-          '<div style="margin-bottom: 0.25rem; font-size: 0.78rem;"><strong>' + FREE_PROJECT_LIMIT + '</strong> project/month, Chapter 1 only, No Project AI chat</div>' +
+          '<div style="margin-bottom: 0.25rem; font-size: 0.78rem;"><strong>' + FREE_PROJECT_LIMIT + '</strong> project/month, Chapter 1 only, No Project SI chat</div>' +
           (remaining <= 0 ? '<div style="color: #dc2626; font-size: 0.75rem; margin-bottom: 0.3rem;">Resets in <strong>' + daysLeft + '</strong> days</div>' : '') +
           '<button id="upgradeProjectBtn" style="margin-top: 0.3rem; padding: 0.4rem 1.2rem; border-radius: 2rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; cursor: pointer; font-weight: 600; font-size: 0.8rem;">Upgrade for Full Access</button>';
         const dashActivity = document.getElementById('dashRecentActivity');
@@ -621,7 +621,7 @@
 
     function describeActivity(entry) {
       const labels = {
-        section_saved: 'Saved', section_generated: 'AI generated', chapter_reviewed: 'Reviewed',
+        section_saved: 'Saved', section_generated: 'SI generated', chapter_reviewed: 'Reviewed',
         reference_added: 'Added reference', exported: 'Exported'
       };
       return (labels[entry.type] || entry.type) + (entry.summary ? ': ' + entry.summary : '');
@@ -1044,8 +1044,8 @@
         aiPanel.style.display = 'none';
         reviewFindingsPanel.style.display = 'block';
         reviewToggleBtn.dataset.mode = 'findings';
-        reviewToggleBtn.innerHTML = '<i class="fas fa-robot"></i> <span>Project AI</span>';
-        reviewToggleBtn.title = 'Project AI';
+        reviewToggleBtn.innerHTML = '<i class="fas fa-robot"></i> <span>Project SI</span>';
+        reviewToggleBtn.title = 'Project SI';
         if (reviewHeaderTitle) reviewHeaderTitle.innerHTML = '<i class="bx bx-check-shield"></i> Consistency Check & Chapter Review';
       } else {
         aiPanel.style.display = 'flex';
@@ -1053,7 +1053,7 @@
         reviewToggleBtn.dataset.mode = 'ai';
         reviewToggleBtn.innerHTML = '<i class="bx bx-check-shield"></i> <span>Findings</span>';
         reviewToggleBtn.title = 'Consistency Check & Chapter Review';
-        if (reviewHeaderTitle) reviewHeaderTitle.innerHTML = '<i class="fas fa-robot"></i> Project AI';
+        if (reviewHeaderTitle) reviewHeaderTitle.innerHTML = '<i class="fas fa-robot"></i> Project SI';
       }
     }
     if (reviewToggleBtn) {
@@ -1091,7 +1091,7 @@
                 '<blockquote class="review-quote">' + escapeHtml(o.sentence) + '</blockquote></li>';
             }).join('') + '</ul>' +
             '<div class="review-finding-actions"><button type="button" class="review-discuss-btn" data-discuss-consistency="' + fi + '"><i class="bx bx-message-rounded-dots" aria-hidden="true"></i> Discuss</button>' +
-            '<button type="button" class="review-fix-btn" data-consistency="' + fi + '"><i class="bx bx-wrench" aria-hidden="true"></i> Fix with AI</button></div></div></details>';
+            '<button type="button" class="review-fix-btn" data-consistency="' + fi + '"><i class="bx bx-wrench" aria-hidden="true"></i> Fix with SI</button></div></div></details>';
         }).join('')
         : '<div class="review-finding review-ok" data-sev="ok"><i class="bx bx-check-circle"></i> No sample-size or participant-count conflicts detected.</div>';
       applyReviewFilter();
@@ -1118,7 +1118,7 @@
           (f.excerpt ? '<blockquote class="review-quote">' + escapeHtml(f.excerpt) + '</blockquote>' : '') +
           (f.suggestion ? '<div class="review-suggestion"><i class="bx bx-bulb" aria-hidden="true"></i> ' + escapeHtml(f.suggestion) + '</div>' : '') +
           '<div class="review-finding-actions"><button type="button" class="review-discuss-btn" data-discuss-finding="' + i + '"><i class="bx bx-message-rounded-dots" aria-hidden="true"></i> Discuss</button>' +
-          (f.fixed ? '' : '<button type="button" class="review-fix-btn" data-finding="' + i + '"><i class="bx bx-wrench" aria-hidden="true"></i> Fix with AI</button>') +
+          (f.fixed ? '' : '<button type="button" class="review-fix-btn" data-finding="' + i + '"><i class="bx bx-wrench" aria-hidden="true"></i> Fix with SI</button>') +
           '</div></div></details>';
       }).join('');
       applyReviewFilter();
@@ -1262,14 +1262,14 @@
     // Deep search: hands the AI the exact passages involved and asks for
     // precise, verbatim-anchored edits.
     async function requestFixEdits(problem, targets) {
-      const system = 'You are Project AI\'s fix engine for a student\'s academic project. You receive one specific problem and the FULL text of the sections involved (each tagged [chapterKey|sectionIndex]). Locate the exact passage(s) responsible and write corrected text.\n\nRules:\n- "original" MUST be copied VERBATIM, character-for-character, from the section text given (a whole sentence or a few sentences). Never paraphrase it.\n- "replacement" is the corrected text that replaces "original" exactly — same language, voice and citation style, no markdown.\n- For something MISSING, set "original" to "" and give "insertAfter": a verbatim sentence from that section after which the new text belongs (or "" to add it at the end of the section); "replacement" is the new text to insert.\n- Treat the Research Setup and the Methodology chapter as the source of truth for figures, design and instruments. Never invent sources, statistics or sample sizes that are not already established.\n- Keep edits minimal: change only what fixes the problem.\n\nReturn ONLY JSON (no code fences): {"summary":"<one or two sentences: what is wrong and exactly where>","edits":[{"chapterKey":"...","sectionIndex":0,"original":"...","insertAfter":"...","replacement":"...","reason":"<why this edit fixes it>"}]}';
+      const system = 'You are Project SI\'s fix engine for a student\'s academic project. You receive one specific problem and the FULL text of the sections involved (each tagged [chapterKey|sectionIndex]). Locate the exact passage(s) responsible and write corrected text.\n\nRules:\n- "original" MUST be copied VERBATIM, character-for-character, from the section text given (a whole sentence or a few sentences). Never paraphrase it.\n- "replacement" is the corrected text that replaces "original" exactly — same language, voice and citation style, no markdown.\n- For something MISSING, set "original" to "" and give "insertAfter": a verbatim sentence from that section after which the new text belongs (or "" to add it at the end of the section); "replacement" is the new text to insert.\n- Treat the Research Setup and the Methodology chapter as the source of truth for figures, design and instruments. Never invent sources, statistics or sample sizes that are not already established.\n- Keep edits minimal: change only what fixes the problem.\n\nReturn ONLY JSON (no code fences): {"summary":"<one or two sentences: what is wrong and exactly where>","edits":[{"chapterKey":"...","sectionIndex":0,"original":"...","insertAfter":"...","replacement":"...","reason":"<why this edit fixes it>"}]}';
       const blocks = targets.map(function (t) {
         return '### [' + t.chapterKey + '|' + t.sectionIndex + '] ' + locationLabel(t.chapterKey, t.sectionIndex) + '\n' + (sectionText(t.chapterKey, t.sectionIndex) || '(this section is empty)').substring(0, 6000);
       }).join('\n\n');
       const user = buildResearchSetupContext() + '\n\nPROJECT: "' + currentProject.title + '" (' + (currentProject.approach === 'qualitative' ? 'qualitative' : 'quantitative') + ', reference style ' + getReferenceStyle() + ')\n\nPROBLEM TO FIX:\n' + problem + '\n\nSECTIONS INVOLVED:\n' + blocks;
       const raw = await callProjectAI(FIX_ACTION, system, user);
       const parsed = parseJsonLoose(raw);
-      if (!parsed || !Array.isArray(parsed.edits)) throw new Error('Project AI could not produce a precise fix. Please try again.');
+      if (!parsed || !Array.isArray(parsed.edits)) throw new Error('Project SI could not produce a precise fix. Please try again.');
       const valid = {};
       targets.forEach(function (t) { valid[t.chapterKey + '|' + t.sectionIndex] = true; });
       const edits = parsed.edits.map(function (e) {
@@ -1283,7 +1283,7 @@
     function openFixModalLoading(title, where) {
       const modal = document.getElementById('projFixModal');
       document.getElementById('projFixTitle').textContent = title;
-      document.getElementById('projFixBody').innerHTML = '<div class="proj-fix-loading"><div class="spinner"></div><p>Deep-searching ' + escapeHtml(where) + '…</p><small>Project AI is reading the exact passages involved and drafting a precise fix.</small></div>';
+      document.getElementById('projFixBody').innerHTML = '<div class="proj-fix-loading"><div class="spinner"></div><p>Deep-searching ' + escapeHtml(where) + '…</p><small>Project SI is reading the exact passages involved and drafting a precise fix.</small></div>';
       document.getElementById('projFixApplyBtn').style.display = 'none';
       modal.classList.add('active');
     }
@@ -1291,7 +1291,7 @@
     function renderFixModal(result) {
       const body = document.getElementById('projFixBody');
       if (!result.edits.length) {
-        body.innerHTML = '<p class="proj-fix-summary">' + escapeHtml(result.summary || 'No change is needed here.') + '</p><div class="review-finding review-ok"><i class="bx bx-check-circle"></i> Project AI found nothing to change for this issue.</div>';
+        body.innerHTML = '<p class="proj-fix-summary">' + escapeHtml(result.summary || 'No change is needed here.') + '</p><div class="review-finding review-ok"><i class="bx bx-check-circle"></i> Project SI found nothing to change for this issue.</div>';
         document.getElementById('projFixApplyBtn').style.display = 'none';
         return;
       }
@@ -1312,7 +1312,7 @@
 
     async function runFix(title, where, problem, targets, onApplied) {
       if (!currentProject) return;
-      if (!canAccessAISupervisor()) { showToast('Fixing with Project AI requires Student or Pro plan.', 'error'); goToSubscription(); return; }
+      if (!canAccessAISupervisor()) { showToast('Fixing with Project SI requires Student or Pro plan.', 'error'); goToSubscription(); return; }
       saveCurrentSection();
       openFixModalLoading(title, where);
       fixState = { edits: [], onApplied: onApplied };
@@ -1422,7 +1422,7 @@
       });
       await saveToFirebase({ sections: chosen.map(function (e) { return [e.chapterKey, e.sectionIndex]; }) });
       renderChapters(); updateSectionNav(); displayHumanizationScore();
-      logActivity('section_saved', 'Applied ' + applied + ' AI fix' + (applied === 1 ? '' : 'es'));
+      logActivity('section_saved', 'Applied ' + applied + ' SI fix' + (applied === 1 ? '' : 'es'));
       document.getElementById('projFixModal').classList.remove('active');
       const onApplied = fixState.onApplied; fixState = null;
       if (applied && onApplied) await onApplied();
@@ -1698,7 +1698,7 @@
           '<div>' +
           '<div class="reference-text">' + escapeHtml(formatted) + '</div>' +
           (isFormatting ? '<div class="reference-status"><i class="bx bx-loader-alt bx-spin"></i> Formatting citation...</div>'
-            : !hasAIFormat ? '<div class="reference-status reference-status-plain">Plain format &middot; <button type="button" class="ref-format-btn" data-id="' + id + '">AI-format in ' + escapeHtml(refStyle) + '</button></div>' : '') +
+            : !hasAIFormat ? '<div class="reference-status reference-status-plain">Plain format &middot; <button type="button" class="ref-format-btn" data-id="' + id + '">SI-format in ' + escapeHtml(refStyle) + '</button></div>' : '') +
           '</div>' +
           '<div class="reference-actions"><button class="icon-btn-sm ref-edit-btn" data-id="' + id + '" title="Edit"><i class="fas fa-edit"></i></button>' +
           '<button class="icon-btn-sm ref-delete-btn" data-id="' + id + '" title="Delete"><i class="fas fa-trash"></i></button></div></div>';
@@ -1789,7 +1789,7 @@
       renderReferenceList('referenceListWorkspace'); renderReferenceList('referenceListTools');
       try {
         const config = await window.RehablixAIQuotaCore.resolveModelConfig('basal100');
-        if (!config) { showToast('AI citation formatting is not configured right now — using plain format instead.', 'warning', 4000); return; }
+        if (!config) { showToast('SI citation formatting is not configured right now — using plain format instead.', 'warning', 4000); return; }
         await window.RehablixAIQuotaCore.checkQuotaOrThrow(currentUser.uid, currentPlan);
         const systemPrompt = 'You are a citation formatting assistant. Given a source\'s details, output ONLY the correctly formatted reference-list entry in the requested style. No commentary, no markdown, just the citation text.';
         const userPrompt = 'Style: ' + style + '\nType: ' + record.type + '\nAuthors: ' + (record.authors || []).map(function (a) { return a.family + (a.given ? ', ' + a.given : ''); }).join('; ') + '\nYear: ' + record.year + '\nTitle: ' + record.title + '\nSource: ' + record.source + (record.url ? '\nURL: ' + record.url : '');
@@ -1797,10 +1797,10 @@
           method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token },
           body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 300, temperature: 0.3 })
         });
-        if (!response.ok) throw new Error('AI service returned an error');
+        if (!response.ok) throw new Error('SI service returned an error');
         const data = await response.json();
         const formatted = data.choices && data.choices[0] && data.choices[0].message.content;
-        if (!formatted) throw new Error('AI service returned an empty response');
+        if (!formatted) throw new Error('SI service returned an empty response');
         if (!currentProject.references[refId]) return; // reference was deleted while formatting was in flight
         currentProject.references[refId].formatted = currentProject.references[refId].formatted || {};
         currentProject.references[refId].formatted[style] = formatted.trim();
@@ -1808,7 +1808,7 @@
         window.RehablixAIQuotaCore.reportTokenUsage(currentUser.uid, currentPlan, systemPrompt + userPrompt + formatted, config.weight);
       } catch (e) {
         reportError(e, 'reference citation formatting');
-        showToast('Could not AI-format this citation — showing the plain version instead.', 'warning', 4000);
+        showToast('Could not SI-format this citation — showing the plain version instead.', 'warning', 4000);
       } finally {
         formattingRefId = null;
         renderReferenceList('referenceListWorkspace'); renderReferenceList('referenceListTools');
@@ -1903,13 +1903,13 @@
 
     async function callProjectAI(action, systemPrompt, userPrompt) {
       const config = await chosenModelConfig(action.model);
-      if (!config) throw new Error('AI service not configured');
+      if (!config) throw new Error('SI service not configured');
       if (currentUser) await window.RehablixAIQuotaCore.checkQuotaOrThrow(currentUser.uid, currentPlan);
       const response = await fetch(config.endpoint + '/chat/completions', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token },
         body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: config.maxTokens, temperature: config.temperature, top_p: config.top_p })
       });
-      if (!response.ok) { const err = await response.json().catch(function () { return {}; }); throw new Error((err.error && err.error.message) || 'AI service error'); }
+      if (!response.ok) { const err = await response.json().catch(function () { return {}; }); throw new Error((err.error && err.error.message) || 'SI service error'); }
       const data = await response.json();
       const content = data.choices && data.choices[0] && data.choices[0].message.content;
       if (currentUser) window.RehablixAIQuotaCore.reportTokenUsage(currentUser.uid, currentPlan, systemPrompt + userPrompt + (content || ''), config.weight);
@@ -1954,7 +1954,7 @@
 
     async function runProjectAIAction(actionKey) {
       if (!currentProject || !currentChapter) { showToast('Select a chapter and section first', 'error'); return; }
-      if (!canAccessAISupervisor()) { showToast('Project AI requires Student or Pro plan.', 'error'); goToSubscription(); return; }
+      if (!canAccessAISupervisor()) { showToast('Project SI requires Student or Pro plan.', 'error'); goToSubscription(); return; }
       const action = PROJECT_AI_ACTIONS[actionKey];
       if (!action) return;
       const ch = getChaptersStructure()[currentChapter];
@@ -1963,7 +1963,7 @@
       appendAIChatMessage('user', action.label + ' — "' + sectionName + '"');
       showTypingIndicator();
 
-      let systemPrompt = 'You are Project AI, a research-writing assistant built specifically for this academic project. You know its research setup, chapters, and current draft. Reply concisely.';
+      let systemPrompt = 'You are Project SI, a research-writing assistant built specifically for this academic project. You know its research setup, chapters, and current draft. Reply concisely.';
       let userPrompt = '';
       const context = buildWorkspaceContext(true);
 
@@ -2270,13 +2270,13 @@
       try {
         // (Student plan or higher, as before; it writes with the model chosen on any page)
         const config = await chosenModelConfig(modelId);
-        if (!config) throw new Error('AI service not configured');
+        if (!config) throw new Error('SI service not configured');
         if (currentUser) await window.RehablixAIQuotaCore.checkQuotaOrThrow(currentUser.uid, currentPlan);
         const response = await fetch(config.endpoint + '/chat/completions', {
           method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token },
           body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: config.maxTokens, temperature: config.temperature, top_p: config.top_p })
         });
-        if (!response.ok) { const err = await response.json().catch(function () { return {}; }); throw new Error((err.error && err.error.message) || 'AI service error'); }
+        if (!response.ok) { const err = await response.json().catch(function () { return {}; }); throw new Error((err.error && err.error.message) || 'SI service error'); }
         const data = await response.json();
         const raw = data.choices && data.choices[0] && data.choices[0].message.content;
         const cleaned = raw ? cleanAIResponse(raw) : '';
@@ -2338,7 +2338,7 @@
         hasContent = currentProject.chapters && currentProject.chapters[currentChapter] && (currentProject.chapters[currentChapter].content || '').trim().length > 0;
       }
       if (modificationArea) modificationArea.style.display = hasContent ? 'block' : 'none';
-      if (aiGenerateSectionBtn) aiGenerateSectionBtn.innerHTML = hasContent ? '<i class="fas fa-redo"></i> Regenerate Section' : '<i class="fas fa-magic"></i> AI Generate This Section';
+      if (aiGenerateSectionBtn) aiGenerateSectionBtn.innerHTML = hasContent ? '<i class="fas fa-redo"></i> Regenerate Section' : '<i class="fas fa-magic"></i> SI Generate This Section';
     }
 
     function updateChapterGenButton() {
@@ -2580,7 +2580,7 @@
         renderChapters(); loadSectionContent(); updateProjectSelector(); updateModificationArea(); clearChatHistory();
         setProjectActive(true);
         switchScreen('setup');
-        showToast('Project created. Fill in Research Setup to help Project AI understand your study.', 'success');
+        showToast('Project created. Fill in Research Setup to help Project SI understand your study.', 'success');
       } catch (error) { reportError(error, 'project creation'); }
     }
 
@@ -2638,7 +2638,7 @@
 
     function renderResourceList() {
       if (!resourceList) return;
-      if (resources.length === 0) { resourceList.innerHTML = '<div class="empty-state" style="padding:1.5rem;"><i class="bx bx-cloud-upload"></i><p style="font-size:0.85rem;">No resources uploaded</p><small>Upload articles, journals, or past projects for AI reference</small></div>'; return; }
+      if (resources.length === 0) { resourceList.innerHTML = '<div class="empty-state" style="padding:1.5rem;"><i class="bx bx-cloud-upload"></i><p style="font-size:0.85rem;">No resources uploaded</p><small>Upload articles, journals, or past projects for SI reference</small></div>'; return; }
       resourceList.innerHTML = resources.map(function (r, i) {
         return '<div class="resource-item"><div class="file-icon"><i class="fas fa-file-alt"></i></div>' +
           '<div class="file-info"><div class="file-name">' + escapeHtml(r.name) + '</div><div class="file-date">' + new Date(r.uploadedAt).toLocaleDateString() + '</div></div>' +
@@ -2949,7 +2949,7 @@
     async function callAIWithCancel(systemPrompt, userPrompt, maxTokens, temp, topP, freqPenalty, presPenalty) {
       let cfg = window.RehablixModelChoice ? await window.RehablixModelChoice.resolve() : null;
       if (!cfg) {
-        if (!aiConfig.token && !(await fetchTokens())) throw new Error('AI service not configured');
+        if (!aiConfig.token && !(await fetchTokens())) throw new Error('SI service not configured');
         cfg = { token: aiConfig.token, endpoint: aiConfig.endpoint, model: aiConfig.model, maxTokens: maxTokens };
       }
       const response = await fetch(cfg.endpoint.replace(/\/$/, '') + '/chat/completions', {
@@ -2968,7 +2968,7 @@
     }
 
     async function generateSection(sectionName, chapterKey, sectionIndex) {
-      if (!aiConfig.token) { const ok = await fetchTokens(); if (!ok) throw new Error('AI service not configured'); }
+      if (!aiConfig.token) { const ok = await fetchTokens(); if (!ok) throw new Error('SI service not configured'); }
       const tone = aiToneSelect ? aiToneSelect.value : 'imperfect';
       const modification = modificationInput ? modificationInput.value.trim() : '';
       const approach = currentProject.approach === 'qualitative' ? 'qualitative (single case study / small sample / interview-based)' : 'quantitative (multiple cases / statistics / questionnaires)';
@@ -2994,7 +2994,7 @@
         if (content && content.length > 100 && /<\/?p[ >]/.test(content)) break;
         attempts++;
       }
-      if (!content || content.length < 50) throw new Error('AI failed to generate a valid draft after 3 attempts. Please try again.');
+      if (!content || content.length < 50) throw new Error('SI failed to generate a valid draft after 3 attempts. Please try again.');
 
       let previousContent = content;
       if (humanizeMode) {
@@ -3052,7 +3052,7 @@
         ? (currentProject.chapters && currentProject.chapters[currentChapter] && currentProject.chapters[currentChapter].sections && (currentProject.chapters[currentChapter].sections[currentSection] || '').trim().length > 0)
         : (currentProject.chapters && currentProject.chapters[currentChapter] && (currentProject.chapters[currentChapter].content || '').trim().length > 0);
       if (hasContent && !canRegenerate()) { showToast('Regeneration requires Student or Pro plan. Upgrade for full access.', 'error', 5000); goToSubscription(); return; }
-      if (!aiConfig.token) { const ok = await fetchTokens(); if (!ok) { showToast('AI service not configured', 'error'); return; } }
+      if (!aiConfig.token) { const ok = await fetchTokens(); if (!ok) { showToast('SI service not configured', 'error'); return; } }
       const sectionNameForModal = ch && ch.sections && ch.sections.length > 0 ? ch.sections[currentSection] : (ch ? ch.title : 'Section');
       const instructions = await askForInstructions((hasContent ? 'Regenerate: ' : 'Generate: ') + sectionNameForModal, hasContent);
       if (instructions === null) return; // cancelled
@@ -3143,7 +3143,7 @@
     function updateDefaultPromptsBar() { if (defaultPromptsBar) defaultPromptsBar.style.display = 'none'; }
 
     function clearChatHistory() {
-      aiChatMessages.innerHTML = '<div class="ai-empty-state empty-chat"><i class="fas fa-robot"></i><p>Project AI is ready</p><small>Ask about this project, or tap a quick action below</small></div>';
+      aiChatMessages.innerHTML = '<div class="ai-empty-state empty-chat"><i class="fas fa-robot"></i><p>Project SI is ready</p><small>Ask about this project, or tap a quick action below</small></div>';
       updateDefaultPromptsBar();
     }
 
@@ -3156,9 +3156,9 @@
       overlay.className = 'proj-settings-overlay';
       overlay.hidden = true;
       overlay.innerHTML = '<div class="proj-settings-modal" role="dialog" aria-modal="true" aria-labelledby="projSettingsTitle">' +
-        '<div class="proj-settings-head"><h3 id="projSettingsTitle"><i class="bx bx-slider-alt" aria-hidden="true"></i> Project AI preferences</h3>' +
+        '<div class="proj-settings-head"><h3 id="projSettingsTitle"><i class="bx bx-slider-alt" aria-hidden="true"></i> Project SI preferences</h3>' +
         '<button type="button" class="proj-settings-close" aria-label="Close preferences">&times;</button></div>' +
-        '<p class="proj-settings-sub">How the AI supervisor reviews and responds to your work.</p>' +
+        '<p class="proj-settings-sub">How the SI supervisor reviews and responds to your work.</p>' +
         '<div class="proj-settings-body"></div>' +
         '<div class="proj-settings-foot"><button type="button" class="generate-btn proj-settings-done">Done</button></div></div>';
       document.body.appendChild(overlay);
@@ -3229,7 +3229,7 @@
     }
 
     aiSendBtn.addEventListener('click', async function () {
-      if (!canAccessAISupervisor()) { showToast('Project AI requires Student or Pro plan. Upgrade for full access.', 'error', 5000); goToSubscription(); return; }
+      if (!canAccessAISupervisor()) { showToast('Project SI requires Student or Pro plan. Upgrade for full access.', 'error', 5000); goToSubscription(); return; }
       const text = aiMessageInput.value.trim();
       if (!text) return;
       appendAIChatMessage('user', text);
@@ -3268,7 +3268,7 @@
     // hardcoded client, since this is the primary "Project AI" surface.
     async function callProjectAIChat(userMessage) {
       const config = await chosenModelConfig('corpus101');
-      if (!config) throw new Error('AI not configured');
+      if (!config) throw new Error('SI not configured');
       if (currentUser) await window.RehablixAIQuotaCore.checkQuotaOrThrow(currentUser.uid, currentPlan);
       const fullContext = buildFullProjectSummary();
       const strictnessGuides = {
@@ -3276,7 +3276,7 @@
         moderate: 'Provide balanced feedback. Acknowledge strengths but clearly point out areas that need work. Be direct but constructive.',
         strict: 'Be rigorous and demanding. Hold the student to high academic standards. Point out all weaknesses, inconsistencies, and gaps. Challenge their thinking.'
       };
-      const systemPrompt = 'You are Project AI, ' + supervisorPersonality.profession + ', an assistant purpose-built for this specific academic project (not a general chatbot).\nProject: ' + (currentProject ? currentProject.title : 'N/A') + '\nDepartment: ' + (currentProject ? currentProject.department : 'N/A') + '\nApproach: ' + (currentProject && currentProject.approach === 'qualitative' ? 'Qualitative' : 'Quantitative') + '\n\nYour strictness: ' + strictnessGuides[supervisorPersonality.strictness] + '\n\nFULL PROJECT CONTENT (research setup, all chapters and sections, available references):\n' + fullContext.substring(0, 8000) + '\n\nRULES:\n1. Give concise, direct answers using key points.\n2. Reference specific chapters, sections, or research-setup fields as needed.\n3. Flag inconsistencies immediately.\n4. Use simple language, key-points format.\n5. Be thorough but brief.';
+      const systemPrompt = 'You are Project SI, ' + supervisorPersonality.profession + ', an assistant purpose-built for this specific academic project (not a general chatbot).\nProject: ' + (currentProject ? currentProject.title : 'N/A') + '\nDepartment: ' + (currentProject ? currentProject.department : 'N/A') + '\nApproach: ' + (currentProject && currentProject.approach === 'qualitative' ? 'Qualitative' : 'Quantitative') + '\n\nYour strictness: ' + strictnessGuides[supervisorPersonality.strictness] + '\n\nFULL PROJECT CONTENT (research setup, all chapters and sections, available references):\n' + fullContext.substring(0, 8000) + '\n\nRULES:\n1. Give concise, direct answers using key points.\n2. Reference specific chapters, sections, or research-setup fields as needed.\n3. Flag inconsistencies immediately.\n4. Use simple language, key-points format.\n5. Be thorough but brief.';
       const response = await fetch(config.endpoint + '/chat/completions', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token },
         body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }], max_tokens: config.maxTokens, temperature: 0.7 })
@@ -3453,7 +3453,7 @@
       if (aiMessageInput && aiSendBtn) {
         const access = canAccessAISupervisor();
         aiMessageInput.disabled = !access; aiSendBtn.disabled = !access;
-        aiMessageInput.placeholder = access ? 'Ask Project AI...' : 'Upgrade to Student or Pro for Project AI chat';
+        aiMessageInput.placeholder = access ? 'Ask Project SI...' : 'Upgrade to Student or Pro for Project SI chat';
       }
     }
 

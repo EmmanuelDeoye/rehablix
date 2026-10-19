@@ -57,11 +57,11 @@ Return ONLY the HTML.`;
     const choice = data.choices && data.choices[0];
     const html = cleanHtml(choice && choice.message && choice.message.content);
     if (choice && choice.finish_reason === 'content_filter') {
-      throw new Error('The AI declined to generate this content — try rephrasing the diagnosis/notes.');
+      throw new Error('The SI declined to generate this content — try rephrasing the diagnosis/notes.');
     }
     if (html.length < 20) {
       if (attempt < 2) return callAIWithValidation(prompt, config, attempt + 1);
-      throw new Error('The AI returned an empty response. Please try again.');
+      throw new Error('The SI returned an empty response. Please try again.');
     }
     return html;
   }
@@ -84,7 +84,7 @@ Return ONLY the HTML.`;
 
     await window.LixaCore.checkToolQuota();
     const config = await window.LixaCore.resolveToolModelConfig();
-    if (!config) throw new Error('AI service is not configured.');
+    if (!config) throw new Error('SI service is not configured.');
     const prompt = buildPrompt(formData);
     const html = await callAIWithValidation(prompt, config, 1);
     window.LixaCore.reportToolTokenUsage(prompt + html, config.weight);
@@ -137,7 +137,7 @@ Return ONLY the HTML.`;
 
     await window.LixaCore.checkToolQuota();
     const config = await window.LixaCore.resolveToolModelConfig();
-    if (!config) throw new Error('AI service is not configured.');
+    if (!config) throw new Error('SI service is not configured.');
     const prompt = `Here is an existing printable HTML medical assessment form:\n\n${record.generatedText}\n\nApply this change requested by the clinician, preserving the rest of the form exactly as-is unless the change requires otherwise:\n"${instruction}"\n\nReturn ONLY the complete updated HTML document (no markdown, no code fences, no commentary).`;
     const html = await callAIWithValidation(prompt, config, 1);
     window.LixaCore.reportToolTokenUsage(prompt + html, config.weight);

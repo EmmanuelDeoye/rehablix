@@ -88,7 +88,7 @@
     popup = document.createElement('div');
     popup.className = 'model-picker-popup rx-model-popup';
     popup.setAttribute('role', 'listbox');
-    popup.setAttribute('aria-label', 'AI model');
+    popup.setAttribute('aria-label', 'SI model');
     popup.hidden = true;
     document.body.appendChild(popup);
     popup.addEventListener('click', e => {
@@ -108,7 +108,7 @@
     if (!t) return;
     const p = plan();
     const cur = id();
-    popup.innerHTML = '<div class="rx-model-popup-head">AI model for every page</div>' + t.MODELS.map(m => {
+    popup.innerHTML = '<div class="rx-model-popup-head">SI model for every page</div>' + t.MODELS.map(m => {
       const locked = !t.isModelUnlocked(m.id, p);
       return `<button type="button" role="option" aria-selected="${m.id === cur}" class="model-option${locked ? ' locked' : ''}${m.id === cur ? ' selected' : ''}" data-model-id="${m.id}">
         <span class="model-option-rank">${m.rank}</span>
@@ -155,7 +155,7 @@
     b.dataset.rxModelChip = '1';
     if (opts && opts.className) b.classList.add(opts.className);
     b.innerHTML = '<i class="fas fa-microchip" aria-hidden="true"></i><span></span><i class="fas fa-chevron-down model-picker-caret" aria-hidden="true"></i>';
-    b.title = 'AI model (applies to every page)' + (opts && opts.note ? ' — ' + opts.note : '');
+    b.title = 'SI model (applies to every page)' + (opts && opts.note ? ' — ' + opts.note : '');
     b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); open(b); });
     paint(b);
     return b;
@@ -163,7 +163,7 @@
   function paint(b) {
     const s = b.querySelector('span');
     if (s) s.textContent = label();
-    b.setAttribute('aria-label', 'AI model: ' + label() + '. Changes it on every page.');
+    b.setAttribute('aria-label', 'SI model: ' + label() + '. Changes it on every page.');
   }
   function refreshChips() { document.querySelectorAll('[data-rx-model-chip]').forEach(paint); if (popup && !popup.hidden) renderPopup(); }
 
@@ -195,7 +195,7 @@
       if (p.wrap) {
         const row = document.createElement('div');
         row.className = 'rx-model-row';
-        row.innerHTML = '<span class="rx-model-row-label">AI model</span>';
+        row.innerHTML = '<span class="rx-model-row-label">SI model</span>';
         row.appendChild(el);
         el = row;
       }

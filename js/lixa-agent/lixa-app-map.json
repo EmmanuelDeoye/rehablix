@@ -22,7 +22,7 @@
     },
     {
       "id": "emr", "title": "Smart EMR", "logo": "notes-medical", "route": "#/emr", "open": true, "needsLogin": true,
-      "purpose": "Patient records: registration, intake, AI clinical summaries, treatment plans, session notes, progress notes and discharge summaries.",
+      "purpose": "Patient records: registration, intake, SI clinical summaries, treatment plans, session notes, progress notes and discharge summaries.",
       "inputs": ["patient details", "intake and assessment findings", "session notes"],
       "actions": ["add a patient", "open a patient record", "write a session or progress note", "create a treatment plan", "generate a clinical summary", "write a discharge summary", "switch between personal and center records"],
       "related": ["audio", "motion", "presentation"],
@@ -94,11 +94,11 @@
     },
     {
       "id": "project", "title": "Project Maker", "logo": "book", "route": "#/project", "open": true, "needsLogin": true,
-      "purpose": "A full research project, chapters 1 to 5, with Project AI, review and export.",
+      "purpose": "A full research project, chapters 1 to 5, with Project SI, review and export.",
       "inputs": ["the project topic", "resources or notes", "chapter requirements"],
-      "actions": ["start a project", "generate a chapter", "ask Project AI", "run a consistency check", "export the project", "switch between personal and center projects"],
+      "actions": ["start a project", "generate a chapter", "ask Project SI", "run a consistency check", "export the project", "switch between personal and center projects"],
       "related": ["assignment", "study"],
-      "howTo": ["Open Workspace, then Project Maker.", "Create a project and enter the topic.", "Open a chapter and tap generate; use Project AI for questions and review."],
+      "howTo": ["Open Workspace, then Project Maker.", "Create a project and enter the topic.", "Open a chapter and tap generate; use Project SI for questions and review."],
       "keywords": ["project", "research", "thesis", "dissertation", "chapter", "literature review", "methodology", "project ai", "supervisor"]
     },
     {
@@ -112,7 +112,7 @@
     },
     {
       "id": "exam", "title": "Exam Simulator", "logo": "stopwatch", "route": "#/exam", "open": true, "needsLogin": true,
-      "purpose": "Timed AI-generated practice exams with analytics on weak areas.",
+      "purpose": "Timed SI-generated practice exams with analytics on weak areas.",
       "inputs": ["subject", "number of questions", "duration", "difficulty"],
       "actions": ["set up an exam", "take the exam", "flag questions", "see results and analytics", "switch between personal and center subjects"],
       "related": ["study"],

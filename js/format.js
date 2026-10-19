@@ -765,7 +765,7 @@ Return ONLY the HTML.`;
 
   async function callAIWithValidation(prompt, attempt) {
     const cfg = await chosenModel();
-    if (!cfg) throw new Error('AI service is not configured. Please try again later.');
+    if (!cfg) throw new Error('SI service is not configured. Please try again later.');
     lastWeight = cfg.weight || 1;
     const response = await fetch(`${cfg.endpoint.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -799,7 +799,7 @@ Return ONLY the HTML.`;
       if (window.reportApiError) {
         window.reportApiError({ status: 200, bodyText: `content_filter (attempt ${attempt})`, tool: 'format', context: 'generate formatted document' });
       }
-      throw new Error('The AI declined to generate this content, most likely due to sensitive wording in the notes. Try rephrasing and generate again.');
+      throw new Error('The SI declined to generate this content, most likely due to sensitive wording in the notes. Try rephrasing and generate again.');
     }
 
     if (html.length < 20) {
@@ -810,7 +810,7 @@ Return ONLY the HTML.`;
       if (window.reportApiError) {
         window.reportApiError({ status: 200, bodyText: `Empty response after ${attempt} attempts, finish_reason=${finishReason}`, tool: 'format', context: 'generate formatted document' });
       }
-      throw new Error('The AI returned an empty response after two attempts. Please try again.');
+      throw new Error('The SI returned an empty response after two attempts. Please try again.');
     }
 
     if (finishReason === 'length') {

@@ -369,7 +369,7 @@
       const when = item.reviewedAt ? new Date(item.reviewedAt).toLocaleDateString() : '';
       return `<span class="tag tag-green">Reviewed${item.reviewedBy ? ' by ' + esc(item.reviewedBy) : ''}${when ? ' · ' + esc(when) : ''}</span>`;
     }
-    if (item.aiGenerated) return '<span class="tag tag-amber ai-draft-tag">AI draft, review before use.</span>';
+    if (item.aiGenerated) return '<span class="tag tag-amber ai-draft-tag">SI draft, review before use.</span>';
     return '';
   }
 

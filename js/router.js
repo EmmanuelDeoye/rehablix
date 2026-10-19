@@ -28,7 +28,7 @@
 
 (function () {
   const routes = {
-    lixa: { template: 'lixa', title: 'rehablix | Lixa — AI Clinical Copilot' },
+    lixa: { template: 'lixa', title: 'rehablix | Lixa — SI Clinical Copilot' },
     workspace: { template: 'workspace', title: 'Workspace | rehablix' },
     format: { template: 'format', title: 'Assessment Format Generator | rehablix' },
     standardized: { template: 'standardized', title: 'Standardized Tools | rehablix' },

@@ -110,6 +110,21 @@
 }
 .lxa-seg button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .lxa-small { margin: 4px 0 0; font-size: 0.8rem; color: var(--text-secondary); }
+/* the settings in small groups */
+.lxa-group { margin: 10px 0 2px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.lxa-group:first-child { margin-top: 0; }
+.lxa-voices .lxa-seg { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+.lxa-voices .lxa-seg::-webkit-scrollbar { display: none; }
+.lxa-voices .lxa-seg button { white-space: nowrap; }
+/* the captions panel (what she heard and the hint line), over the bottom of the stage */
+.lxa-captions { padding: 10px 14px; }
+.lxa-captions .lxa-caption { margin-top: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.lxa-captions .lxa-hint { text-align: left; }
+/* what only the user can act on (her voice waiting, a problem): always in view */
+.lxa-alert { order: 5; margin-top: 6px; text-align: center; font-size: 0.82rem; color: var(--text-secondary); }
+/* her settings button in the navbar */
+.lxa-nav-settings i { font-size: 1.05rem; }
+.lxa-nav-settings.on { color: var(--accent); background: var(--accent-soft); border-radius: 50%; }
 
 .lxa-cards { display: flex; flex-direction: column; gap: 8px; max-height: 42vh; max-height: 42dvh; overflow: auto; flex: none; }
 .lxa-cards:empty { display: none; }
@@ -243,12 +258,12 @@
   }
   .lxa-mic { grid-area: mic; justify-self: center; width: 84px; height: 84px; font-size: 1.7rem; }
   .lxa-ctl { width: 54px; height: 54px; }
-  .lxa-ctl[data-act="settings"] { grid-area: set; }
+  .lxa-ctl[data-act="captions"] { grid-area: set; }
   .lxa-ctl[data-act="type"] { grid-area: typ; }
   .lxa-ctl[data-act="skip"] { grid-area: skp; }
   .lxa-ctl[data-act="details"] { grid-area: det; }
   .lxa-stage { flex: 1 1 0; min-height: 200px; }
-  .lxa-caption, .lxa-hint, .lxa-type { width: 100%; max-width: 760px; align-self: center; }
+  .lxa-caption, .lxa-hint, .lxa-type, .lxa-alert { width: 100%; max-width: 760px; align-self: center; }
   .lxa-cards { max-height: none; overflow: visible; }
   .lxa-right .lxa-panel { position: static; max-height: none; overflow: visible; box-shadow: var(--shadow-sm); }
   .lxa-right:empty, .lxa-right:not(:has(> :not([hidden]):not(:empty))) { visibility: hidden; }

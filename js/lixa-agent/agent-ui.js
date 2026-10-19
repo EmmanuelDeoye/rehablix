@@ -14,8 +14,9 @@
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const B = () => window.LixaAgentBrain;
 
-  let root = null, bubble = null, navBtn = null, session = null, avatar = null, bubbleAvatar = null, map = null;
-  let showing = false, active = false, panel = null;      // panel: 'settings' | 'details' | null
+  let root = null, bubble = null, navBtn = null, settingsNavBtn = null, session = null, avatar = null, bubbleAvatar = null, map = null;
+  let showing = false, active = false, panel = null;      // panel: 'settings' | 'details' | 'captions' | null
+  let wakeLock = null;                                      // the screen kept on while agent mode is open (Keep screen on)
   let warnNoConfirm = false;                                // the warning before "Ask before changes" is turned off
   let bubblePos = null;
   try { bubblePos = JSON.parse(localStorage.getItem('rehab-agent-bubble') || 'null'); } catch (e) { bubblePos = null; }
@@ -75,8 +76,9 @@
           <span class="lxa-miclive" role="status" hidden><span class="lxa-dot"></span>Mic live</span>
         </div>
         <div class="lxa-mode" hidden><i class="fas"></i><span class="lxa-mode-label"></span><span class="lxa-mode-score"></span><button type="button" data-act="endmode">End</button></div>
+        <!-- (Lixa's settings are in the top navbar while this screen shows) -->
         <div class="lxa-controls">
-          <button type="button" class="lxa-ctl" data-act="settings" aria-label="Voice settings" title="Settings"><i class="fas fa-sliders-h"></i></button>
+          <button type="button" class="lxa-ctl" data-act="captions" aria-label="Show captions" title="Captions"><i class="fas fa-closed-captioning"></i></button>
           <button type="button" class="lxa-ctl" data-act="type" aria-label="Type instead" title="Type"><i class="fas fa-keyboard"></i></button>
           <button type="button" class="lxa-mic" data-act="mic" aria-label="Talk to Lixa"><i class="fas fa-microphone"></i></button>
           <button type="button" class="lxa-ctl" data-act="skip" aria-label="Skip this sentence" title="Skip"><i class="fas fa-forward"></i></button>
@@ -91,9 +93,14 @@
           </div>
           <div class="lxa-panel lxa-settings" hidden></div>
           <div class="lxa-panel lxa-details" hidden><div class="lxa-panel-head"><b>Details</b><button type="button" data-act="closepanel" aria-label="Close details"><i class="fas fa-times"></i></button></div><div class="lxa-details-body"></div></div>
+          <!-- the captions (what she heard, and the hint line): put away until their button is tapped, like the details -->
+          <div class="lxa-panel lxa-captions" hidden>
+            <div class="lxa-caption"><span class="lxa-who">You</span><span class="lxa-heard"></span></div>
+            <div class="lxa-hint" aria-live="polite"></div>
+          </div>
         </div>
-        <div class="lxa-caption"><span class="lxa-who">You</span><span class="lxa-heard"></span></div>
-        <div class="lxa-hint" aria-live="polite"></div>
+        <!-- what only the user can act on (her voice waiting for a connection, a problem) always shows -->
+        <div class="lxa-alert" role="status" hidden></div>
         <form class="lxa-type" hidden><input type="text" placeholder="Type to Lixa…" aria-label="Type to Lixa" autocomplete="off"><button type="submit" aria-label="Send"><i class="fas fa-paper-plane"></i></button></form>
       </div>
       <div class="lxa-right">
@@ -104,7 +111,7 @@
     avatar.source = () => {
       const v = session ? session.view : { state: 'Idle' };
       return {
-        state: v.state, mouthOpen: v.mouth || 0, mouthShape: v.shape, asking: v.asking, waving: v.waving, gentle: !!(v.talkMode && v.talkMode.kind === 'THERAPIST'),
+        state: v.state, mouthOpen: v.mouth || 0, mouthShape: v.shape, viseme: v.viseme == null ? -1 : v.viseme, asking: v.asking, waving: v.waving, gentle: !!(v.talkMode && v.talkMode.kind === 'THERAPIST'),
         emotion: v.emotion || 'neutral', body: v.talkMode && v.talkMode.kind === 'PATIENT' ? (v.body || 'normal') : 'normal'
       };
     };
@@ -138,11 +145,11 @@
       const input = root.querySelector('.lxa-type input');
       if (session && input.value.trim()) { session.typed(input.value); input.value = ''; }
     });
-    // Settings and details close on any tap outside them.
+    // Settings, details and captions close on any tap outside them (the settings button is in the navbar).
     document.addEventListener('pointerdown', e => {
       if (!panel || !root || root.hidden) return;
-      const open = root.querySelector(panel === 'settings' ? '.lxa-settings' : '.lxa-details');
-      const btn = root.querySelector('[data-act="' + panel + '"]');
+      const open = root.querySelector('.lxa-' + panel);
+      const btn = panel === 'settings' ? settingsNavBtn : root.querySelector('[data-act="' + panel + '"]');
       if (open && !open.contains(e.target) && !(btn && btn.contains(e.target))) { panel = null; render(); }
     }, true);
 
@@ -180,7 +187,7 @@
         if (live && live.on) { live.toggleMic(); break; }
         if (session.view.listening) session.stopListening(); else session.listen(); break;
       case 'skip': if (session.state === 'Speaking') { if (live && live.on) live.stopHer(); else session.voice.skipSentence(); } break;
-      case 'settings': case 'details': panel = panel === act ? null : act; if (panel === 'settings' && live) live.refreshUsage(); render(); break;
+      case 'details': case 'captions': panel = panel === act ? null : act; render(); break;
       case 'closepanel': panel = null; render(); break;
       case 'type': { const f = root.querySelector('.lxa-type'); f.hidden = !f.hidden; if (!f.hidden) f.querySelector('input').focus(); break; }
       case 'endmode': session.endTalkMode(); break;
@@ -197,7 +204,9 @@
         if (k === 'short') session.setShort(v === '1');
         if (k === 'muted') session.setMuted(v === '1');
         if (k === 'accent') session.setAccent(v);
-        if (k === 'livevoice' && live) live.chooseVoice(v);
+        if (k === 'voice') session.setVoice(v);
+        if (k === 'background') session.setBackground(v === '1');
+        if (k === 'screen') { session.setKeepScreenOn(v === '1'); syncWakeLock(); }
         // turning confirmations off needs the warning first; turning them back on is immediate
         if (k === 'confirm') { if (v === '0') { if (!session.autoApprove) { warnNoConfirm = true; panel = null; } } else { warnNoConfirm = false; session.setAutoApprove(false); } render(); }
         break;
@@ -264,16 +273,24 @@
     // settings
     const settings = root.querySelector('.lxa-settings');
     settings.hidden = panel !== 'settings';
+    // (short rows in four small groups, as in the Android app)
+    const voices = window.LixaAgentLive ? window.LixaAgentLive.VOICES : [[session.voice.herVoice, '']];
     if (panel === 'settings') setSettings(settings,
-      `<div class="lxa-row"><span>Voice answers</span>${seg('short', [['0', 'Full'], ['1', 'Short']], session.shortAnswers ? '1' : '0')}</div>` +
-      `<div class="lxa-row"><span>Mute Lixa's voice</span>${seg('muted', [['0', 'Off'], ['1', 'On']], session.muted ? '1' : '0')}</div>` +
+      `<div class="lxa-group">Voice</div>` +
+      // one voice for Standard and Live (Leda by default, to suit her look)
+      `<div class="lxa-row lxa-voices">${seg('voice', voices.map(([n, sound]) => [n, sound ? n + ' · ' + sound : n]), session.live ? session.live.voice : session.voice.herVoice)}</div>` +
       `<div class="lxa-row"><span>Accent</span>${seg('accent', [['us', 'US'], ['gb', 'UK'], ['au', 'AU'], ['in', 'India']], session.accent)}</div>` +
-      (window.RehablixModelChoice ? `<div class="lxa-row"><span>AI model${session.live ? ' (Standard)' : ''}</span><span class="lxa-model-slot"></span></div>` +
-        `<p class="lxa-small">The same model on every page: changing it here changes it in Lixa chat and the tools too.${session.live ? ' Live always talks with Gemini Live.' : ''}</p>` : '') +
+      `<div class="lxa-row"><span>Answers</span>${seg('short', [['0', 'Full'], ['1', 'Short']], session.shortAnswers ? '1' : '0')}</div>` +
+      `<div class="lxa-row"><span>Her voice</span>${seg('muted', [['0', 'On'], ['1', 'Muted']], session.muted ? '1' : '0')}</div>` +
+      `<div class="lxa-group">Work</div>` +
+      (window.RehablixModelChoice ? `<div class="lxa-row"><span>SI model</span><span class="lxa-model-slot"></span></div>` +
+        `<p class="lxa-small">Same model on every page.${session.live ? ' Live uses Gemini Live.' : ''}</p>` : '') +
       `<div class="lxa-row"><span>Ask before changes</span>${seg('confirm', [['1', 'On'], ['0', 'Off']], session.autoApprove ? '0' : '1')}</div>` +
-      `<p class="lxa-small${session.autoApprove ? ' lxa-danger' : ''}">${session.autoApprove ? 'Off: Lixa creates, edits and deletes as soon as you ask, without a Confirm card. Turn it back on any time.' : 'On: Lixa shows a Confirm card before she creates, edits or deletes anything.'}</p>` +
-      (session.live ? `<div class="lxa-row"><span>Live voice</span>${seg('livevoice', window.LixaAgentLive.VOICES.map(([n, sound]) => [n, n + ' · ' + sound]), session.live.voice)}</div>` +
-        `<p class="lxa-small">Live minutes: ${esc(session.live.usage || (B().plan() === 'free' ? 'paid plans only' : '…'))}. In Live you can talk over her any time; Standard waits until she has finished.</p>` : '') +
+      (session.autoApprove ? `<p class="lxa-small lxa-danger">Off: no Confirm card before she creates, edits or deletes.</p>` : '') +
+      `<div class="lxa-group">Screen</div>` +
+      `<div class="lxa-row"><span>Talk in the background</span>${seg('background', [['1', 'On'], ['0', 'Off']], session.background ? '1' : '0')}</div>` +
+      `<div class="lxa-row"><span>Keep screen on</span>${seg('screen', [['1', 'On'], ['0', 'Off']], session.keepScreenOn ? '1' : '0')}</div>` +
+      (session.live ? `<p class="lxa-small">Live minutes: ${esc(session.live.usage || (B().plan() === 'free' ? 'paid plans only' : '…'))}. In Live you can talk over her.</p>` : '') +
       (window.LixaAgentSession.canListen ? '' : `<p class="lxa-small">This browser can't listen. Use Chrome, Edge or Safari to talk to her, or type.</p>`));
 
     // details
@@ -301,8 +318,13 @@
     const cardsEl = root.querySelector('.lxa-cards');
     if (cardsEl.dataset.html !== cards) { cardsEl.innerHTML = cards; cardsEl.dataset.html = cards; }
 
-    // what she heard, and the hint line
+    // what she heard, and the hint line (in the captions panel); what only the user can act on, always in view
     const live = session.live && session.live.on ? session.live : null;
+    const alert = v.waiting || v.note || (live && live.phase === 'connecting' ? 'Connecting to Live…' : '');
+    const alertEl = root.querySelector('.lxa-alert');
+    alertEl.hidden = !alert || panel === 'captions';
+    alertEl.textContent = alert;
+    root.querySelector('.lxa-captions').hidden = panel !== 'captions';
     const hint = v.waiting || v.note || (live ? (
       live.phase === 'connecting' ? 'Connecting to Live…' : live.micMuted ? 'Microphone off. Tap the mic to talk.' :
       v.state === 'Speaking' ? 'Just talk to interrupt her, or tap her to stop.' : v.state === 'Working' ? (v.status || '') :
@@ -336,7 +358,10 @@
       mic.disabled = !window.LixaAgentSession.canListen;
     }
     root.querySelector('[data-act="skip"]').disabled = v.state !== 'Speaking';
-    root.querySelector('[data-act="settings"]').classList.toggle('on', panel === 'settings');
+    if (settingsNavBtn) settingsNavBtn.classList.toggle('on', panel === 'settings');
+    const cc = root.querySelector('[data-act="captions"]');
+    cc.classList.toggle('on', panel === 'captions');
+    cc.setAttribute('aria-label', panel === 'captions' ? 'Hide captions' : 'Show captions');
     root.querySelector('[data-act="details"]').classList.toggle('on', panel === 'details');
     if (!window.LixaAgentSession.canListen) root.querySelector('.lxa-type').hidden = false;
     syncNavButton();
@@ -361,6 +386,7 @@
     avatar.start();
     if (first) session.open();
     else if (session.handsFree && session.state === 'Idle') session.listen();
+    syncWakeLock();
   }
   function minimize() {
     if (!active) return;
@@ -377,6 +403,7 @@
     if (bubble) bubble.hidden = true;
     document.body.classList.remove('lxa-open');
     syncNavButton();
+    syncWakeLock();
   }
   function toggle() { if (showing) minimize(); else open(); }
 
@@ -420,7 +447,19 @@
   function syncNavButton() {
     if (!navBtn) return;
     navBtn.hidden = showing || (route() === 'lixa' && lixaChatEmpty() && !active);
+    // her settings take the agent icon's place in the navbar while the agent screen shows
+    if (settingsNavBtn) settingsNavBtn.hidden = !showing;
   }
+
+  /** Keep screen on: the screen stays on while agent mode is open (the browser lets go while the page is hidden). */
+  async function syncWakeLock() {
+    const want = active && session && session.keepScreenOn && !document.hidden && navigator.wakeLock;
+    if (want && !wakeLock) {
+      try { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } catch (e) { wakeLock = null; }
+      if (!(active && session && session.keepScreenOn) && wakeLock) { const w = wakeLock; wakeLock = null; w.release().catch(() => {}); }
+    } else if (!want && wakeLock) { const w = wakeLock; wakeLock = null; try { await w.release(); } catch (e) { /* already let go */ } }
+  }
+  document.addEventListener('visibilitychange', () => { syncWakeLock(); });
   function addNavButton() {
     const right = document.getElementById('navRight');
     if (!right || document.getElementById('lixaAgentNavBtn')) return;
@@ -434,6 +473,22 @@
     const theme = document.getElementById('themeToggle');
     right.insertBefore(navBtn, theme || null);
     navBtn.addEventListener('click', toggle);
+    // Lixa's settings, in the same place, while the agent screen shows
+    settingsNavBtn = document.createElement('button');
+    settingsNavBtn.type = 'button';
+    settingsNavBtn.id = 'lixaAgentSettingsBtn';
+    settingsNavBtn.className = 'icon-btn lxa-nav-btn lxa-nav-settings';
+    settingsNavBtn.setAttribute('aria-label', "Lixa's settings");
+    settingsNavBtn.title = "Lixa's settings";
+    settingsNavBtn.innerHTML = '<i class="fas fa-sliders-h" aria-hidden="true"></i>';
+    settingsNavBtn.hidden = true;
+    right.insertBefore(settingsNavBtn, theme || null);
+    settingsNavBtn.addEventListener('click', () => {
+      if (!session || !showing) return;
+      panel = panel === 'settings' ? null : 'settings';
+      if (panel === 'settings' && session.live) session.live.refreshUsage();
+      render();
+    });
     syncNavButton();
     // the new-chat screen comes and goes with the chat's messages
     const watch = () => {

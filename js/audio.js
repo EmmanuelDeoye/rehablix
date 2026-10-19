@@ -591,7 +591,7 @@ function mount() {
     // Coach mode records the patient/caregiver and sends de-identified turns
     // to AI for question suggestions — explicit consent is required first.
     if (!resume && audioMode === 'coach' && !(coachConsentInput && coachConsentInput.checked)) {
-      showToast('Coach mode needs consent: confirm the patient/caregiver agreed to recording and AI assistance.', 'error', 6000);
+      showToast('Coach mode needs consent: confirm the patient/caregiver agreed to recording and SI assistance.', 'error', 6000);
       if (coachConsentInput) coachConsentInput.focus();
       return;
     }
@@ -1303,7 +1303,7 @@ function mount() {
     suggestInFlight = true; lastCoachAt = Date.now(); renderCoachPanel();
     try {
       const config = await core.resolveModelConfig('basal100');
-      if (!config) throw new Error('AI not configured');
+      if (!config) throw new Error('SI not configured');
       await core.checkQuotaOrThrow(currentUser && currentUser.uid, currentPlan);
       const professional = PROFESSIONAL_LABELS[sessionMeta.professional] || 'clinician';
       const system = 'You label a live clinical conversation between a ' + professional + ' (T) and a patient or caregiver (P) during a ' + (sessionMeta.sessionType || 'therapy') + ' session. It was transcribed in short pieces with no speaker information. Decide who said each NEW line from its content and the turn-taking: the ' + professional + ' asks questions, gives instructions, explains and examines; the patient or caregiver answers and describes symptoms, history, daily life and concerns. Neighbouring lines often share a speaker.' +

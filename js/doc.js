@@ -229,7 +229,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // =========================================================================
     // Loading Overlay
     // =========================================================================
-    function showLoading(message = 'Generating with AI…', progress = 0) {
+    function showLoading(message = 'Generating with SI…', progress = 0) {
         loadingMessage.textContent = message;
         loadingProgress.style.width = progress + '%';
         loadingOverlay.style.display = 'flex';
@@ -877,7 +877,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!container) return;
         const problems = currentPatientData?.problemList || [];
         if (problems.length === 0) {
-            container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-list-check"></i><p>No problems identified yet. Click "AI Generate" to analyze intake data.</p></div>`;
+            container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-list-check"></i><p>No problems identified yet. Click "SI Generate" to analyze intake data.</p></div>`;
             return;
         }
         container.innerHTML = problems.map(p => {
@@ -996,7 +996,7 @@ document.addEventListener('DOMContentLoaded', function() {
     async function generateProblemListAI() {
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
         showLoading('Analyzing patient data for problems…', 10);
         try {
@@ -1067,7 +1067,7 @@ document.addEventListener('DOMContentLoaded', function() {
     async function generateSummaryReport() {
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
         showLoading('Generating summary report…', 10);
         try {
@@ -1172,7 +1172,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 <div class="session-card-x-body">
                     <div class="session-card-x-content">${escapeHtml(stripMarkdown(plan.content || '')) || '<em>No content.</em>'}</div>
-                    <button class="btn btn-secondary treatment-regenerate-btn" data-index="${plan._index}" style="font-size:0.7rem;padding:0.2rem 0.8rem;margin-top:0.6rem;"><i class="bx bx-magic"></i> Regenerate with AI</button>
+                    <button class="btn btn-secondary treatment-regenerate-btn" data-index="${plan._index}" style="font-size:0.7rem;padding:0.2rem 0.8rem;margin-top:0.6rem;"><i class="bx bx-magic"></i> Regenerate with SI</button>
                 </div>
             </div>`;
         }).join('');
@@ -1258,7 +1258,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('generateTreatmentPlanBtn')?.addEventListener('click', async function() {
         if (!currentPatientId) { showToast('Open a patient first', 'warning'); return; }
         const result = await showCustomModal({
-            title: 'Generate Treatment Plan with AI',
+            title: 'Generate Treatment Plan with SI',
             subtitle: 'Optionally add instructions below. The most recent progress note (if any) is automatically factored in for clinical accuracy.',
             fields: [{ id: 'instructions', type: 'textarea', rows: 8, label: 'Additional instructions (optional)', placeholder: 'e.g. Focus on home exercise program, twice-weekly sessions, prioritize balance training…' }]
         });
@@ -1269,7 +1269,7 @@ document.addEventListener('DOMContentLoaded', function() {
     async function generateTreatmentPlanAI(instructions) {
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
         showLoading('Generating treatment plan…', 10);
         try {
@@ -1284,7 +1284,7 @@ document.addEventListener('DOMContentLoaded', function() {
             updateLoadingProgress(80, 'Saving plan…');
             const plans = currentPatientData?.treatmentPlans || [];
             plans.push({
-                title: `AI Plan - ${new Date().toLocaleDateString()}`,
+                title: `SI Plan - ${new Date().toLocaleDateString()}`,
                 content: stripMarkdown(response),
                 date: new Date().toLocaleDateString(),
                 category: d?.category || '',
@@ -1308,14 +1308,14 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!plan) return;
         const result = await showCustomModal({
             title: 'Regenerate Treatment Plan',
-            subtitle: 'Tell the AI what to change. The current plan and most recent progress note are used as context automatically.',
+            subtitle: 'Tell the SI what to change. The current plan and most recent progress note are used as context automatically.',
             fields: [{ id: 'instructions', type: 'textarea', rows: 8, label: 'Regeneration instructions', placeholder: 'e.g. Increase frequency to 3x/week, add balance training, patient reports less pain now…' }]
         });
         if (!result || !result.instructions) { showToast('Regeneration cancelled — no instructions given', 'info'); return; }
 
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
         showLoading('Regenerating treatment plan…', 10);
         try {
@@ -1368,7 +1368,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div class="session-title">${escapeHtml(session.type) || 'Session'}</div>
                         <div class="session-therapist">${escapeHtml(session.therapist || currentUser?.displayName) || 'Clinician'}</div>
                         <div class="session-tags">
-                            ${session.aiGenerated ? '<span class="tag tag-blue">AI Generated</span>' : ''}
+                            ${session.aiGenerated ? '<span class="tag tag-blue">SI Generated</span>' : ''}
                             ${session.codes ? session.codes.map(code => `<span class="tag tag-blue">${escapeHtml(code)}</span>`).join('') : ''}
                             ${session.signed ? '<span class="tag tag-green">Signed</span>' : '<span class="tag tag-amber">Draft</span>'}
                         </div>
@@ -1443,7 +1443,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!currentPatientId || !currentUser) return;
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
 
         const selectedIds = Array.from(document.querySelectorAll('.sessionGenProblemCheck:checked')).map(cb => cb.value);
@@ -1519,7 +1519,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const activities = nextPlan?.activities || [];
 
         if (!nextPlan || activities.length === 0) {
-            container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-calendar"></i><p>No next session planned yet. Click "AI Generate" above, or "Add Activity" to build one manually.</p></div>`;
+            container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-calendar"></i><p>No next session planned yet. Click "SI Generate" above, or "Add Activity" to build one manually.</p></div>`;
             return;
         }
 
@@ -1845,7 +1845,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('submitAiProgressAnswers')?.addEventListener('click', async function() {
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
 
         const cards = document.querySelectorAll('#aiProgressQuestions .problem-progress-card');
@@ -1927,7 +1927,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!currentPatientId) { showToast('Open a patient first', 'warning'); return; }
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
 
         showToast('Gathering all patient data – this may take a moment…', 'info', 4000);
@@ -2209,7 +2209,7 @@ Use plain, professional language. Do not use markdown formatting.`;
             }
 
             if (isDraft) {
-                showToast('Saved as draft. No AI report was generated yet.', 'success');
+                showToast('Saved as draft. No SI report was generated yet.', 'success');
             } else {
                 showToast('Patient created!', 'success');
                 // Only spend an AI call if there's actually something to summarize.
@@ -2365,7 +2365,7 @@ Use plain, professional language. Do not use markdown formatting.`;
         if (!currentUser) { showToast('Please log in first', 'error'); return; }
         if (!aiConfig.token) {
             const ok = await fetchTokens();
-            if (!ok) { showToast('AI service not available', 'error'); return; }
+            if (!ok) { showToast('SI service not available', 'error'); return; }
         }
         showLoading('Finding pending notes…', 5);
         try {
@@ -2386,7 +2386,7 @@ Use plain, professional language. Do not use markdown formatting.`;
 
             if (pendingRefs.length === 0) {
                 hideLoading();
-                showToast('No pending notes need AI drafting.', 'info');
+                showToast('No pending notes need SI drafting.', 'info');
                 return;
             }
 
@@ -2394,7 +2394,7 @@ Use plain, professional language. Do not use markdown formatting.`;
                 const { patientId, patient, sessionId } = pendingRefs[i];
                 updateLoadingProgress(10 + (80 * i) / pendingRefs.length, `Drafting note ${i + 1} of ${pendingRefs.length}…`);
                 try {
-                    const systemPrompt = `You are a rehabilitation clinician writing a session note. Write a concise, professional note based on the patient's diagnosis and goals. Note clearly that this is an AI-drafted note pending clinician review. Do not use markdown formatting.`;
+                    const systemPrompt = `You are a rehabilitation clinician writing a session note. Write a concise, professional note based on the patient's diagnosis and goals. Note clearly that this is an SI-drafted note pending clinician review. Do not use markdown formatting.`;
                     const userPrompt = `Patient: ${patient.name || 'Patient'}\nDiagnosis: ${patient.primaryDx || 'Unknown'}\nChief Complaint: ${patient.chiefComplaint || ''}\nGoals: ${patient.goals || ''}`;
                     const response = await callDeepSeek(systemPrompt, userPrompt, 800);
                     const content = stripMarkdown(response);
@@ -2412,13 +2412,13 @@ Use plain, professional language. Do not use markdown formatting.`;
             updateLoadingProgress(100, 'Done!');
             setTimeout(() => {
                 hideLoading();
-                showToast(`AI drafted ${pendingRefs.length} note(s). Please review and sign each one.`, 'success', 4500);
+                showToast(`SI drafted ${pendingRefs.length} note(s). Please review and sign each one.`, 'success', 4500);
                 loadDashboardData();
             }, 400);
         } catch (error) {
             console.error(error);
             hideLoading();
-            showToast('Error completing notes with AI: ' + (error.message || 'unknown error'), 'error', 6000);
+            showToast('Error completing notes with SI: ' + (error.message || 'unknown error'), 'error', 6000);
         }
     });
 
@@ -2442,7 +2442,7 @@ Use plain, professional language. Do not use markdown formatting.`;
     // =========================================================================
     async function callDeepSeek(systemPrompt, userPrompt, maxTokens = 2000) {
         if (!aiConfig.token) {
-            throw new Error('AI is not configured yet (no API key loaded). Try again in a moment, or reload the page.');
+            throw new Error('SI is not configured yet (no API key loaded). Try again in a moment, or reload the page.');
         }
         const url = `${aiConfig.endpoint}/chat/completions`;
         let response;
@@ -2468,18 +2468,18 @@ Use plain, professional language. Do not use markdown formatting.`;
             // fetch() throws a generic TypeError for both network failures and CORS blocks.
             // The browser hides the real reason from JS — check the DevTools Console/Network tab for specifics.
             console.error('[EMR] AI request failed before reaching the server (network/CORS):', networkErr);
-            throw new Error('Could not reach the AI service (network or CORS issue). Check the browser console/Network tab for details.');
+            throw new Error('Could not reach the SI service (network or CORS issue). Check the browser console/Network tab for details.');
         }
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
-            const msg = errData?.error?.message || `AI service returned an error (HTTP ${response.status}).`;
+            const msg = errData?.error?.message || `SI service returned an error (HTTP ${response.status}).`;
             console.error('[EMR] AI API error response:', response.status, errData);
             throw new Error(msg);
         }
         const data = await response.json();
         if (!data?.choices?.[0]?.message?.content) {
             console.error('[EMR] AI response missing expected content:', data);
-            throw new Error('AI service returned an unexpected response format.');
+            throw new Error('SI service returned an unexpected response format.');
         }
         return data.choices[0].message.content;
     }

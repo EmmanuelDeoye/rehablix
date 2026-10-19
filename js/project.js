@@ -187,7 +187,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       return 'Too many requests. Please wait a moment and try again.';
     }
     if (msg.includes('api') || msg.includes('token')) {
-      return 'AI service temporarily unavailable. Please try again later.';
+      return 'SI service temporarily unavailable. Please try again later.';
     }
     if (context.includes('save')) {
       return 'Failed to save your work. Please try again.';
@@ -313,7 +313,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       notice.style.cssText = 'background: #fef3c7; border: 2px solid #fbbf24; border-radius: 1rem; padding: 0.8rem 1rem; margin: 0 0 0.75rem 0; text-align: center; font-size: 0.82rem; color: #92400e; animation: fadeIn 0.4s ease;';
 
       notice.innerHTML = '<div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem;">No Active Plan</div>' +
-        '<div style="margin-bottom: 0.25rem; font-size: 0.78rem;"><strong>' + FREE_PROJECT_LIMIT + '</strong> project/month, Chapter 1 only, No AI Supervisor</div>' +
+        '<div style="margin-bottom: 0.25rem; font-size: 0.78rem;"><strong>' + FREE_PROJECT_LIMIT + '</strong> project/month, Chapter 1 only, No SI Supervisor</div>' +
         (remaining <= 0 ? '<div style="color: #dc2626; font-size: 0.75rem; margin-bottom: 0.3rem;">Resets in <strong>' + daysLeft + '</strong> days</div>' : '') +
         '<button id="upgradeProjectBtn" style="margin-top: 0.3rem; padding: 0.4rem 1.2rem; border-radius: 2rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; cursor: pointer; font-weight: 600; font-size: 0.8rem; transition: all 0.2s ease; font-family: inherit;">Upgrade for Full Access</button>';
 
@@ -943,7 +943,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (aiGenerateSectionBtn) {
       aiGenerateSectionBtn.innerHTML = hasContent
         ? '<i class="fas fa-redo"></i> Regenerate Section'
-        : '<i class="fas fa-magic"></i> AI Generate This Section';
+        : '<i class="fas fa-magic"></i> SI Generate This Section';
     }
   }
 
@@ -1463,7 +1463,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!resourceList) return;
 
     if (resources.length === 0) {
-      resourceList.innerHTML = '<div class="empty-state" style="padding:1.5rem;"><i class="bx bx-cloud-upload"></i><p style="font-size:0.85rem;">No resources uploaded</p><small>Upload articles, journals, or past projects for AI reference</small></div>';
+      resourceList.innerHTML = '<div class="empty-state" style="padding:1.5rem;"><i class="bx bx-cloud-upload"></i><p style="font-size:0.85rem;">No resources uploaded</p><small>Upload articles, journals, or past projects for SI reference</small></div>';
       return;
     }
 
@@ -1870,7 +1870,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function generateSection(sectionName, chapterKey, sectionIndex) {
     if (!aiConfig.token) {
       const ok = await fetchTokens();
-      if (!ok) throw new Error('AI service not configured');
+      if (!ok) throw new Error('SI service not configured');
     }
 
     const tone = aiToneSelect ? aiToneSelect.value : 'imperfect';
@@ -1936,7 +1936,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.warn('Pass 1 attempt ' + attempts + ' returned empty/invalid, retrying...');
     }
     if (!content || content.length < 50) {
-      throw new Error('AI failed to generate a valid draft after 3 attempts. Please try again.');
+      throw new Error('SI failed to generate a valid draft after 3 attempts. Please try again.');
     }
 
     let previousContent = content;
@@ -2021,7 +2021,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!aiConfig.token) {
       const ok = await fetchTokens();
       if (!ok) {
-        showToast('AI service not configured', 'error');
+        showToast('SI service not configured', 'error');
         return;
       }
     }
@@ -2235,7 +2235,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function clearChatHistory() {
-    aiChatMessages.innerHTML = '<div class="ai-empty-state"><i class="fas fa-robot"></i><p>Your AI supervisor is ready</p><small>Ask for guidance, corrections, or suggestions about your project</small></div>';
+    aiChatMessages.innerHTML = '<div class="ai-empty-state"><i class="fas fa-robot"></i><p>Your SI supervisor is ready</p><small>Ask for guidance, corrections, or suggestions about your project</small></div>';
     updateDefaultPromptsBar();
   }
 
@@ -2303,7 +2303,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   aiSendBtn.addEventListener('click', async function() {
     if (!canAccessAISupervisor()) {
-      showToast('AI Supervisor requires Student or Pro plan. Upgrade for full access.', 'error', 5000);
+      showToast('SI Supervisor requires Student or Pro plan. Upgrade for full access.', 'error', 5000);
       goToSubscription();
       return;
     }
@@ -2408,7 +2408,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function callAISupervisor(userMessage) {
     if (!aiConfig.token) {
       const ok = await fetchTokens();
-      if (!ok) throw new Error('AI not configured');
+      if (!ok) throw new Error('SI not configured');
     }
 
     const fullContext = buildFullProjectSummary();
@@ -2684,7 +2684,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       aiMessageInput.disabled = !access;
       aiSendBtn.disabled = !access;
       if (!access) {
-        aiMessageInput.placeholder = 'Upgrade to Student or Pro for AI Supervisor';
+        aiMessageInput.placeholder = 'Upgrade to Student or Pro for SI Supervisor';
       } else {
         aiMessageInput.placeholder = 'Ask your supervisor...';
       }

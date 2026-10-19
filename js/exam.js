@@ -39,7 +39,7 @@
 
   async function callAI(systemPrompt, userPrompt, maxTokens = 3500) {
     const cfg = await chosenModel();
-    if (!cfg) throw new Error('AI service is not configured.');
+    if (!cfg) throw new Error('SI service is not configured.');
     lastWeight = cfg.weight || 1;
     const response = await fetch(`${cfg.endpoint.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -53,7 +53,7 @@
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      throw new Error(err?.error?.message || `AI service error (${response.status})`);
+      throw new Error(err?.error?.message || `SI service error (${response.status})`);
     }
     const data = await response.json();
     return data.choices[0].message.content;
@@ -256,7 +256,7 @@ Generate exactly ${questionCount} multiple-choice questions at "${difficulty}" d
         window.RehabPlanTiers.consumeQuota(currentUser.uid, plan, window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + response), lastWeight).catch(() => {});
       }
       const parsed = parseAIJson(response);
-      if (!parsed.questions || parsed.questions.length === 0) throw new Error('AI response was missing questions');
+      if (!parsed.questions || parsed.questions.length === 0) throw new Error('SI response was missing questions');
 
       currentExam = parsed;
       activeSubjectName = subjectName;

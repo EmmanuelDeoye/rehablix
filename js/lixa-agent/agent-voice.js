@@ -23,6 +23,10 @@
     us: ['en-US-Chirp3-HD-Charon', 'en-US-Neural2-D'], gb: ['en-GB-Chirp3-HD-Charon', 'en-GB-Neural2-B'],
     au: ['en-AU-Chirp3-HD-Charon', 'en-AU-Neural2-B'], in: ['en-IN-Chirp3-HD-Charon', 'en-IN-Neural2-B']
   };
+  // Her default voice in Standard and Live: "Leda", Google's youthful, bright female voice, to suit her look. The same
+  // name is a Chirp 3 HD voice (Standard; it replaces the name in VOICES) and a Gemini Live voice (Android: LixaVoice.kt).
+  const DEFAULT_VOICE = 'Leda';
+  const MALE_NAMES = ['Charon'];
   const KEEP_CHARS = 48;
   const ATTEMPT_MS = 8000, MAX_ATTEMPT_MS = 14000, FIRST_RETRY_MS = 1000, MAX_RETRY_MS = 8000, MAX_WAIT_MS = 120000;
   const AHEAD = 3;
@@ -77,6 +81,13 @@
     }
     return { level, shapes };
   }
+  /** The loudness and lip shapes, plus the sound being said in each window (from the words: agent-rules.js Visemes). */
+  function analyseClip(buffer, text) {
+    const a = analyse(buffer);
+    const R = window.LixaAgentRules;
+    try { a.visemes = R && R.Visemes ? R.Visemes.track(text, a.level) : null; } catch (e) { a.visemes = null; }
+    return a;
+  }
 
   class CloudVoice {
     constructor(opts) {
@@ -84,6 +95,7 @@
       this.onWaiting = opts.onWaiting || (() => {});
       this.onProblem = opts.onProblem || (() => {});
       this.accent = 'us';
+      this.herVoice = DEFAULT_VOICE;     // her voice's name, the same one Live uses
       this.role = null;                  // {male, rate}: a patient she plays
       this.chirpRefused = false;
       this.cache = new Map();            // short stock phrases, ready at once next time
@@ -106,9 +118,14 @@
     }
 
     voiceName() {
-      const set = this.role && this.role.male ? MALE_VOICES : VOICES;
+      const male = !!(this.role && this.role.male);
+      const set = male ? MALE_VOICES : VOICES;
       const pair = set[this.accent] || set.us;
-      return this.chirpRefused ? pair[1] : pair[0];
+      if (male) return this.chirpRefused ? pair[1] : pair[0];
+      // her own voice: the Chirp 3 HD voice of the name she uses in Live too (one voice for both modes)
+      const herMale = MALE_NAMES.indexOf(this.herVoice) >= 0;
+      const backup = ((herMale ? MALE_VOICES : VOICES)[this.accent] || (herMale ? MALE_VOICES : VOICES).us)[1];
+      return this.chirpRefused ? backup : pair[0].split('-Chirp3-HD-')[0] + '-Chirp3-HD-' + this.herVoice;
     }
     rateFor(voice) { return this.role ? Math.min(1.2, Math.max(0.7, this.role.rate || 1)) : (voice.indexOf('Chirp3') >= 0 ? 1.0 : 1.04); }
 
@@ -169,7 +186,7 @@
         const r = await this.once(text);
         if (r.buffer) {
           if (waiting) this.onWaiting(null);
-          const clip = Object.assign({ buffer: r.buffer, text }, analyse(r.buffer));
+          const clip = Object.assign({ buffer: r.buffer, text }, analyseClip(r.buffer, text));
           if (keep) this.cache.set(ck, clip);
           return clip;
         }
@@ -196,7 +213,7 @@
         if (!text || this.cache.has(ck)) continue;
         const r = await this.once(text);
         if (!r.buffer) return;
-        this.cache.set(ck, Object.assign({ buffer: r.buffer, text }, analyse(r.buffer)));
+        this.cache.set(ck, Object.assign({ buffer: r.buffer, text }, analyseClip(r.buffer, text)));
       }
     }
 
@@ -243,7 +260,7 @@
         const timer = setInterval(() => {
           if (this.paused) { onEvent({ amplitude: 0, shape: 0.5, sentence: index, speaking: false }); return; }
           const w = Math.floor((this.ctx.currentTime - t0) * 1000 / WINDOW_MS);
-          onEvent({ amplitude: clip.level[w] || 0, shape: clip.shapes[w] == null ? 0.5 : clip.shapes[w], sentence: index, speaking: true });
+          onEvent({ amplitude: clip.level[w] || 0, shape: clip.shapes[w] == null ? 0.5 : clip.shapes[w], viseme: clip.visemes && clip.visemes[w] != null ? clip.visemes[w] : -1, sentence: index, speaking: true });
         }, 16);
         try { src.start(); } catch (e) { finish(); }
       });
@@ -261,6 +278,7 @@
   }
 
   CloudVoice.NOTES = NOTES;
+  CloudVoice.DEFAULT_VOICE = DEFAULT_VOICE;
   CloudVoice.ACCENTS = ['us', 'gb', 'au', 'in'];
   window.LixaAgentVoice = CloudVoice;
 })();

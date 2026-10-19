@@ -181,7 +181,7 @@
     if (!supported() || Notification.permission !== 'default' || document.getElementById('rxNotifOffer')) return;
     const el = document.createElement('div');
     el.id = 'rxNotifOffer'; el.className = 'rx-announcement'; el.setAttribute('role', 'status');
-    el.innerHTML = '<i class="fas fa-bell" aria-hidden="true"></i><div class="rx-announcement-text"><strong>Get notified when results are ready</strong><span>Rehablix can tell you when a long AI task finishes, even if you switch tabs.</span></div>';
+    el.innerHTML = '<i class="fas fa-bell" aria-hidden="true"></i><div class="rx-announcement-text"><strong>Get notified when results are ready</strong><span>Rehablix can tell you when a long SI task finishes, even if you switch tabs.</span></div>';
     const done = () => { try { localStorage.setItem(KEY, '1'); } catch (e) {} el.remove(); };
     const on = document.createElement('button'); on.type = 'button'; on.className = 'rx-announcement-open'; on.textContent = 'Turn on';
     on.addEventListener('click', async () => { done(); const r = await enable(); if (r.ok) toast('Notifications turned on', 'success'); });

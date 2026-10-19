@@ -1330,7 +1330,7 @@ document.addEventListener('DOMContentLoaded', function() {
     filteredReviews.forEach(r => {
       const rowClass = r.resolved ? 'resolved-row' : '';
       const isFeedback = r.type === 'user_feedback';
-      const typeLabel = isFeedback ? 'User Rating' : (r.type === 'ai_content_report' ? 'AI Response Report' : (r.type === 'insufficient_funds' ? 'Insufficient Funds' : 'API Error'));
+      const typeLabel = isFeedback ? 'User Rating' : (r.type === 'ai_content_report' ? 'SI Response Report' : (r.type === 'insufficient_funds' ? 'Insufficient Funds' : 'API Error'));
       const dateStr = r.timestamp ? new Date(r.timestamp).toLocaleDateString('en-GB', {
         day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
       }) : 'Unknown';
@@ -1496,7 +1496,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const d = reports[id] || {};
         out.push({
           key: 'fr__' + uid + '__' + id, path: 'feedback/' + uid + '/aiReports/' + id,
-          type: d.type || 'ai_content_report', tool: 'lixa', context: d.reason || 'Reported AI response', status: null,
+          type: d.type || 'ai_content_report', tool: 'lixa', context: d.reason || 'Reported SI response', status: null,
           detail: d.excerpt || '', comment: d.note || '', page: d.platform || '', userAgent: d.model ? 'model: ' + d.model : '',
           userId: uid, userEmail: who[uid].email, resolved: d.resolved === true, timestamp: ms(d.at),
           rating: null, emoji: '', feedback: '', userName: who[uid].name
@@ -1552,7 +1552,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="review-detail-row"><span class="review-detail-label">Submitted</span><span class="review-detail-value">${dateStr}</span></div>
       `;
     } else {
-      const typeLabel = review.type === 'ai_content_report' ? 'AI Response Report' : (review.type === 'insufficient_funds' ? 'Insufficient Funds' : 'Other API Error');
+      const typeLabel = review.type === 'ai_content_report' ? 'SI Response Report' : (review.type === 'insufficient_funds' ? 'Insufficient Funds' : 'Other API Error');
       body.innerHTML = `
         <div class="review-detail-row"><span class="review-detail-label">Type</span><span class="review-detail-value">${escapeHtml(typeLabel)}</span></div>
         <div class="review-detail-row"><span class="review-detail-label">Tool</span><span class="review-detail-value">${escapeHtml(review.tool)}</span></div>

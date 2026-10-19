@@ -80,7 +80,7 @@
     <div id="aiLoadingOverlay" style="display:none;">
         <div class="loading-content">
             <div class="loading-spinner"></div>
-            <p id="aiLoadingMessage">Generating with AI…</p>
+            <p id="aiLoadingMessage">Generating with SI…</p>
             <div class="loading-progress-bar">
                 <div class="loading-progress-fill" id="aiLoadingProgress" style="width:0%;"></div>
             </div>
@@ -137,7 +137,7 @@
                         <!-- AI Insights -->
                         <div class="glass-card">
                             <div class="card-header">
-                                <div class="card-title"><i class="bx bx-bulb"></i> AI Insights</div>
+                                <div class="card-title"><i class="bx bx-bulb"></i> SI Insights</div>
                             </div>
                             <div class="card-body" id="dashAIInsights">
                                 <div class="emr-empty-state"><i class="bx bx-loader-alt bx-spin"></i><p>Loading insights…</p></div>
@@ -148,7 +148,7 @@
                         <div class="glass-card">
                             <div class="card-header">
                                 <div class="card-title"><i class="bx bx-file"></i> Pending Documentation</div>
-                                <button class="btn btn-amber" style="font-size:12px;padding:4px 14px;" id="dashCompleteAllAI"><i class="bx bx-magic"></i> Complete with AI</button>
+                                <button class="btn btn-amber" style="font-size:12px;padding:4px 14px;" id="dashCompleteAllAI"><i class="bx bx-magic"></i> Complete with SI</button>
                             </div>
                             <div class="card-body" id="dashPendingDocs">
                                 <div class="emr-empty-state"><i class="bx bx-check-circle"></i><p>All notes signed off!</p></div>
@@ -186,7 +186,7 @@
 
                     <div class="ai-strip">
                         <div class="ai-icon"><i class="bx bx-brain"></i></div>
-                        <div class="ai-text"><strong>AI is ready.</strong> After you create the patient, you can generate treatment plans, SOAP notes, and reports with AI.</div>
+                        <div class="ai-text"><strong>SI is ready.</strong> After you create the patient, you can generate treatment plans, SOAP notes, and reports with SI.</div>
                     </div>
 
                     <!-- Essential Details -->
@@ -258,7 +258,7 @@
                     <div class="glass-card" style="margin-top:1rem;">
                         <div class="card-header"><div class="card-title"><i class="bx bx-file"></i> Assessment / Clinical Report</div></div>
                         <div class="card-body" style="position:relative;">
-                            <textarea class="form-textarea" id="intakeAssessment" rows="4" placeholder="Paste or type the assessment / clinical report here. AI will use this to generate a comprehensive report."></textarea>
+                            <textarea class="form-textarea" id="intakeAssessment" rows="4" placeholder="Paste or type the assessment / clinical report here. SI will use this to generate a comprehensive report."></textarea>
                             <div style="position:absolute;bottom:1.5rem;right:1.5rem;">
                                 <button class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.6rem;" id="uploadAssessmentBtn"><i class="bx bx-upload"></i> Add File</button>
                                 <input type="file" id="assessmentFileInput" accept=".pdf,.docx,.txt,image/*" style="display:none;" multiple />
@@ -344,11 +344,11 @@
                                     <div class="card-title"><i class="bx bx-list-check"></i> Identified Problems</div>
                                     <div style="display:flex;gap:0.5rem;">
                                         <button class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.8rem;" id="addProblemBtn"><i class="bx bx-plus"></i> Add</button>
-                                        <button class="btn btn-amber" style="font-size:0.7rem;padding:0.2rem 0.8rem;" id="generateProblemsBtn"><i class="bx bx-magic"></i> AI Generate</button>
+                                        <button class="btn btn-amber" style="font-size:0.7rem;padding:0.2rem 0.8rem;" id="generateProblemsBtn"><i class="bx bx-magic"></i> SI Generate</button>
                                     </div>
                                 </div>
                                 <div class="card-body" id="patientProblemList">
-                                    <div class="emr-empty-state"><i class="bx bx-list-check"></i><p>No problems identified yet. Click "AI Generate" to analyze intake data.</p></div>
+                                    <div class="emr-empty-state"><i class="bx bx-list-check"></i><p>No problems identified yet. Click "SI Generate" to analyze intake data.</p></div>
                                 </div>
                             </div>
                         </div>
@@ -376,7 +376,7 @@
                                     <div class="card-title"><i class="bx bx-clipboard"></i> Treatment Plans</div>
                                     <div style="display:flex;gap:0.5rem;">
                                         <button class="btn btn-primary" style="font-size:0.7rem;padding:0.2rem 0.8rem;" id="addTreatmentPlanBtn"><i class="bx bx-plus"></i> Add</button>
-                                        <button class="btn btn-amber" style="font-size:0.7rem;padding:0.2rem 0.8rem;" id="generateTreatmentPlanBtn"><i class="bx bx-magic"></i> AI Generate</button>
+                                        <button class="btn btn-amber" style="font-size:0.7rem;padding:0.2rem 0.8rem;" id="generateTreatmentPlanBtn"><i class="bx bx-magic"></i> SI Generate</button>
                                     </div>
                                 </div>
                                 <div class="card-body" id="paneTreatmentPlanContent">
@@ -401,11 +401,11 @@
                                     <div class="card-title"><i class="bx bx-calendar-check"></i> Next Session Plan</div>
                                     <div style="display:flex;gap:0.5rem;">
                                         <button class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.8rem;" id="addNextSessionActivityBtn"><i class="bx bx-plus"></i> Add Activity</button>
-                                        <button class="btn btn-amber" style="font-size:0.7rem;padding:0.2rem 0.8rem;" id="generateNextSessionBtn"><i class="bx bx-magic"></i> AI Generate</button>
+                                        <button class="btn btn-amber" style="font-size:0.7rem;padding:0.2rem 0.8rem;" id="generateNextSessionBtn"><i class="bx bx-magic"></i> SI Generate</button>
                                     </div>
                                 </div>
                                 <div class="card-body" id="paneNextSessionContent">
-                                    <div class="emr-empty-state"><i class="bx bx-calendar"></i><p>No next session planned. Click "AI Generate" to create one, or add an activity manually.</p></div>
+                                    <div class="emr-empty-state"><i class="bx bx-calendar"></i><p>No next session planned. Click "SI Generate" to create one, or add an activity manually.</p></div>
                                 </div>
                             </div>
                         </div>
@@ -416,13 +416,13 @@
                                 <div><div style="font-weight:600;font-size:14px;">Progress Notes</div></div>
                                 <div style="display:flex;gap:0.5rem;">
                                     <button class="btn btn-primary" id="addProgressBtn"><i class="bx bx-plus"></i> Add Note</button>
-                                    <button class="btn btn-amber" id="aiProgressBtn"><i class="bx bx-magic"></i> AI Assistant</button>
+                                    <button class="btn btn-amber" id="aiProgressBtn"><i class="bx bx-magic"></i> SI Assistant</button>
                                 </div>
                             </div>
                             <div id="paneProgressList">Loading…</div>
                             <div id="aiProgressModal" style="display:none;margin-top:1rem;">
                                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
-                                    <div style="font-weight:600;">AI Progress Assistant</div>
+                                    <div style="font-weight:600;">SI Progress Assistant</div>
                                     <button class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.8rem;" id="closeAiProgressModal"><i class="bx bx-x"></i></button>
                                 </div>
                                 <div id="aiProgressQuestions"></div>
@@ -490,7 +490,7 @@
         <div class="modal-content session-gen-modal-content">
             <button class="modal-close" id="sessionGenClose">&times;</button>
             <h3 style="margin-bottom:0.3rem;"><i class="bx bx-magic"></i> Generate Next Session Plan</h3>
-            <p style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:1rem;">Pick the problems and treatment plan the AI should base this plan on, so it stays accurate to the patient's actual care.</p>
+            <p style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:1rem;">Pick the problems and treatment plan the SI should base this plan on, so it stays accurate to the patient's actual care.</p>
 
             <div style="margin-bottom:1rem;">
                 <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem;"><i class="bx bx-list-check"></i> Problems to Address</div>
@@ -507,7 +507,7 @@
                 <input class="form-input" id="sessionGenType" placeholder="e.g. Follow-up Therapy Session" />
             </div>
             <div class="form-group">
-                <label class="form-label">Additional notes for the AI (optional)</label>
+                <label class="form-label">Additional notes for the SI (optional)</label>
                 <textarea class="form-textarea" id="sessionGenNotes" rows="2" placeholder="Anything specific to focus on next time…"></textarea>
             </div>
 

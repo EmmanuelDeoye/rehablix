@@ -85,7 +85,7 @@
       measurements, movements: movementSummaries, deviations, extra, flags,
       findings: findingsFrom(kind, measurements, deviations, rec),
       limitations, notDeterminable,
-      interpretation: inp.interpretation ? { source: 'ai', text: inp.interpretation, note: 'AI interpretation of the measured data and captured images. Not measured; may contain errors; clinician review required.' } : null
+      interpretation: inp.interpretation ? { source: 'ai', text: inp.interpretation, note: 'SI interpretation of the measured data and captured images. Not measured; may contain errors; clinician review required.' } : null
     });
     return rec2;
   };
@@ -192,7 +192,7 @@
     }
     if (s.notDeterminable && s.notDeterminable.length) parts.push(`<div class="mr-cannot"><strong>Cannot be reliably determined from this video</strong><ul>${s.notDeterminable.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>`);
     parts.push(`</section>`);
-    if (interpretationHtml) parts.push(`<section class="mr-sec mr-ai"><h2>AI interpretation <span class="mr-tag mr-tag-ai">not measured data</span></h2><p class="mr-note">${esc((s.interpretation && s.interpretation.note) || 'AI-generated interpretation. Verify against the measured data above.')}</p><div class="mr-ai-body">${interpretationHtml}</div></section>`);
+    if (interpretationHtml) parts.push(`<section class="mr-sec mr-ai"><h2>SI interpretation <span class="mr-tag mr-tag-ai">not measured data</span></h2><p class="mr-note">${esc((s.interpretation && s.interpretation.note) || 'SI-generated interpretation. Verify against the measured data above.')}</p><div class="mr-ai-body">${interpretationHtml}</div></section>`);
     if (s.limitations && s.limitations.length) parts.push(`<section class="mr-sec"><h3>Limitations</h3><ul class="mr-limits">${s.limitations.map(x => `<li>${esc(x)}</li>`).join('')}</ul></section>`);
     return parts.join('');
   };

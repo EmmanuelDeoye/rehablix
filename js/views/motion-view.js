@@ -695,8 +695,8 @@
       setAnalyzingText('Interpreting the measured data…');
       const text = await aiInterpretation(structured, frames);
       if (token !== sessionToken) return;
-      if (text) structured.interpretation = { source: 'ai', text, note: 'AI interpretation of the measured data and captured images. Not measured; may contain errors; clinician review required.' };
-      else { structured.interpretation = null; structured.limitations.push('AI interpretation was unavailable for this assessment — the measured data above is complete.'); }
+      if (text) structured.interpretation = { source: 'ai', text, note: 'SI interpretation of the measured data and captured images. Not measured; may contain errors; clinician review required.' };
+      else { structured.interpretation = null; structured.limitations.push('SI interpretation was unavailable for this assessment — the measured data above is complete.'); }
       const html = MR.renderHtml(structured, text ? renderMarkdown(text) : '');
       let historyKey = null;
       if (currentUser && scopeUid) {

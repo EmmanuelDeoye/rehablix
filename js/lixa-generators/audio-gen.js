@@ -143,7 +143,7 @@
     if (!record) return { ok: false, error: 'The original file could not be found.' };
 
     const config = await window.LixaCore.resolveToolModelConfig().catch(() => null);
-    if (!config) return { ok: false, error: 'AI service is not configured.' };
+    if (!config) return { ok: false, error: 'SI service is not configured.' };
     await window.LixaCore.checkToolQuota();
     const systemPrompt = `You are revising an existing clinical session transcript/narrative. Never invent observations, measurements, or outcomes not present in the original. Output ONLY the complete revised narrative text.`;
     const userPrompt = `CURRENT NARRATIVE:\n${record.cleanedTranscript || record.rawTranscript}\n\nREQUESTED CHANGE:\n${instruction}`;

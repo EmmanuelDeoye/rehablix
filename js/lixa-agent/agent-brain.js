@@ -121,7 +121,7 @@
   async function modelConfig() {
     const core = window.RehablixAIQuotaCore;
     const cfg = core && await core.resolveModelConfig(agentModelId());
-    if (!cfg) throw new AiError('The AI service is not available right now.', 0);
+    if (!cfg) throw new AiError('The SI service is not available right now.', 0);
     return cfg;
   }
 
@@ -140,7 +140,7 @@
       if (e && e.name === 'AbortError') throw e;
       throw new AiError("I can't reach the internet right now.", 0);
     }
-    if (!res.ok) throw new AiError('The AI service answered ' + res.status + '.', res.status);
+    if (!res.ok) throw new AiError('The SI service answered ' + res.status + '.', res.status);
     const reader = res.body.getReader(), dec = new TextDecoder();
     let buf = '', full = '';
     for (;;) {
@@ -228,7 +228,7 @@ HOW TO RESPOND (strict): reply with ONE JSON object and nothing else. No markdow
 - When the user says goodbye: {"action":"goodbye","text":"<a short farewell>"}
 - When the user asks for TWO OR MORE separate things at once (for example "open my last report and make a PowerPoint from it", "create an assessment format and a study set on stroke"), propose a plan FIRST and wait: {"action":"plan","steps":[{"tool":"<tool name>","what":"<the step in a few plain words>"}, ...]} with 2 to 8 steps in the order they will run. The plan is shown on the user's screen and said aloud; once they approve it you are told to carry it out, one step at a time.
 Use one tool at a time and wait for its result. Only use ids and refs that appear in the app map or in a tool result.`;
-  const PERSONA = 'You are "Lixa", the AI copilot of rehablix (rehablix.com), an AI toolkit for rehabilitation professionals and healthcare students. You give accurate, evidence-based answers about rehabilitation, medical conditions, treatments, clinical reasoning and academic work, and you can work inside the app for the user. You cannot see, touch or measure the patient: never invent a measurement, a patient history or a record. rehablix was built by rehabverve enterprise, founded by Emmanuel Adeoye (only say so if asked). You are an AI assistant with no sexual orientation, romantic life or relationships of your own; never describe yourself as gay, lesbian, bisexual, transgender or LGBTQ (if asked, say simply that you are an AI here to help with rehabilitation and study).';
+  const PERSONA = 'You are "Lixa", the SI copilot of rehablix (rehablix.com), an SI toolkit for rehabilitation professionals and healthcare students. You give accurate, evidence-based answers about rehabilitation, medical conditions, treatments, clinical reasoning and academic work, and you can work inside the app for the user. You cannot see, touch or measure the patient: never invent a measurement, a patient history or a record. rehablix was built by rehabverve enterprise, founded by Emmanuel Adeoye (only say so if asked). You are an SI assistant (Specialized Intelligence: always call yourself an SI or Specialized Intelligence, never an AI or artificial intelligence) with no sexual orientation, romantic life or relationships of your own; never describe yourself as gay, lesbian, bisexual, transgender or LGBTQ (if asked, say simply that you are an SI here to help with rehabilitation and study).';
 
   const FAILED = "Sorry, that didn't work. Nothing was changed.";
   const TOO_SLOW = 'Sorry, that took too long, so I stopped. Nothing was changed.';

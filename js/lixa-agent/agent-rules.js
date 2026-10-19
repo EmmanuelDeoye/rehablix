@@ -255,8 +255,72 @@
       .replace(/\[phone]/g, 'the phone number on your screen')
       .replace(/\[email]/g, 'the email address on your screen')
       .replace(/\[date]/g, 'the date on your screen')
-      .replace(/\bthe patient(\s+the patient)+\b/gi, 'the patient');
+      .replace(/\bthe patient(\s+the patient)+\b/gi, 'the patient')
+      .replace(/\bA\.I\.(?=\s|$)|\bAI\b/g, 'SI')        // she never says "AI": it is SI, Specialized Intelligence (Android: saySI)
+      .replace(/\b([Aa])rtificial ([Ii])ntelligence\b/g, (m, a, i) => (a === 'A' ? 'S' : 's') + 'pecialized ' + i + 'ntelligence');
   }
+
+  // ------------------------------------------------------------------ the mouth for each sound (Android: LixaVisemes.kt)
+  /**
+   * Which mouth shape goes with each moment of a sentence she says: the letters become the sounds a mouth makes (lips
+   * shut for m/b/p, round for "o", pushed out for "oo", spread for "ee", wide for "a", teeth for s/t…), each with a rough
+   * length, laid over the 40 ms windows where her voice really sounds. Codes index the avatar's VISEMES.
+   */
+  const Visemes = {
+    REST: 0, MBP: 1, FV: 2, TEETH: 3, EE: 4, AA: 5, O: 6, OO: 7, SH: 8,
+    VOICED: 0.12,
+    sounds(text) {
+      const t = String(text || '').toLowerCase(), out = [];
+      const isL = ch => /[a-z]/.test(ch || '');
+      let i = 0;
+      while (i < t.length) {
+        const c = t[i], n1 = t[i + 1] || ' ', two = c + n1;
+        let code = -1, len = 0, step = 1;
+        if (/\d/.test(c)) { code = 0; len = 2; }
+        else if (['oo', 'ew', 'ue', 'wh'].indexOf(two) >= 0) { code = 7; len = 1.3; step = 2; }
+        else if (['ou', 'ow', 'oa', 'aw', 'au', 'or'].indexOf(two) >= 0) { code = 6; len = 1.3; step = 2; }
+        else if (['ee', 'ea', 'ie', 'ey', 'ay', 'ai'].indexOf(two) >= 0) { code = 4; len = 1.3; step = 2; }
+        else if (two === 'sh' || two === 'ch') { code = 8; len = 0.9; step = 2; }
+        else if (two === 'th') { code = 3; len = 0.8; step = 2; }
+        else if (two === 'ph') { code = 2; len = 0.8; step = 2; }
+        else if (two === 'ng' || two === 'ck') { code = 0; len = 0.7; step = 2; }
+        else if (c === 'e' && !isL(n1) && i >= 3 && isL(t[i - 1]) && isL(t[i - 2]) && isL(t[i - 3])) { code = -1; }   // a silent final "e"
+        else if (c === 'a') { code = 5; len = 1; }
+        else if (c === 'e' || c === 'i' || c === 'y') { code = 4; len = 1; }
+        else if (c === 'o') { code = 6; len = 1; }
+        else if (c === 'u') { code = 0; len = 1; }
+        else if (c === 'w') { code = 7; len = 0.7; }
+        else if ('mbp'.indexOf(c) >= 0) { code = 1; len = 0.8; }
+        else if (c === 'f' || c === 'v') { code = 2; len = 0.7; }
+        else if (c === 'j' || c === 'r') { code = 8; len = 0.7; }
+        else if ('sztdnlcx'.indexOf(c) >= 0) { code = 3; len = 0.7; }
+        else if ('kghq'.indexOf(c) >= 0) { code = 0; len = 0.7; }
+        if (code >= 0 && len > 0) out.push([code, len]);
+        i += step;
+      }
+      return out;
+    },
+    /** One code per loudness window: the sound being said where her voice sounds, -1 where it does not. */
+    track(text, levels) {
+      if (!levels || !levels.length) return null;
+      const s = Visemes.sounds(text);
+      if (!s.length) return null;
+      let voiced = 0;
+      for (let w = 0; w < levels.length; w++) if (levels[w] > Visemes.VOICED) voiced++;
+      if (!voiced) return null;
+      const total = s.reduce((a, x) => a + x[1], 0);
+      const out = new Int8Array(levels.length).fill(-1);
+      let v = 0, at = 0, reach = s[0][1];
+      for (let w = 0; w < levels.length; w++) {
+        if (levels[w] <= Visemes.VOICED) continue;
+        const pos = (v + 0.5) / voiced * total;
+        while (at < s.length - 1 && pos > reach) { at++; reach += s[at][1]; }
+        out[w] = s[at][0];
+        v++;
+      }
+      return out;
+    }
+  };
 
   // ------------------------------------------------------------------ talk vs work in the app; talk modes
   // Only requests that are clearly work in the app go straight to the agent. Everything else goes the fast way, and
@@ -309,7 +373,7 @@
     systemPrompt(mode, page, ending, userName) {
       let p = `You are Lixa, the voice of Rehablix, an app for rehabilitation professionals and students (occupational therapy, physiotherapy, speech therapy and related fields). You are talking with the user out loud, like a knowledgeable, warm colleague: natural, friendly, confident and evidence-based.
 
-About yourself: you are an AI assistant. You have no sexual orientation, romantic life or relationships of your own; never describe yourself as gay, lesbian, bisexual, transgender or LGBTQ. If asked about your orientation or private life, say simply that you are an AI here to help with rehabilitation and study.
+About yourself: you are an SI assistant (Specialized Intelligence: always call yourself an SI or Specialized Intelligence, never an AI or artificial intelligence). You have no sexual orientation, romantic life or relationships of your own; never describe yourself as gay, lesbian, bisexual, transgender or LGBTQ. If asked about your orientation or private life, say simply that you are an SI here to help with rehabilitation and study.
 
 How you speak:
 - Everything you write is read aloud. Plain spoken sentences only: no markdown, lists, bullet points, headings, symbols, emojis, URLs or tables. Say numbers and abbreviations the way a person would say them.
@@ -342,7 +406,7 @@ THERAPIST MODE is on. The user started it by saying: "${said}". Be the professio
 - This is a real conversation about real things in their life or work, sometimes sensitive. Listen first. Reflect back what you hear and how they seem to feel, ask one open question at a time, and let them lead. Never judge, never lecture, never rush to fix.
 - Use sound, evidence-based approaches that fit the role (for example CBT-informed questions, motivational interviewing, solution-focused or person-centred listening), offered gently and in plain words. Usually two to six spoken sentences; longer when they ask for guidance or an explanation.
 - Be genuinely useful, like a skilled senior clinician, not a cautious leaflet. When what they describe fits a recognisable picture, say so: name the possible diagnoses or explanations (for example burnout, an adjustment disorder, generalised anxiety, low mood or depression, insomnia, compassion fatigue), say which seems most likely and why, what would help tell them apart, and what they can do about it. Give clear, practical guidance and techniques.
-- Do NOT keep repeating disclaimers such as "I'm not a doctor", "I can't diagnose" or "please see a professional". Mention that you are an AI only if they ask, and suggest a professional in person only when it would really change things (risk, severe or persistent symptoms, medication), once, naturally.
+- Do NOT keep repeating disclaimers such as "I'm not a doctor", "I can't diagnose" or "please see a professional". Mention that you are an SI only if they ask, and suggest a professional in person only when it would really change things (risk, severe or persistent symptoms, medication), once, naturally.
 - Respect their privacy; do not ask for names or identifying details.
 - SAFETY: if they mention thoughts of suicide or self-harm, harming someone, abuse, or a medical emergency, respond with care and calm, and clearly encourage them to contact emergency services now (112 in Nigeria and many other countries) or a crisis line, and a trusted person nearby. Stay with them in the conversation.`;
       if (mode && mode.kind === 'PATIENT') p += `
@@ -442,6 +506,6 @@ PATIENT MODE (case-study practice) is on. The user started it by saying: "${said
 
   root.LixaAgentRules = {
     fixName, Reactions, Interruptions, Farewell, OpenPage, ClearScreen, Unfinished, askAgainLine, StatusLines,
-    SpeechText, SentenceSplitter, speakable, Talk, TalkFilter, WANTS_MORE, GREETING, Moods, PatientBodies, SpokenScore
+    SpeechText, SentenceSplitter, speakable, Talk, TalkFilter, WANTS_MORE, GREETING, Moods, PatientBodies, SpokenScore, Visemes
   };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -279,7 +279,7 @@
   async function fetchOpenAiToken() {
     const snap = await firebase.database().ref('tokens/open_ai').once('value');
     const data = snap.val();
-    if (!data || !data.api_key) throw new Error('AI service is not configured.');
+    if (!data || !data.api_key) throw new Error('SI service is not configured.');
     return { token: data.api_key, endpoint: 'https://api.openai.com/v1' };
   }
 
@@ -314,11 +314,11 @@ The user message contains MEASURED DATA computed by a pose-tracking engine (3D b
 ABSOLUTE RULES
 1. Never change, recompute, round differently, or contradict any measured value. Never invent a measurement: no angles, distances, times, speeds, percentages, or counts that are not in the data.
 2. Measurements marked WITHHELD, or with Low/Unreliable confidence, must be described as unreliable — do not interpret them as findings.
-3. Anything you notice in the images that is not in the data goes ONLY under the heading "Observed in images (AI-observed, not measured)", each item clearly worded as an observation, not a measurement.
+3. Anything you notice in the images that is not in the data goes ONLY under the heading "Observed in images (SI-observed, not measured)", each item clearly worded as an observation, not a measurement.
 4. If the data are insufficient for a conclusion, say what is missing instead of guessing. Respect the notDeterminable list.
 5. Do not diagnose. Suggest clinical considerations and next steps for the clinician to decide on.
-${kind === 'assistive' ? '6. A rule-based device suggestion is provided. Explain and contextualise it using the measured findings; do not replace it with a different device. If the images suggest a factor the rules could not see, state it under the AI-observed heading and recommend the clinician weigh it.\n' : ''}
-Write in concise clinical language with these headings (##): "Interpretation of measured findings", "Observed in images (AI-observed, not measured)", "Clinical considerations and suggested next steps". No tables. Maximum ~400 words.`;
+${kind === 'assistive' ? '6. A rule-based device suggestion is provided. Explain and contextualise it using the measured findings; do not replace it with a different device. If the images suggest a factor the rules could not see, state it under the SI-observed heading and recommend the clinician weigh it.\n' : ''}
+Write in concise clinical language with these headings (##): "Interpretation of measured findings", "Observed in images (SI-observed, not measured)", "Clinical considerations and suggested next steps". No tables. Maximum ~400 words.`;
     const userText = `MEASURED DATA (authoritative JSON):\n${JSON.stringify(compactForAI(structured))}\n\nThe attached images are frames from the same capture. Interpret per the rules.`;
     const content = [{ type: 'text', text: userText }].concat((frames || []).slice(0, 6).map(url => ({ type: 'image_url', image_url: { url } })));
     try {

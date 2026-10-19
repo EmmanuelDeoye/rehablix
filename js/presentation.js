@@ -1141,7 +1141,7 @@ if (typeof marked !== 'undefined') {
     // =========================================================================
     async function generatePresentation() {
         const config = await resolvePresentationModelConfig();
-        if (!config) throw new Error('The AI service is not set up. Please contact support.');
+        if (!config) throw new Error('The SI service is not set up. Please contact support.');
         await checkQuotaOrThrow();
 
         let combinedText = textInput.value.trim();
@@ -1309,7 +1309,7 @@ ${combinedText || 'No notes provided.'}`;
                     context: `generate ${currentMode}`
                 });
             }
-            throw new Error('The AI declined to generate this content, most likely due to sensitive wording in the notes (certain diagnoses, medications, or injury descriptions can trigger this). Try rephrasing and generate again.');
+            throw new Error('The SI declined to generate this content, most likely due to sensitive wording in the notes (certain diagnoses, medications, or injury descriptions can trigger this). Try rephrasing and generate again.');
         }
 
         // Empty/near-empty content: retry once with a bigger token budget
@@ -1327,7 +1327,7 @@ ${combinedText || 'No notes provided.'}`;
                     context: `generate ${currentMode}`
                 });
             }
-            throw new Error('The AI returned an empty response after two attempts. Please try again, or choose a larger output size and retry.');
+            throw new Error('The SI returned an empty response after two attempts. Please try again, or choose a larger output size and retry.');
         }
 
         // Truncated but non-empty: still usable, but warn the user so they

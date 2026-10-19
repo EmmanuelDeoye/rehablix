@@ -1005,7 +1005,7 @@
 }
 
 .section-editor:empty:before {
-  content: "Start writing or use AI to generate content for this section...";
+  content: "Start writing or use SI to generate content for this section...";
   color: var(--text-secondary);
   opacity: 0.5;
   font-style: italic;

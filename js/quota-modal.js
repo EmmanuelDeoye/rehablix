@@ -31,7 +31,7 @@
       </style>
       <div class="qw-card">
         <div class="qw-icon" id="qwIcon">⚡</div>
-        <h3 id="qwTitle">Running low on AI tokens</h3>
+        <h3 id="qwTitle">Running low on SI tokens</h3>
         <p id="qwMessage"></p>
         <div class="qw-bar-track"><div class="qw-bar-fill" id="qwBarFill"></div></div>
         <div class="qw-actions">
@@ -72,7 +72,7 @@
       bar.style.background = '#dc2626';
     } else {
       icon.textContent = '⚡';
-      title.textContent = 'Running low on AI tokens';
+      title.textContent = 'Running low on SI tokens';
       const pct = Math.round((1 - remainingRatio) * 100);
       msg.textContent = resetMins
         ? `You've used ${pct}% of your token budget for this window (resets in about ${resetMins} minute(s)). Consider upgrading for more room.`

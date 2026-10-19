@@ -88,7 +88,7 @@
         <i class="fas fa-list"></i> Chapters
       </button>
       <button id="toggleAIPanelBtn" class="toggle-btn">
-        <i class="fas fa-robot"></i> AI Supervisor
+        <i class="fas fa-robot"></i> SI Supervisor
       </button>
     </div>
 
@@ -144,7 +144,7 @@
             <div class="empty-state" style="padding:1.5rem;">
               <i class='bx bx-cloud-upload'></i>
               <p style="font-size:0.85rem;">No resources uploaded</p>
-              <small>Upload articles, journals, or past projects for AI reference</small>
+              <small>Upload articles, journals, or past projects for SI reference</small>
             </div>
           </div>
         </div>
@@ -274,7 +274,7 @@
             <div class="gen-option">
               <label for="wordCountSelect">Word Count</label>
               <select id="wordCountSelect">
-                <option value="auto" selected>Auto (AI decides)</option>
+                <option value="auto" selected>Auto (SI decides)</option>
                 <option value="300">Short (~300 words)</option>
                 <option value="500">Medium (~500 words)</option>
                 <option value="1000">Long (~1000 words)</option>
@@ -301,7 +301,7 @@
           <!-- Row 2: Tone Selector + Humanize Checkbox -->
           <div class="ai-tone-row">
             <div class="ai-tone-selector">
-              <label>AI Writing Tone</label>
+              <label>SI Writing Tone</label>
               <select id="aiToneSelect">
                 <option value="academic">Academic & Formal</option>
                 <option value="conversational">Conversational & Natural</option>
@@ -363,7 +363,7 @@
         <div class="ai-section-generate">
           <div class="generate-buttons-row">
             <button id="aiGenerateSectionBtn" class="generate-btn">
-              <i class="fas fa-magic"></i> AI Generate This Section
+              <i class="fas fa-magic"></i> SI Generate This Section
             </button>
             <button id="aiGenerateChapterBtn" class="generate-btn chapter-gen-btn" style="display:none;">
               <i class="fas fa-layer-group"></i> <span id="chapterGenBtnText">Generate Entire Chapter</span>
@@ -375,7 +375,7 @@
       <!-- ===== Right Sidebar: AI Supervisor ===== -->
       <aside class="ai-panel" id="aiPanel">
         <div class="sidebar-header">
-          <h3><i class="fas fa-robot"></i> AI Supervisor</h3>
+          <h3><i class="fas fa-robot"></i> SI Supervisor</h3>
           <button class="sidebar-close" id="closeAIPanelBtn" title="Close panel">
             <i class="fas fa-times"></i>
           </button>
@@ -403,7 +403,7 @@
           <div class="ai-chat-messages" id="aiChatMessages">
             <div class="ai-empty-state">
               <i class="fas fa-robot"></i>
-              <p>Your AI supervisor is ready</p>
+              <p>Your SI supervisor is ready</p>
               <small>Ask for guidance, corrections, or suggestions about your project</small>
             </div>
           </div>
@@ -422,7 +422,7 @@
     </div>
 
     <!-- ===== Floating Scroll Button ===== -->
-    <button id="floatingScrollBtn" class="floating-scroll-btn" title="Scroll to AI controls">
+    <button id="floatingScrollBtn" class="floating-scroll-btn" title="Scroll to SI controls">
       <i class="fas fa-chevron-down"></i>
     </button>
   </main>
@@ -565,7 +565,7 @@
         <div class="spinner"></div>
         <p style="margin: 0.5rem 0; color: var(--text-primary); font-weight: 500;" id="progressStage">Initializing...</p>
         <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1.5rem;">
-          The AI is using multi-pass generation for natural, human-like output.
+          The SI is using multi-pass generation for natural, human-like output.
         </p>
         <div class="progress-bar-container">
           <div class="progress-bar-fill" id="progressBarFill" style="width: 0%;"></div>

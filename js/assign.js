@@ -587,7 +587,7 @@ The final text must read like a specific, thoughtful student wrote it for this s
 
   async function callAIWithCancel(systemPrompt, userPrompt, maxTokens, temp, topP, freqPenalty, presPenalty) {
     const cfg = await chosenModel();
-    if (!cfg) throw new Error('AI service not configured. Please try again later.');
+    if (!cfg) throw new Error('SI service not configured. Please try again later.');
     lastWeight = cfg.weight || 1;
     const response = await fetch(`${cfg.endpoint.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -660,7 +660,7 @@ The final text must read like a specific, thoughtful student wrote it for this s
     }
 
     if (!(await chosenModel())) {
-      showToast('AI service not configured. Please try again later.', 'error');
+      showToast('SI service not configured. Please try again later.', 'error');
       return;
     }
 
@@ -813,7 +813,7 @@ Return ONLY the polished HTML. No markdown fences.`;
       if (err.name === 'AbortError') {
         errorMessage = 'Generation cancelled.';
       } else if (errorMessage.includes('API key') || errorMessage.includes('token')) {
-        errorMessage = 'The AI service is not configured correctly. Please contact support.';
+        errorMessage = 'The SI service is not configured correctly. Please contact support.';
       } else if (errorMessage.toLowerCase().includes('rate')) {
         errorMessage = 'Too many requests. Please wait a moment and try again.';
       } else if (errorMessage.includes('busy') || errorMessage.includes('503')) {

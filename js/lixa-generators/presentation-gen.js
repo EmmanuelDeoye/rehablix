@@ -28,7 +28,7 @@
     const content = (data.choices?.[0]?.message?.content || '').trim();
     if (content.length < 20) {
       if (attempt < 2) return callAIWithValidation(messages, config, attempt + 1);
-      throw new Error('The AI returned an empty response. Please try again.');
+      throw new Error('The SI returned an empty response. Please try again.');
     }
     return content;
   }
@@ -64,7 +64,7 @@ ${data.additionalInstructions ? `\nADDITIONAL INSTRUCTIONS FROM THE CLINICIAN:\n
 
     await window.LixaCore.checkToolQuota();
     const config = await window.LixaCore.resolveToolModelConfig();
-    if (!config) throw new Error('AI service is not configured.');
+    if (!config) throw new Error('SI service is not configured.');
     const rawMarkdown = await callAIWithValidation(
       [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }],
       config, 1
@@ -125,7 +125,7 @@ ${data.additionalInstructions ? `\nADDITIONAL INSTRUCTIONS FROM THE CLINICIAN:\n
 
     await window.LixaCore.checkToolQuota();
     const config = await window.LixaCore.resolveToolModelConfig();
-    if (!config) throw new Error('AI service is not configured.');
+    if (!config) throw new Error('SI service is not configured.');
     const modeText = record.documentType || 'document';
     const messages = [
       { role: 'system', content: `You are revising an existing ${modeText.toLowerCase()} for a clinician. Preserve the existing clinically accurate content and structure; do not invent new clinical facts. Return the complete revised document in Markdown.` },

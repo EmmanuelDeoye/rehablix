@@ -3,25 +3,34 @@
 // + the PDF-viewer blob-window pattern used for viewing a generated tool).
 
 (function () {
+  // Shared by the Standardized Tools page (js/standardized.js) and Lixa; Android: StandardizedTool.buildPrompt.
+  // The form itself is what the clinician wants; guides only when they ask for them.
   function buildPrompt(toolName, includeGuides, additionalInstructions) {
     const guides = includeGuides
-      ? 'Include detailed administration instructions and interpretation guidelines in separate sections.'
-      : 'Provide only the assessment items and scoring criteria.';
+      ? '\nAfter the form, add two short sections under their own <h3>: "Administration" (how to give and score it) and "Interpretation" (score ranges and what they mean). Keep each one brief and to the point.'
+      : '\nDo NOT add administration instructions or interpretation guidelines (the clinician did not ask for them).';
     return `You are an expert in standardized clinical assessments.
 
-Generate the complete content for the **${toolName}** assessment tool as a **self-contained HTML document**.
-${additionalInstructions ? `\nAdditional instructions from the clinician: ${additionalInstructions}\n` : ''}
-Requirements:
-- Use proper HTML structure with <h2>, <h3>, <p>, <ul>, <ol>.
-- Present any tables as proper HTML <table> with borders and alternating row colors for readability.
-- Include the full name of the tool and its purpose at the top.
-- List all items/questions exactly as they appear in the original tool.
-- Include scoring instructions and interpretation (if available). ${guides}
-- If the tool has subscales, present them clearly.
-- Use a clean, professional style suitable for printing.
-- Do NOT include any extra commentary outside the tool content.
+Produce the **${toolName}** as a ready-to-use, printable assessment FORM in self-contained HTML.
+${additionalInstructions ? `\nAdditional instructions from the clinician (follow them, even where they ask for more than the form): ${additionalInstructions}\n` : ''}
+The form itself is what matters: every item, its response options or scoring criteria, and a place to record each score. Keep words to a minimum.
+
+Include, in this order:
+1. An <h2> with the tool's full name, then at most one short sentence on what it measures.
+2. A compact record line: Patient, Date, Assessor (blanks to fill in).
+3. Every item/question exactly as it appears in the original tool, in order, with its response options or scoring criteria. Use an HTML <table> wherever the tool is tabular (e.g. Item | Options / criteria | Score) with an empty score cell to fill in.
+4. Subscale subtotals (if the tool has subscales) and a Total score row showing the maximum possible score.
+5. Only what the official form itself prints: its one-line respondent/examiner instruction and its score cut-offs, as one compact line or a small table.
+
+Do NOT add background, history, psychometric properties, references, clinical tips, notes, disclaimers or any explanatory paragraphs.${guides}
+
+Format:
+- Use <h2>, <h3>, <table>, <ul>, <ol>; tables with borders and alternating row colours, clean and professional for printing.
 - Return ONLY the HTML (no markdown, no explanations).`;
   }
+  const SYSTEM = "You output clean HTML assessment forms with proper tables: the tool's items and scoring, no extra text.";
+  // The user asked for administration / interpretation guidance (same rule as Android StandardizedTool.wantsGuides).
+  const GUIDES_ASKED = /\b(guides?|guidance|guidelines?|instructions?|administ\w*|interpret\w*|manual|how to (use|score|give|do|perform|administer|interpret))\b/i;
 
   // Uses whichever of the 4 Lixa models the user has selected, instead of
   // always hardcoding the top-tier model — this tool is embedded in Lixa,
@@ -33,7 +42,7 @@ Requirements:
       body: JSON.stringify({
         model: config.model,
         messages: [
-          { role: 'system', content: 'You output clean HTML with proper tables. No extra text.' },
+          { role: 'system', content: SYSTEM },
           { role: 'user', content: prompt }
         ],
         temperature: Math.min(config.temperature ?? 0.3, 0.3),
@@ -45,11 +54,11 @@ Requirements:
     const choice = data.choices && data.choices[0];
     const content = ((choice && choice.message && choice.message.content) || '').replace(/```html|```/g, '').trim();
     if (choice && choice.finish_reason === 'content_filter') {
-      throw new Error('The AI declined to generate this content — try again with a different tool name.');
+      throw new Error('The SI declined to generate this content — try again with a different tool name.');
     }
     if (content.length < 20) {
       if (attempt < 2) return callAIWithValidation(prompt, config, attempt + 1);
-      throw new Error('The AI returned an empty response. Please try again.');
+      throw new Error('The SI returned an empty response. Please try again.');
     }
     return content;
   }
@@ -88,7 +97,7 @@ Requirements:
     if (!user) return { ok: false, error: 'Please log in to generate a standardized tool.' };
 
     const toolName = data.toolName.trim();
-    const includeGuides = data.includeGuides !== false;
+    const includeGuides = data.includeGuides === true;
     const database = firebase.database();
 
     // Token-saving: reuse an existing copy of this exact tool if we have one.
@@ -104,7 +113,7 @@ Requirements:
     } else {
       await window.LixaCore.checkToolQuota();
       const config = await window.LixaCore.resolveToolModelConfig();
-      if (!config) throw new Error('AI service is not configured.');
+      if (!config) throw new Error('SI service is not configured.');
       const prompt = buildPrompt(toolName, includeGuides, data.additionalInstructions);
       content = await callAIWithValidation(prompt, config, 1);
       window.LixaCore.reportToolTokenUsage(prompt + content, config.weight);
@@ -152,7 +161,7 @@ Requirements:
 
     await window.LixaCore.checkToolQuota();
     const config = await window.LixaCore.resolveToolModelConfig();
-    if (!config) throw new Error('AI service is not configured.');
+    if (!config) throw new Error('SI service is not configured.');
     const prompt = `Here is the existing content of the "${record.toolName}" standardized assessment tool (HTML):\n\n${record.generatedContent}\n\nApply this requested change, preserving the accuracy of the original tool's items/scoring unless the change specifically asks to alter them:\n"${instruction}"\n\nReturn ONLY the complete updated HTML (no markdown, no code fences, no commentary).`;
     const content = await callAIWithValidation(prompt, config, 1);
     window.LixaCore.reportToolTokenUsage(prompt + content, config.weight);
@@ -233,12 +242,14 @@ Requirements:
           .replace(/^i\s+(need|want)\s+/i, '')
           .replace(/^the\s+/i, '')
           .replace(/\s+for\s+(me|my\s+(patient|client|assessment)s?)\.?$/i, '')
+          .replace(/\s+(with|including|plus|and)\s+[\w\s&/-]*?\b(guides?|guidance|guidelines?|instructions?|interpretation|manual)\b.*$/i, '')
           .replace(/\s+(please|now)\.?$/i, '')
           .replace(/[.?!]+$/, '')
           .trim();
         collected.toolName = cleaned || text.trim();
       }
-      collected.includeGuides = true;
+      // Guides only when the user asks for them (the form itself is what they want).
+      collected.includeGuides = GUIDES_ASKED.test(text || '');
       return collected;
     },
     statusStages: [
@@ -247,6 +258,8 @@ Requirements:
       'Formatting for printing…'
     ],
     editStatusStages: ['Reading the current tool…', 'Applying your changes…', 'Re-formatting for printing…'],
+    buildPrompt,
+    SYSTEM,
     generate,
     edit,
     getExportContent,

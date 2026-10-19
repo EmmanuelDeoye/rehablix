@@ -18,13 +18,23 @@
   const TONGUE_TOP = '#F2939C', TONGUE_BOTTOM = '#C9566A', TONGUE_LINE = '#A9404F';
   const TEETH = '#F8F6F1', TEETH_EDGE = '#C9C3B8';
   const WORK_AIM = -18;
-  // her resting mouth: a small, closed, gently curved smile (the kit's wide smile image is no longer used)
-  const REST = { hw: 52, up: 20, lo: 46, y: 580 };
+  // her resting mouth: a closed, gently curved smile, a little bigger than before (it was too close to the listening
+  // one), still well short of the happy smile; listening: a smaller, attentive one (the same as Android)
+  const REST = { hw: 68, up: 18, lo: 58, y: 578 };
+  const LISTEN = { hw: 50, up: 18, lo: 42, y: 580 };
+  // how far her eyes can turn (canvas pixels): the iris is clipped by the white, as an eye turning
+  const GAZE_X = 34, GAZE_Y = 24;
+  // the mouth for each sound (index = agent-rules.js Visemes code): open (× loudness), spread (0 round .. 1 spread),
+  // lips shut (m/b/p), oval amount ("o"/"oo"), oval size
+  const VISEMES = [
+    [0.8, 0.5, 0, 0, 1], [0, 0.5, 1, 0, 1], [0.25, 0.7, 0, 0, 1], [0.35, 0.85, 0, 0, 1], [0.55, 1, 0, 0, 1],
+    [1.15, 0.6, 0, 0, 1], [0.9, 0.2, 0, 0.75, 1], [0.55, 0, 0, 1, 0.68], [0.6, 0.3, 0, 0.4, 0.85]
+  ];
   // her face for each feeling (when she is not speaking): mouth [half-width, upper curve, lower curve, height] or "o"; brows [ly, lr, ry, rr]
   const FEEL = {
-    happy: { mouth: [78, 26, 84, 572], brows: [-12, 0, -12, 0], squint: 0.14 },
-    excited: { mouth: [88, 18, 140, 560], brows: [-18, 0, -18, 0], squint: 0.06, eyes: 0.06 },
-    sad: { mouth: [58, -44, -18, 636], brows: [-4, -24, -4, 24], squint: 0.08, look: 6 },
+    happy: { mouth: [86, 26, 92, 572], brows: [-12, 0, -12, 0], squint: 0.14 },
+    excited: { mouth: [92, 18, 140, 560], brows: [-18, 0, -18, 0], squint: 0.06, eyes: 0.06 },
+    sad: { mouth: [58, -44, -18, 636], brows: [-4, -24, -4, 24], squint: 0.08, look: 0.45 },
     angry: { mouth: [52, -12, 10, 612], brows: [12, 22, 12, -22], squint: 0.2 },
     surprised: { mouth: 'o', brows: [-28, 0, -28, 0], eyes: 0.14 },
     worried: { mouth: [50, -30, -10, 628], brows: [-9, -17, -9, 17] }
@@ -90,7 +100,8 @@
         blink: 0, blinkT: -1, nextBlink: 2.5, doubleBlink: false, gazeXv: 0, gazeYv: 0, eyeScale: 1, eyeSquint: 0,
         sacX: 0, sacY: 0, nextSaccade: 1.2, emph: 0, lastOpen: 0,
         browLY: 0, browLRot: 0, browRY: 0, browRRot: 0,
-        mHalfW: 158, mUpper: 120, mLower: 184, mY: 554, mRound: 0, mImage: 1, mShape: 0.5,
+        mHalfW: 158, mUpper: 120, mLower: 184, mY: 554, mRound: 0, mImage: 1, mShape: 0.5, mRoundSize: 1,
+        lookX: 0, lookY: 0, lookUntil: 0, nextLook: 1.5, lookSide: 1, lastLookState: 'Idle', voiceAt: -10, wasQuiet: true, lidLook: 0,
         armL: 'rest', armLPrev: 'rest', armLFade: 1, armLRot: 0, armR: 'rest', armRPrev: 'rest', armRFade: 1, armRRot: 0,
         speakL: 'rest', speakR: 'rest', gestureAt: 0, relaxAt: 0, lastMovedLeft: false, voiceLevel: 0, prevOpen: 0, quietFor: 0, armRAim: 0,
         ring: 0, dots: 0, spinner: 0, badgeCheck: 0, badgeAsk: 0,
@@ -173,20 +184,23 @@
         }
       }
 
-      // gaze: what is asked, the state's own look, and small glances
-      let tx = Math.max(-1, Math.min(1, P.gazeX || 0)) * gazeMax, ty = Math.max(-1, Math.min(1, P.gazeY || 0)) * gazeMax;
-      if (state === 'Thinking') { tx += still ? 4 : 6 * Math.sin(this.time * 0.9); ty += -7 + (still ? 0 : 2 * Math.sin(this.time * 1.3)); }
-      if (state === 'Working') ty += 6;
-      ty += F.look || 0;                                  // sad: she looks a little down
-      if (still || state === 'Thinking' || state === 'Working') { this.sacX = 0; this.sacY = 0; }
+      // gaze: where she looks (see look()), what is asked, and small glances
+      if ((speaking || state === 'NeedsConfirmation') && o > 0.04) this.voiceAt = this.time;
+      this.look(still);
+      let tx = (Math.max(-1, Math.min(1, P.gazeX || 0)) + this.lookX) * GAZE_X, ty = (Math.max(-1, Math.min(1, P.gazeY || 0)) + this.lookY) * GAZE_Y;
+      ty += (F.look || 0) * GAZE_Y;                       // sad: she looks a little down
+      if (still || state === 'Thinking' || state === 'Working' || this.time < this.lookUntil) { this.sacX = 0; this.sacY = 0; }
       else if (this.time >= this.nextSaccade) {
         if (Math.random() < 0.4) { this.sacX = 0; this.sacY = 0; }
-        else { this.sacX = (Math.random() * 2 - 1) * gazeMax * 0.35; this.sacY = (Math.random() * 2 - 1) * gazeMax * 0.18; }
+        else { this.sacX = (Math.random() * 2 - 1) * GAZE_X * 0.16; this.sacY = (Math.random() * 2 - 1) * GAZE_Y * 0.12; }
         this.nextSaccade = this.time + (speaking ? 0.7 + Math.random() * 1.3 : state === 'Listening' ? 1.8 + Math.random() * 2.4 : 1.2 + Math.random() * 2.6);
       }
       tx += this.sacX; ty += this.sacY;
-      this.gazeXv = approach(this.gazeXv, Math.max(-gazeMax, Math.min(gazeMax, tx)), dt, 18 * fast);
-      this.gazeYv = approach(this.gazeYv, Math.max(-gazeMax, Math.min(gazeMax, ty)), dt, 18 * fast);
+      this.gazeXv = approach(this.gazeXv, Math.max(-GAZE_X, Math.min(GAZE_X, tx)), dt, 18 * fast);
+      this.gazeYv = approach(this.gazeYv, Math.max(-GAZE_Y, Math.min(GAZE_Y, ty)), dt, 18 * fast);
+      // the upper lids follow the eyes: a little lower looking down, a little more open looking up
+      const down = Math.max(-1, Math.min(1, this.gazeYv / GAZE_Y));
+      this.lidLook = approach(this.lidLook, down > 0 ? 0.11 * down : 0.03 * down, dt, 14 * fast);
       this.eyeScale = approach(this.eyeScale, (state === 'Listening' ? 1.07 : state === 'Success' ? 1.03 : 1) + 0.04 * this.emph + (F.eyes || 0), dt, 10 * fast);
       this.eyeSquint = approach(this.eyeSquint, Math.max(state === 'Success' ? 0.14 : state === 'Idle' ? 0.04 : 0, F.squint || 0), dt, 8 * fast);
 
@@ -205,28 +219,44 @@
       if (P.gentle && (speaking || state === 'Listening' || state === 'Idle')) { lr -= 5; rr += 5; ly -= 3; ry -= 3; }
       if (P.asking && speaking) { ly -= 9; lr -= 4; }
       ly -= 6 * this.emph; ry -= 6 * this.emph;
+      const lookingUp = Math.max(0, Math.min(1, -this.gazeYv / GAZE_Y));      // looking up lifts them a little too
+      ly -= 6 * lookingUp; ry -= 6 * lookingUp;
       this.browLY = approach(this.browLY, ly, dt, 11 * fast); this.browLRot = approach(this.browLRot, lr, dt, 11 * fast);
       this.browRY = approach(this.browRY, ry, dt, 11 * fast); this.browRRot = approach(this.browRRot, rr, dt, 11 * fast);
 
-      // mouth
-      let hw = REST.hw, up = REST.up, lo = REST.lo, my = REST.y, round = 0;
+      // mouth (the same as Android). Asking to confirm shows a small "o" while she waits, but while she is still saying the
+      // question her mouth speaks normally (the "o" held over her words looked wrong).
+      const askingAloud = state === 'NeedsConfirmation' && this.time - this.voiceAt < 0.45;
+      const speakingMouth = speaking || askingAloud;
+      // the sound being said (from the words): how open, round or spread, and lips shut for m/b/p whatever the loudness
+      const vis = speakingMouth && P.viseme >= 0 && P.viseme < VISEMES.length ? VISEMES[P.viseme] : null;
+      const open = vis ? Math.min(1, o * vis[0]) : o;
+      let hw = REST.hw, up = REST.up, lo = REST.lo, my = REST.y, round = 0, roundSize = 1;
+      if (state === 'Listening' && feel === 'neutral') { hw = LISTEN.hw; up = LISTEN.up; lo = LISTEN.lo; my = LISTEN.y; }
       const img = 0;
       if (state === 'Success') { hw = 166; up = 34; lo = 238; my = 552; }               // wide and happy
-      else if (state === 'NeedsConfirmation') round = 1;                                 // a small "o"
+      else if (state === 'NeedsConfirmation') { if (!askingAloud) round = 1; }           // a small "o" while she waits
       else if (state === 'Error') { hw = 72; up = -46; lo = -20; my = 628; }            // small and worried
       else if (F.mouth === 'o') round = 1;
       else if (F.mouth) { hw = F.mouth[0]; up = F.mouth[1]; lo = F.mouth[2]; my = F.mouth[3]; }
-      this.mShape = approach(this.mShape, Math.min(1, Math.max(0, P.mouthShape == null ? 0.5 : P.mouthShape)), dt, 14 * fast);
-      if (o > 0.02 || speaking) {
+      const sh = Math.min(1, Math.max(0, P.mouthShape == null ? 0.5 : P.mouthShape));
+      this.mShape = approach(this.mShape, vis ? 0.75 * vis[1] + 0.25 * sh : sh, dt, 16 * fast);
+      if (open > 0.02 || speakingMouth) {
         // speaking: opens with the voice; between words it closes back to her resting mouth (or her feeling's), never a wide flat line
-        const w = this.mShape, k = Math.min(1, Math.max(0, o / 0.3));
-        hw += (96 + 48 * w - hw) * k; up += (78 - o * (44 - 18 * w) - up) * k;
-        lo += (112 + o * (150 - 46 * w) - lo) * k; my += (560 - my) * k;
+        const w = this.mShape, k = Math.min(1, Math.max(0, open / 0.3));
+        hw += (96 + 48 * w - hw) * k; up += (78 - open * (44 - 18 * w) - up) * k;
+        lo += (112 + open * (150 - 46 * w) - lo) * k; my += (560 - my) * k;
         round *= 1 - k;
+        if (vis) {
+          const shut = vis[2];          // m, b, p: the lips pressed together, a little wider and flatter than at rest
+          if (shut > 0) { hw += (74 - hw) * shut; up += (10 - up) * shut; lo += (20 - lo) * shut; my += (574 - my) * shut; }
+          if (vis[3] > 0) { round = Math.max(round, vis[3] * (0.35 + 0.65 * Math.min(1, o / 0.35))); roundSize = vis[4]; }   // "o", "oo"
+        }
       }
-      this.mHalfW = approach(this.mHalfW, hw, dt, 14 * fast); this.mUpper = approach(this.mUpper, up, dt, 18 * fast);
-      this.mLower = approach(this.mLower, lo, dt, 18 * fast); this.mY = approach(this.mY, my, dt, 14 * fast);
-      this.mRound = approach(this.mRound, round, dt, 12 * fast); this.mImage = approach(this.mImage, img, dt, 12 * fast);
+      this.mHalfW = approach(this.mHalfW, hw, dt, 14 * fast); this.mUpper = approach(this.mUpper, up, dt, 20 * fast);
+      this.mLower = approach(this.mLower, lo, dt, 20 * fast); this.mY = approach(this.mY, my, dt, 14 * fast);
+      this.mRound = approach(this.mRound, round, dt, 18 * fast); this.mImage = approach(this.mImage, img, dt, 12 * fast);
+      this.mRoundSize = approach(this.mRoundSize, roundSize * (speakingMouth ? 0.8 + 0.4 * open : 1), dt, 16 * fast);
 
       // arms: whole sprites cross-faded, one arm at a time while speaking
       if (speaking) {
@@ -275,6 +305,64 @@
       this.spinner = approach(this.spinner, state === 'Working' ? 1 : 0, dt, 9 * fast);
       this.badgeCheck = approach(this.badgeCheck, state === 'Success' ? 1 : 0, dt, 11 * fast);
       this.badgeAsk = approach(this.badgeAsk, state === 'NeedsConfirmation' ? 1 : 0, dt, 11 * fast);
+    }
+
+    glance(x, y, hold) {
+      // a big jump of the eyes often comes with a blink, as it does in people
+      if (Math.abs(x - this.lookX) + Math.abs(y - this.lookY) > 0.9 && this.blinkT < 0 && Math.random() < 0.45) this.blinkT = 0;
+      this.lookX = x; this.lookY = y; this.lookUntil = this.time + hold;
+    }
+
+    /**
+     * Her eyes are alive (the same as LixaAvatar.kt look()): up and to the side while she thinks, at the spinner while she
+     * works, down at the card when she asks to confirm, away for a moment when she starts a sentence and back to the user
+     * on stressed words, wandering a little when idle, now and then down while she listens.
+     */
+    look(still) {
+      const side = () => (Math.random() < 0.5 ? 1 : -1), R = Math.random, t = this.time, state = this.state;
+      if (still) { this.lookX = 0; this.lookY = 0; this.lookUntil = 0; return; }
+      if (state !== this.lastLookState) {
+        this.lastLookState = state; this.lookUntil = 0;
+        if (state === 'Thinking') { this.lookSide = side(); this.glance(0.6 * this.lookSide, -0.75, 1.4 + R()); }
+        else if (state === 'Working') this.glance(0.65, -0.6, 1.2);                 // at the spinner (top right)
+        else if (state === 'Success') this.glance(0.6, -0.65, 0.7);                 // at the tick, then back to the user
+        else if (state === 'NeedsConfirmation') this.glance(0, 0.85, 0.7);          // down at the card
+        else if (state === 'Error') this.glance(-0.35 * side(), 0.75, 0.9);
+        this.nextLook = t + 1.5 + R() * 1.5;
+      }
+      const talking = t - this.voiceAt < 0.35;
+      if (state === 'Speaking') {
+        // a new sentence (after a pause): half the time a short glance away while she finds the words
+        if (talking && this.wasQuiet && R() < 0.5) { if (R() < 0.6) this.glance(0.55 * side(), -0.45, 0.45 + R() * 0.4); else this.glance(0.5 * side(), 0.3, 0.4 + R() * 0.3); }
+        if (this.emph > 0.9) this.lookUntil = 0;                                     // a stressed word: back to the user
+      }
+      this.wasQuiet = t - this.voiceAt > 0.45;
+      if (t < this.lookUntil) return;
+      if (state === 'Thinking') {
+        if (t >= this.nextLook) {
+          const r = Math.floor(R() * 3), s = this.lookSide;
+          if (r === 0) this.glance(0.6 * s, -0.75, 1.3); else if (r === 1) this.glance(0.2 * s, -0.9, 1.1); else this.glance(-0.45 * s, -0.6, 1.0);
+          this.nextLook = t + 1.6 + R();
+        } else { this.lookX = 0.6 * this.lookSide; this.lookY = -0.75; }
+      } else if (state === 'Working') {
+        if (t >= this.nextLook) { this.glance(0, 0, 0.6); this.nextLook = t + 3 + R() * 2; } else { this.lookX = 0.65; this.lookY = -0.6; }
+      } else if (state === 'NeedsConfirmation') {
+        this.lookX = 0; this.lookY = 0;
+        if (t >= this.nextLook && !talking) { this.glance(0, 0.8, 0.5); this.nextLook = t + 4 + R() * 2; }
+      } else if (state === 'Listening') {
+        this.lookX = 0; this.lookY = 0;
+        if (t >= this.nextLook) { if (R() < 0.35) this.glance(0.3 * side(), 0.45, 0.35); this.nextLook = t + 4 + R() * 3; }
+      } else if (state === 'Idle') {
+        this.lookX = 0; this.lookY = 0;
+        if (t >= this.nextLook) {
+          const r = R();
+          if (r < 0.4) { /* at the user */ }
+          else if (r < 0.6) this.glance(0.7 * side(), 0.1 * (R() * 2 - 1), 0.9 + R() * 1.3);
+          else if (r < 0.8) this.glance(0.5 * side(), -0.65, 0.9 + R() * 1.0);
+          else this.glance(0.3 * side(), 0.6, 0.8 + R() * 0.9);
+          this.nextLook = t + 2.5 + R() * 2.5;
+        }
+      } else { this.lookX = 0; this.lookY = 0; }
     }
 
     /** Speaking: which pose each arm takes, the way a person gestures (see LixaAvatar.kt gesture()). */
@@ -404,7 +492,7 @@
         o.globalCompositeOperation = 'source-over';
       }
       c.save();
-      c.translate(ex, ey); c.scale(this.eyeScale, this.eyeScale * (1 - 0.92 * this.blink) * (1 - this.eyeSquint)); c.translate(-ex, -ey);
+      c.translate(ex, ey); c.scale(this.eyeScale, this.eyeScale * (1 - 0.92 * this.blink) * (1 - this.eyeSquint - this.lidLook)); c.translate(-ex, -ey);
       c.drawImage(off, white.meta.x * s, white.meta.y * s, white.meta.w * s, white.meta.h * s);
       this.drawLayer(left ? 'lixa_lid_left' : 'lixa_lid_right', s, 1);
       c.restore();
@@ -461,11 +549,11 @@
         c.globalAlpha = 1;
       }
       if (this.mRound > 0.01) {
-        const x = cx, y = 600 * s, a = drawn * this.mRound;
+        const x = cx, y = 600 * s, a = drawn * this.mRound, z = Math.max(0.5, Math.min(1.3, this.mRoundSize)) * s;
         c.globalAlpha = a; c.fillStyle = MOUTH;
-        c.beginPath(); c.ellipse(x, y, 40 * s, 46 * s, 0, 0, Math.PI * 2); c.fill();
-        c.fillStyle = MOUTH_INNER; c.beginPath(); c.ellipse(x, y, 27 * s, 32 * s, 0, 0, Math.PI * 2); c.fill();
-        c.save(); c.clip(); this.tongue(x - 30 * s, y + 6 * s, 60 * s, 40 * s, a); c.restore();
+        c.beginPath(); c.ellipse(x, y, 40 * z, 46 * z, 0, 0, Math.PI * 2); c.fill();
+        c.fillStyle = MOUTH_INNER; c.beginPath(); c.ellipse(x, y, 27 * z, 32 * z, 0, 0, Math.PI * 2); c.fill();
+        c.save(); c.clip(); this.tongue(x - 30 * z, y + 6 * z, 60 * z, 40 * z, a); c.restore();
         c.globalAlpha = 1;
       }
     }

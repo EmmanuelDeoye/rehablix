@@ -730,7 +730,7 @@
       ],
       standardized: [
         { key: 'toolName', label: 'Standardized tool name', type: 'text', required: true, placeholder: 'e.g. Berg Balance Scale' },
-        { key: 'includeGuides', label: 'Include administration & interpretation guides', type: 'toggle', required: false, default: true }
+        { key: 'includeGuides', label: 'Include administration & interpretation guides', type: 'toggle', required: false, default: false }
       ],
       presentation: [
         { key: 'content', label: 'Case notes / topic', type: 'textarea', required: true, placeholder: 'Paste your notes, or describe the case/topic…' },
@@ -958,7 +958,7 @@
       modal.querySelector('.lixa-form-overlay').addEventListener('click', cancelModal);
     }
 
-    const GENERIC_STAGES = ['Reading your request…', 'Working with the AI model…', 'Structuring the result…', 'Almost done…'];
+    const GENERIC_STAGES = ['Reading your request…', 'Working with the SI model…', 'Structuring the result…', 'Almost done…'];
 
     async function runGeneration(toolId, data) {
       const tool = TOOLS[toolId];

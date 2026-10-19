@@ -22,7 +22,7 @@
   const ECHO_WINDOW_MS = 1500;
   const STILL_FIRST_MS = 8000, STILL_NEXT_MS = 15000;
   const TALK_MAX_TOKENS = 1800;
-  const PREFS = { short: 'rehab-agent-short', muted: 'rehab-agent-muted', accent: 'rehab-agent-accent', bargeIn: 'rehab-agent-bargein', noConfirm: 'rehab-agent-no-confirm' };
+  const PREFS = { short: 'rehab-agent-short', muted: 'rehab-agent-muted', accent: 'rehab-agent-accent', bargeIn: 'rehab-agent-bargein', noConfirm: 'rehab-agent-no-confirm', background: 'rehab-agent-background', screenOn: 'rehab-agent-screen-on' };
   const STOCK_LINES = ['On it!', 'Let me check.', 'One moment.', 'Shall I go on?', 'Done, the screen is clear.'].concat(['Still working on it.', 'Nearly there, just a moment.']);
   const pref = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } };
   const setPref = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } };
@@ -46,6 +46,10 @@
       this.bargeIn = false;
       this.accent = pref(PREFS.accent, 'us');
       this.autoApprove = pref(PREFS.noConfirm, '0') === '1';   // ("Ask before changes" off: see setAutoApprove)
+      // Talk in the background: Live carries on in another tab or app (as far as the browser lets the page run);
+      // Keep screen on: the screen stays on while agent mode is open (agent-ui.js). Both on unless turned off.
+      this.background = pref(PREFS.background, '1') !== '0';
+      this.keepScreenOn = pref(PREFS.screenOn, '1') !== '0';
       this.handsFree = false;
       this.history = [];
       this.turnBusy = false;
@@ -63,6 +67,16 @@
       B().loadMap().then(m => { this.map = m; });
       // Live mode (agent-live.js): a live voice conversation next to this one, with the same tools and chat
       this.live = window.LixaAgentLive ? new window.LixaAgentLive(this) : null;
+      // one voice for both modes: Standard speaks with the voice chosen for Live (Leda by default)
+      if (this.live && this.live.voice) this.voice.herVoice = this.live.voice;
+    }
+
+    /** Her voice, for Standard and Live together. */
+    setVoice(name) {
+      if (this.live) this.live.chooseVoice(name);
+      const v = this.live ? this.live.voice : name;
+      if (v && v !== this.voice.herVoice) { this.voice.herVoice = v; this.voice.warmUp(STOCK_LINES).catch(() => {}); }
+      this.host.onChange();
     }
 
     set(patch) { Object.assign(this.view, patch); this.host.onChange(); }
@@ -72,6 +86,8 @@
     // ------------------------------------------------------------------ settings
     setMuted(on) { this.muted = on; setPref(PREFS.muted, on ? '1' : '0'); if (on) this.voice.stop(); this.host.onChange(); }
     setShort(on) { this.shortAnswers = on; setPref(PREFS.short, on ? '1' : '0'); this.host.onChange(); }
+    setBackground(on) { this.background = on; setPref(PREFS.background, on ? '1' : '0'); this.host.onChange(); }
+    setKeepScreenOn(on) { this.keepScreenOn = on; setPref(PREFS.screenOn, on ? '1' : '0'); this.host.onChange(); }
     setAccent(a) {
       if (window.LixaAgentVoice.ACCENTS.indexOf(a) < 0) return;
       this.accent = a; this.voice.accent = a; setPref(PREFS.accent, a);
@@ -327,6 +343,7 @@
       return (this.speechJob = this.voice.speak(ev => {
         const v = this.view;
         v.mouth = ev.amplitude; v.shape = ev.shape;
+        v.viseme = ev.speaking && ev.viseme != null ? ev.viseme : -1;        // (the sound being said: "m" shuts her lips, "o" rounds them)
         if (ev.speaking) {
           this.lastSoundAt = Date.now();
           if (ev.sentence !== this.playingIndex) {
@@ -545,8 +562,8 @@
       // (her own question never contains "yes" or "no", so her voice coming back cannot answer it; a sentence that is
       // neither, heard while or just after she spoke, is her voice and is left alone)
       const recent = Date.now() - this.lastSoundAt < ECHO_WINDOW_MS;
-      if (/^(yes|yeah|yep|sure|ok(ay)?|go ahead|do it|confirm|please do|yes please)\b/.test(t)) this.answerConfirm(true);
-      else if (/^(no|nope|cancel|don'?t|stop|not now|never mind)\b/.test(t)) this.answerConfirm(false);
+      if (/^(no|nope|cancel|don'?t|stop|abort|not now|never ?mind|leave it|forget it|hold on|wait)\b/.test(t)) this.answerConfirm(false);
+      else if (/^(please )?(yes|yeah|yep|yup|sure|ok(ay)?|alright|all right|go ahead|do it|confirm|please do|yes please|proceed|go on|continue|carry on)\b/.test(t)) this.answerConfirm(true);
       else if (!recent) this.set({ note: "I didn't catch that. Tap Confirm or Cancel, or say yes or no." });
     }
 

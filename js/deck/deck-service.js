@@ -63,7 +63,7 @@
       body: JSON.stringify({ model: config.model, messages, max_tokens: maxTokens, temperature: 0.6, top_p: 0.9, response_format: { type: 'json_object' } }),
       signal,
     });
-    if (!res.ok) throw new Error('The AI service returned an error (' + res.status + '). Please try again.');
+    if (!res.ok) throw new Error('The SI service returned an error (' + res.status + '). Please try again.');
     const data = await res.json();
     return ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '').trim();
   }
@@ -79,7 +79,7 @@
     const a = adapter || standaloneAdapter();
     await a.check();
     const config = await a.resolve();
-    if (!config) throw new Error('AI service is not configured.');
+    if (!config) throw new Error('SI service is not configured.');
     // A slide count asked for is kept (up to what the model can write); none asked for: the AI decides (0).
     const want = parseInt(input.slideCount, 10) > 0 ? Math.max(6, Math.min(20, parseInt(input.slideCount, 10))) : 0;
     const fits = Math.max(6, Math.floor(((config.maxTokens || 9000) - 900) / 420));
@@ -92,10 +92,10 @@
       a.report(prompt.system + prompt.user + raw, config.weight);
       try {
         const parsed = Deck.plan(Deck.parseSpec(raw));
-        if (parsed.slides.length >= 3) spec = parsed; else lastErr = new Error('The AI returned too few slides.');
+        if (parsed.slides.length >= 3) spec = parsed; else lastErr = new Error('The SI returned too few slides.');
       } catch (e) { lastErr = e; }
     }
-    if (!spec) throw new Error('The AI response could not be turned into slides. Please try again.');
+    if (!spec) throw new Error('The SI response could not be turned into slides. Please try again.');
     if (input.style && Deck.THEMES[input.style]) spec.style = input.style;
     return spec;
   }
@@ -106,7 +106,7 @@
     const a = adapter || standaloneAdapter();
     await a.check();
     const config = await a.resolve();
-    if (!config) throw new Error('AI service is not configured.');
+    if (!config) throw new Error('SI service is not configured.');
     const base = Deck.buildPrompt({ slideCount: spec.slides.length });
     const lean = JSON.stringify({ title: spec.title, subtitle: spec.subtitle, style: spec.style, audience: spec.audience, slides: spec.slides.map(cleanSlide) });
     const messages = [
@@ -117,7 +117,7 @@
     const raw = await callModel(messages, config, maxTokens, signal);
     a.report(messages[0].content + messages[1].content + raw, config.weight);
     const out = Deck.plan(Deck.parseSpec(raw));
-    if (out.slides.length < 3) throw new Error('The AI response could not be turned into slides. Please try again.');
+    if (out.slides.length < 3) throw new Error('The SI response could not be turned into slides. Please try again.');
     if (!Deck.THEMES[out.style]) out.style = spec.style;
     return out;
   }

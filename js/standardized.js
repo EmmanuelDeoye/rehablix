@@ -213,7 +213,7 @@ async function mount() {
           </div>
           <p class="preview-description">
             ${fromHistory
-              ? `This is the saved copy of ${escapeHtml(toolName)} from your history — no AI tokens were used to show it.`
+              ? `This is the saved copy of ${escapeHtml(toolName)} from your history — no SI tokens were used to show it.`
               : `Your ${escapeHtml(toolName)} assessment has been generated successfully.`}
             Click below to open it in your device's PDF viewer.
           </p>
@@ -414,24 +414,10 @@ async function mount() {
     });
   }
 
+  // The same prompt as Lixa's Standardized tool (js/lixa-generators/standardized-gen.js, loaded first):
+  // the form itself, guides only when ticked.
   function buildPrompt(toolName, includeGuides) {
-    const guides = includeGuides
-      ? 'Include detailed administration instructions and interpretation guidelines in separate sections.'
-      : 'Provide only the assessment items and scoring criteria.';
-    return `You are an expert in standardized clinical assessments.
-
-Generate the complete content for the **${toolName}** assessment tool as a **self-contained HTML document**.
-
-Requirements:
-- Use proper HTML structure with <h2>, <h3>, <p>, <ul>, <ol>.
-- Present any tables as proper HTML <table> with borders and alternating row colors for readability.
-- Include the full name of the tool and its purpose at the top.
-- List all items/questions exactly as they appear in the original tool.
-- Include scoring instructions and interpretation (if available). ${guides}
-- If the tool has subscales, present them clearly.
-- Use a clean, professional style suitable for printing.
-- Do NOT include any extra commentary outside the tool content.
-- Return ONLY the HTML (no markdown, no explanations).`;
+    return window.RehablixGenerators.standardized.buildPrompt(toolName, includeGuides, null);
   }
 
   form.addEventListener('submit', async (e) => {
@@ -514,14 +500,14 @@ Requirements:
 
   async function callAIWithValidation(prompt, toolName, attempt) {
     const cfg = await chosenModel();
-    if (!cfg) throw new Error('AI service is not configured. Please try again later.');
+    if (!cfg) throw new Error('SI service is not configured. Please try again later.');
     lastWeight = cfg.weight || 1;
     const response = await fetch(`${cfg.endpoint.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.token}` },
       body: JSON.stringify({
         messages: [
-          { role: 'system', content: 'You output clean HTML with proper tables. No extra text.' },
+          { role: 'system', content: window.RehablixGenerators.standardized.SYSTEM },
           { role: 'user', content: prompt }
         ],
         model: cfg.model, temperature: 0.3, max_tokens: Math.min(attempt === 1 ? 4000 : 5500, cfg.maxTokens || 5500)
@@ -546,7 +532,7 @@ Requirements:
       if (window.reportApiError) {
         window.reportApiError({ status: 200, bodyText: `content_filter (attempt ${attempt})`, tool: 'standardized', context: `generate "${toolName}"` });
       }
-      throw new Error('The AI declined to generate this content. Try again, or check the tool name for sensitive wording.');
+      throw new Error('The SI declined to generate this content. Try again, or check the tool name for sensitive wording.');
     }
 
     if (content.length < 20) {
@@ -557,7 +543,7 @@ Requirements:
       if (window.reportApiError) {
         window.reportApiError({ status: 200, bodyText: `Empty response after ${attempt} attempts, finish_reason=${finishReason}`, tool: 'standardized', context: `generate "${toolName}"` });
       }
-      throw new Error('The AI returned an empty response after two attempts. Please try again.');
+      throw new Error('The SI returned an empty response after two attempts. Please try again.');
     }
 
     if (finishReason === 'length') showToast('⚠️ Output may be cut short for a very long/detailed tool.', false);
