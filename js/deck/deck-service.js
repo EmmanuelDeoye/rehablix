@@ -31,14 +31,14 @@
     return (window.rehabPlans && window.rehabPlans.getCurrentPlan && window.rehabPlans.getCurrentPlan()) || 'free';
   }
 
-  // Standalone (Deck Studio) model + quota adapter. Lixa passes its own
-  // adapter instead, so a deck made in chat uses the model picked there.
+  // Standalone (Deck Studio) model + quota adapter: the model chosen on any
+  // page (js/model-choice.js). Lixa passes its own adapter, which uses the same choice.
   function standaloneAdapter() {
     const core = window.RehablixAIQuotaCore;
     const user = firebase.auth().currentUser;
     const plan = currentPlan();
     return {
-      resolve: () => core.resolveModelConfig('corpus101'),
+      resolve: () => (window.RehablixModelChoice ? window.RehablixModelChoice.resolve() : core.resolveModelConfig('corpus101')),
       check: () => core.checkQuotaOrThrow(user && user.uid, plan),
       report: (text, weight) => core.reportTokenUsage(user && user.uid, plan, text, weight),
     };

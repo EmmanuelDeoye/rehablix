@@ -159,6 +159,11 @@ if (typeof marked !== 'undefined') {
     // this page's own separate model/plan-tier logic.
     // =========================================================================
     async function resolvePresentationModelConfig() {
+        // The model chosen on any page (js/model-choice.js: only a model the plan unlocks).
+        if (window.RehablixModelChoice) {
+            const chosen = await window.RehablixModelChoice.resolve();
+            if (chosen) return chosen;
+        }
         const tiers = window.RehabPlanTiers;
         const modelId = localStorage.getItem('rehab-lixa-model') || 'corpus101';
         const model = tiers ? tiers.getModel(modelId) : null;
@@ -1602,17 +1607,15 @@ ${combinedText || 'No notes provided.'}`;
             emrLinkScopeUid = uid;
             // Names/reg numbers only — the lightweight index, not full records.
         const allPatients = window.RehablixEmrStore ? await window.RehablixEmrStore.loadIndex(uid) : (await firebase.database().ref(`history/${uid}/patients`).once('value')).val();
-            emrPatientsForLink = Object.entries(allPatients || {}).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null })).filter(p => p.name);
-            presentationPatientList.innerHTML = emrPatientsForLink.map(p => `<option value="${escapeHtml(p.name)}" label="${escapeHtml(p.name)}${p.regNumber ? ' (' + escapeHtml(p.regNumber) + ')' : ''}"></option>`).join('');
+            // (discharged patients are read-only, so new records are never linked to them)
+            emrPatientsForLink = Object.entries(allPatients || {}).filter(([, p]) => p && p.active !== false).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null })).filter(p => p.name);
+            presentationPatientList.innerHTML = emrPatientsForLink.map(p => `<option value="${escapeHtml(p.name)}" label="${escapeHtml(p.name)}"></option>`).join('');
         } catch (err) { console.warn('[presentation] could not load Smart EMR patients', err); }
     }
 
     function refreshPatientLinkMatch() {
         const name = patientName.value.trim().toLowerCase();
         matchedEmrPatient = name ? emrPatientsForLink.find(p => p.name.toLowerCase() === name) || null : null;
-        if (matchedEmrPatient && matchedEmrPatient.regNumber && !patientMRN.value.trim()) {
-            patientMRN.value = matchedEmrPatient.regNumber;
-        }
     }
     if (patientName) {
         patientName.addEventListener('change', refreshPatientLinkMatch);
@@ -1630,7 +1633,7 @@ ${combinedText || 'No notes provided.'}`;
     async function runRegSearch() {
         const query = (regSearchInput && regSearchInput.value.trim()) || '';
         if (!regSearchResults) return;
-        if (!query) { regSearchResults.innerHTML = '<em>Enter a reg. number or name first.</em>'; return; }
+        if (!query) { regSearchResults.innerHTML = '<em>Enter the patient\'s name first.</em>'; return; }
         if (!window.RehablixPatientReg || !emrLinkScopeUid) { regSearchResults.innerHTML = '<em>Search is not available right now.</em>'; return; }
         regSearchResults.innerHTML = '<em>Searching…</em>';
         try {
@@ -1638,7 +1641,7 @@ ${combinedText || 'No notes provided.'}`;
             if (!results.length) { regSearchResults.innerHTML = '<em>No record found.</em>'; return; }
             regSearchResults.innerHTML = results.map(r => `
                 <div style="padding:0.4rem 0;border-bottom:1px solid rgba(0,0,0,0.08);">
-                    <strong>${escapeHtml(r.type)}</strong>${r.regNumber ? ' · ' + escapeHtml(r.regNumber) : ''}<br>
+                    <strong>${escapeHtml(r.type)}</strong><br>
                     <span>${escapeHtml(r.title)}${r.patientName ? ' — ' + escapeHtml(r.patientName) : ''}</span>
                     <span style="color:var(--text-secondary,#888);"> · ${escapeHtml(r.date || '')}</span>
                 </div>

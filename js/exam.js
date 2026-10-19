@@ -28,18 +28,26 @@
     }
   }
 
+  // The AI model chosen on any page (js/model-choice.js); this page's own DeepSeek set-up if that is unavailable.
+  let lastWeight = 1; // the chosen model's quota weight (js/plan-tiers.js), for the usage report
+  async function chosenModel() {
+    const c = window.RehablixModelChoice ? await window.RehablixModelChoice.resolve() : null;
+    if (c) return c;
+    if (!aiConfig.token && !(await fetchTokens())) return null;
+    return { token: aiConfig.token, endpoint: aiConfig.endpoint, model: aiConfig.model, maxTokens: 9000, weight: 1 };
+  }
+
   async function callAI(systemPrompt, userPrompt, maxTokens = 3500) {
-    if (!aiConfig.token) {
-      const ok = await fetchTokens();
-      if (!ok) throw new Error('AI service is not configured.');
-    }
-    const response = await fetch(`${aiConfig.endpoint}/chat/completions`, {
+    const cfg = await chosenModel();
+    if (!cfg) throw new Error('AI service is not configured.');
+    lastWeight = cfg.weight || 1;
+    const response = await fetch(`${cfg.endpoint.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiConfig.token}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.token}` },
       body: JSON.stringify({
-        model: aiConfig.model,
+        model: cfg.model,
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-        max_tokens: maxTokens,
+        max_tokens: Math.min(maxTokens, cfg.maxTokens || maxTokens),
         temperature: 0.5
       })
     });
@@ -245,7 +253,7 @@ Generate exactly ${questionCount} multiple-choice questions at "${difficulty}" d
       const response = await callAI(systemPrompt, userPrompt, 4500);
       if (currentUser && window.RehabPlanTiers) { // EMR UPGRADE (item 9)
         const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free';
-        window.RehabPlanTiers.consumeQuota(currentUser.uid, plan, window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + response), 1).catch(() => {});
+        window.RehabPlanTiers.consumeQuota(currentUser.uid, plan, window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + response), lastWeight).catch(() => {});
       }
       const parsed = parseAIJson(response);
       if (!parsed.questions || parsed.questions.length === 0) throw new Error('AI response was missing questions');

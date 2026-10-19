@@ -222,7 +222,9 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
       let ready = false, ended = false, byUs = false;
       const link = { resumeHandle: null };
       let ws;
-      try { ws = new WebSocket(GEMINI_URL + '?key=' + encodeURIComponent(setup.key)); } catch (e) { setTimeout(() => events.closed(true, false), 0); return Object.assign(link, { sendAudio() {}, sendText() {}, sendAudioEnd() {}, sendToolResults() {}, close() {} }); }
+      // (a server-made short-lived token opens the Constrained endpoint; the key itself opens the normal one)
+      const url = setup.ephemeral ? GEMINI_URL + 'Constrained?access_token=' + encodeURIComponent(setup.key) : GEMINI_URL + '?key=' + encodeURIComponent(setup.key);
+      try { ws = new WebSocket(url); } catch (e) { setTimeout(() => events.closed(true, false), 0); return Object.assign(link, { sendAudio() {}, sendText() {}, sendAudioEnd() {}, sendToolResults() {}, close() {} }); }
       ws.binaryType = 'arraybuffer';
       const dec = new TextDecoder();
       ws.onopen = () => { try { ws.send(Wire.setup(setup)); } catch (e) { /* closed meanwhile */ } };
@@ -421,7 +423,21 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
     }
   };
 
-  async function readConfig() {
+  // With the keys kept on the server (window.REHABLIX_SERVER_AI, js/server-ai.js), the Gemini key is never
+  // read here: the server gives a short-lived, single-use token for each connection (functions liveToken).
+  async function serverLiveConfig(limitsOnly) {
+    try {
+      const S = window.RehablixServerAI;
+      const r = await Promise.race([S.post('liveToken', { limitsOnly: !!limitsOnly }), sleep(8000).then(() => null)]);
+      if (!r) return { offline: true };
+      if (!r.ok) return { key: null };
+      const v = await r.json();
+      return { key: v.token || null, ephemeral: true, model: v.model, provider: v.provider, limits: v.limits };
+    } catch (e) { return { offline: true }; }
+  }
+
+  async function readConfig(limitsOnly) {
+    if (window.REHABLIX_SERVER_AI && window.RehablixServerAI) return serverLiveConfig(limitsOnly);
     try {
       const snap = await Promise.race([firebase.database().ref(KEY_PATH).once('value'), sleep(5000).then(() => null)]);
       if (!snap) return { offline: true };
@@ -541,9 +557,20 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
       this.model = m;
       this.closeLink();
       const g = ++this.gen;
+      // A server token opens one connection only: every later one (resumption, fresh session, next model) gets a new one.
+      if (this.cfg.ephemeral && this.cfg.spent) {
+        serverLiveConfig(false).then(c => {
+          if (g !== this.gen || !this.on) return;
+          if (!c.key) { this.fallback(c.offline ? NOTES.NO_CONNECTION : NOTES.NOT_AVAILABLE); return; }
+          this.cfg.key = c.key; this.cfg.spent = false;
+          this.connect();
+        });
+        return;
+      }
+      if (this.cfg.ephemeral) this.cfg.spent = true;
       const blocking = m.indexOf('3.8') >= 0;
       const tools = declarations(this.tools(), blocking).concat([planDeclaration(blocking)]);
-      const setup = { key: this.cfg.key, model: m, systemPrompt: this.systemPrompt, voice: this.voice, tools, sensitivity: 'normal', silenceMs: 650, resumeHandle: this.handle };
+      const setup = { key: this.cfg.key, ephemeral: !!this.cfg.ephemeral, model: m, systemPrompt: this.systemPrompt, voice: this.voice, tools, sensitivity: 'normal', silenceMs: 650, resumeHandle: this.handle };
       const ok = fn => (...a) => { if (g === this.gen && this.on) fn(...a); };
       this.link = this.provider.open(setup, {
         ready: ok(() => this.ready()),
@@ -794,7 +821,7 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
     async refreshUsage() {
       const u = B().user(); if (!u) return;
       if (this.on) { this.showUsage(); this.changed(); return; }
-      const cfg = await readConfig();
+      const cfg = await readConfig(true);
       const l = Usage.limitsFor(B().plan(), cfg.limits);
       if (!l) { this.usage = null; this.changed(); return; }
       try { this.used = await Usage.load(u.uid); } catch (e) { return; }

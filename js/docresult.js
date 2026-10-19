@@ -61,6 +61,8 @@
     let autoSaveTimer = null;
     let isSaving = false;
     let currentIsOwner = true;
+    let patientDischarged = false; // a discharged patient's documents are read-only
+    const LOCKED_MSG = 'This patient has been discharged, so their record is read-only. Re-admit them in Smart EMR to make changes.';
     let isNewDocument = false;
     let pendingSaveExtra = null;
 
@@ -274,11 +276,17 @@
         try { return (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free'; } catch (e) { return 'free'; }
     }
 
+    // The AI model chosen on any page (js/model-choice.js); this page's own DeepSeek set-up if that is unavailable.
+    async function chosenModel() {
+        const c = window.RehablixModelChoice ? await window.RehablixModelChoice.resolve() : null;
+        if (c) return c;
+        if (!aiConfig.token && !(await fetchTokens())) return null;
+        return { token: aiConfig.token, endpoint: aiConfig.endpoint, model: aiConfig.model, maxTokens: 9000, weight: 1 };
+    }
+
     async function callDeepSeek(systemPrompt, userPrompt, maxTokens = 2000) {
-        if (!aiConfig.token) {
-            const ok = await fetchTokens();
-            if (!ok) throw new Error('AI service not available');
-        }
+        const cfg = await chosenModel();
+        if (!cfg) throw new Error('AI service not available');
         // Same shared quota as every other AI feature (was unmetered here).
         if (currentUser && window.RehabPlanTiers) {
             const plan = currentPlanId();
@@ -290,20 +298,20 @@
                 throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
             }
         }
-        const url = `${aiConfig.endpoint}/chat/completions`;
+        const url = `${cfg.endpoint.replace(/\/$/, '')}/chat/completions`;
         const response = await fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${aiConfig.token}`
+                'Authorization': `Bearer ${cfg.token}`
             },
             body: JSON.stringify({
-                model: aiConfig.model,
+                model: cfg.model,
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: userPrompt }
                 ],
-                max_tokens: maxTokens,
+                max_tokens: Math.min(maxTokens, cfg.maxTokens || maxTokens),
                 temperature: 0.7,
                 top_p: 0.9
             })
@@ -316,7 +324,7 @@
         const content = data?.choices?.[0]?.message?.content;
         if (!content) throw new Error('AI service returned an unexpected response format.');
         if (currentUser && window.RehabPlanTiers) {
-            window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlanId(), window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + content), 1).catch(() => {});
+            window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlanId(), window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + content), cfg.weight || 1).catch(() => {});
         }
         return content;
     }
@@ -361,11 +369,13 @@
             showToast('You cannot edit a shared document.', 'error');
             return;
         }
+        if (patientDischarged) { showToast(LOCKED_MSG, 'warning', 6000); return; }
 
         isSaving = true;
         updateSaveStatus('Saving...');
 
         try {
+            await window.RehablixEmrStore.assertEditable(scopeUid, docId);
             const htmlContent = editor.innerHTML;
             const plainText = editor.innerText || '';
             const path = `history/${scopeUid}/patients/${docId}`;
@@ -408,7 +418,7 @@
                         }, extra);
                         await newRef.set(data);
                         sessionId = newRef.key;
-                        await window.RehablixEmrStore.incrementSessionCount(scopeUid, docId, 1);
+                        await window.RehablixEmrStore.recountSessions(scopeUid, docId);
                         window.RehablixEmrStore.audit(scopeUid, docId, 'create', 'Session note');
                         documentData = data;
                         isNewDocument = false;
@@ -474,29 +484,6 @@
     // =========================================================================
     // Load Document
     // =========================================================================
-    // EMR UPGRADE (item 5): shows the patient's reg number in the metadata
-    // bar (next to docDate/docType/docLastEdited) with a copy button, the
-    // same treatment js/result.js gives it on the generic Result page.
-    async function renderRegNumberMetadata() {
-        try {
-            const snap = await database.ref(`history/${scopeUid}/patients/${docId}/regNumber`).once('value');
-            const regNumber = snap.val();
-            const existing = document.getElementById('docRegNumberItem');
-            if (existing) existing.remove();
-            if (!regNumber || !docLastEditedSpan) return;
-            const metaRow = docLastEditedSpan.parentElement.parentElement;
-            const div = document.createElement('div');
-            div.className = 'metadata-item';
-            div.id = 'docRegNumberItem';
-            div.innerHTML = `<i class="fas fa-id-badge"></i><span id="docRegNumberText"></span> <button type="button" class="copy-reg-btn" title="Copy reference number" style="border:none;background:none;cursor:pointer;color:inherit;"><i class="fas fa-copy"></i></button>`;
-            div.querySelector('#docRegNumberText').textContent = `Reg #${regNumber}`;
-            div.querySelector('.copy-reg-btn').addEventListener('click', () => {
-                navigator.clipboard.writeText(regNumber).then(() => showToast('Reference number copied', 'success'));
-            });
-            metaRow.appendChild(div);
-        } catch (e) { /* non-critical display item */ }
-    }
-
     // "AI draft, review before use." banner for AI-generated documents, with
     // Mark as reviewed (reviewer + time are stamped on the document).
     function renderAiDraftBanner() {
@@ -517,6 +504,7 @@
     async function markDocumentReviewed() {
         const S = window.RehablixEmrStore;
         if (!S || !documentData || !currentIsOwner) return;
+        if (patientDischarged) { showToast(LOCKED_MSG, 'warning', 6000); return; }
         const stamp = S.reviewStamp();
         const LIST_FIELD = { summary: 'summaries', treatment: 'treatmentPlans', report: 'reports', progress: 'progressNotes', discharge: 'dischargeSummaries' };
         try {
@@ -684,11 +672,6 @@
             docTypeSpan.textContent = label;
             docLastEditedSpan.textContent = data.lastEdited || data.date || '-';
 
-            // EMR UPGRADE (item 5): this page only ever loads the specific
-            // sub-node (sessions/summaries/etc), not the parent patient
-            // record, so the reg number needs its own small read.
-            renderRegNumberMetadata();
-
             // Determine content field (varies by type)
             let content = '';
             if (docType === 'session') {
@@ -715,8 +698,11 @@
             updateWordAndCharCount();
             renderAiDraftBanner();
 
-            // Enable editing
-            setEditorReadOnly(false);
+            // Enable editing, unless the patient has been discharged (their
+            // record is then read-only, by hand and with AI, until re-admitted).
+            patientDischarged = (await database.ref(`${path}/active`).once('value')).val() === false;
+            setEditorReadOnly(patientDischarged);
+            if (patientDischarged) showToast(LOCKED_MSG, 'warning', 6000);
 
         } catch (error) {
             console.error('Load error:', error);
@@ -734,6 +720,7 @@
             showToast('You cannot edit a shared document.', 'error');
             return;
         }
+        if (patientDischarged) { showToast(LOCKED_MSG, 'warning', 6000); return; }
 
         const instructions = regenerateInstructions?.value?.trim();
         if (!instructions) {
@@ -851,7 +838,8 @@
             showToast('Cannot delete: missing permission', 'error');
             return;
         }
-        
+        if (patientDischarged) { showToast(LOCKED_MSG, 'warning', 6000); return; }
+
         if (!confirm(`Are you sure you want to delete this ${docType || 'document'}? This action cannot be undone.`)) {
             return;
         }
@@ -876,11 +864,13 @@
 
                 case 'session':
                     if (sessionId) {
+                        await S.assertEditable(scopeUid, docId);
                         await database.ref(`${path}/sessions/${sessionId}`).remove();
-                        await S.incrementSessionCount(scopeUid, docId, -1);
+                        await S.recountSessions(scopeUid, docId);
                     }
                     break;
                 case 'nextsession':
+                    await S.assertEditable(scopeUid, docId);
                     await database.ref(`${path}/nextSessionPlan`).remove();
                     break;
 

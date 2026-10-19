@@ -1,0 +1,18 @@
+/* js/model-choice.js — the shared AI model picker on the tool pages (the chip reuses
+   css/lixa.css .model-picker-btn / .model-option, so it looks like the Lixa composer's). */
+.rx-model-chip { flex: none; }
+/* (only as wide as it needs: beside a page's buttons in a row it sits at the start; in a column it sits above) */
+.rx-model-row {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  margin: 0 auto 0.6rem 0; width: auto; flex: 0 1 auto;
+}
+.rx-model-row-label { font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); }
+/* (fixed, so no page's overflow can clip it; js sets top/left/width) */
+.model-picker-popup.rx-model-popup { position: fixed; bottom: auto; min-width: 0; max-width: none; z-index: 10050; }
+.rx-model-popup-head {
+  padding: 0.35rem 0.65rem 0.45rem; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.03em;
+  text-transform: uppercase; color: var(--text-secondary);
+}
+/* Smart EMR patient header: on the dark hero, as wide as the Edit/Delete buttons */
+.rx-model-chip-hero { width: 100%; max-width: none; justify-content: center; height: 28px; font-size: 0.7rem; color: #e2e8f0; border-color: rgba(255, 255, 255, 0.25); }
+.rx-model-chip-hero:hover, .rx-model-chip-hero.active { color: var(--accent); }

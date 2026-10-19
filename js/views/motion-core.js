@@ -410,7 +410,8 @@ Write in concise clinical language with these headings (##): "Interpretation of 
       try {
         const pRef = db.ref(`history/${emrScopeUid || scopeUid}/patients/${pid}`);
         const p = (await pRef.once('value')).val();
-        if (p) {
+        // (a discharged patient's record is read-only: the result is saved, but not filed into it)
+        if (p && p.active !== false) {
           const linked = p.linkedRecords || [];
           const dateStr = new Date(structured.confirmedAt).toLocaleDateString();
           if (!linked.some(r => r.source === KIND_PATH[kind] && r.key === id)) {

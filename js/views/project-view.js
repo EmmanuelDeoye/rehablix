@@ -1896,8 +1896,13 @@
       reviewChapter: { label: 'Review chapter', icon: 'bx-list-check', model: 'medulla200' }
     };
 
+    // The model chosen on any page (js/model-choice.js); `fallbackId` when that module is unavailable.
+    function chosenModelConfig(fallbackId) {
+      return window.RehablixModelChoice ? window.RehablixModelChoice.resolve() : window.RehablixAIQuotaCore.resolveModelConfig(fallbackId);
+    }
+
     async function callProjectAI(action, systemPrompt, userPrompt) {
-      const config = await window.RehablixAIQuotaCore.resolveModelConfig(action.model);
+      const config = await chosenModelConfig(action.model);
       if (!config) throw new Error('AI service not configured');
       if (currentUser) await window.RehablixAIQuotaCore.checkQuotaOrThrow(currentUser.uid, currentPlan);
       const response = await fetch(config.endpoint + '/chat/completions', {
@@ -2263,7 +2268,8 @@
       const userPrompt = 'REWRITE the text below to sound like a real ' + profile + ' healthcare student wrote it.\nThe project is about: "' + currentProject.title + '"\n\nSTRICT RULES:\n- Change ONLY the writing style, voice, and phrasing.\n- Do NOT change any numbers, statistics, sample sizes, participant counts, or citations.\n- Preserve all ' + referenceStyle + ' citations exactly as written.\n\nWRITING PROFILE:\n' + profileGuidance + '\n\n' + humanizationRules + '\n\nTEXT TO REWRITE:\n' + sourceHtml.substring(0, 6000) + '\n\nReturn ONLY the rewritten HTML. No markdown fences. If the source text is empty, respond with "EMPTY_SOURCE".';
       showToast('Applying natural voice editing...', 'info', 2500);
       try {
-        const config = await window.RehablixAIQuotaCore.resolveModelConfig(modelId);
+        // (Student plan or higher, as before; it writes with the model chosen on any page)
+        const config = await chosenModelConfig(modelId);
         if (!config) throw new Error('AI service not configured');
         if (currentUser) await window.RehablixAIQuotaCore.checkQuotaOrThrow(currentUser.uid, currentPlan);
         const response = await fetch(config.endpoint + '/chat/completions', {
@@ -2612,12 +2618,14 @@
     }
 
     async function analyzeResource(text, fileName) {
-      if (!aiConfig.token) await fetchTokens();
       const systemPrompt = 'You are an academic research analyzer. Analyze the following document and extract:\n1. Key findings and conclusions\n2. Methodology used (if applicable)\n3. Important statistics, numbers, and data points\n4. Theoretical frameworks referenced\n5. Key authors and citations\n6. Relevance to healthcare/medical research\nProvide a detailed, structured summary that can be used as reference for academic writing.';
       try {
-        const response = await fetch(aiConfig.endpoint + '/chat/completions', {
-          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + aiConfig.token },
-          body: JSON.stringify({ model: aiConfig.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: 'Document: ' + fileName + '\n\nContent: ' + text.substring(0, 8000) }], max_tokens: 1500, temperature: 0.4 })
+        // the model chosen on any page (js/model-choice.js); this page's DeepSeek client if that is unavailable
+        let cfg = window.RehablixModelChoice ? await window.RehablixModelChoice.resolve() : null;
+        if (!cfg) { if (!aiConfig.token) await fetchTokens(); cfg = { token: aiConfig.token, endpoint: aiConfig.endpoint, model: aiConfig.model, maxTokens: 1500 }; }
+        const response = await fetch(cfg.endpoint.replace(/\/$/, '') + '/chat/completions', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cfg.token },
+          body: JSON.stringify({ model: cfg.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: 'Document: ' + fileName + '\n\nContent: ' + text.substring(0, 8000) }], max_tokens: Math.min(1500, cfg.maxTokens || 1500), temperature: 0.4 })
         });
         if (!response.ok) throw new Error('Analysis API error');
         const data = await response.json();
@@ -2930,16 +2938,23 @@
     cleanupFns.push(function () { window.removeEventListener('beforeunload', beforeUnloadHandler); });
 
     // =========================================================================
-    // AI GENERATION (ported near-verbatim — legacy DeepSeek client kept for
-    // this pass; see notes on migrating to ai-quota-core.js)
+    // AI GENERATION (ported near-verbatim; it now writes with the model chosen
+    // on any page, js/model-choice.js, and keeps the legacy DeepSeek client
+    // only as the fallback)
     // =========================================================================
     function updateProgressStage(message, detail) { if (progressStage) progressStage.textContent = message; if (progressDetail) progressDetail.textContent = detail || ''; }
     function updateProgressBar(percent) { if (progressBarFill) progressBarFill.style.width = Math.min(100, Math.max(0, percent)) + '%'; }
 
+    // Writes with the model chosen on any page (js/model-choice.js); this page's DeepSeek client if that is unavailable.
     async function callAIWithCancel(systemPrompt, userPrompt, maxTokens, temp, topP, freqPenalty, presPenalty) {
-      const response = await fetch(aiConfig.endpoint + '/chat/completions', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + aiConfig.token },
-        body: JSON.stringify({ model: aiConfig.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: maxTokens, temperature: temp, top_p: topP, frequency_penalty: freqPenalty, presence_penalty: presPenalty }),
+      let cfg = window.RehablixModelChoice ? await window.RehablixModelChoice.resolve() : null;
+      if (!cfg) {
+        if (!aiConfig.token && !(await fetchTokens())) throw new Error('AI service not configured');
+        cfg = { token: aiConfig.token, endpoint: aiConfig.endpoint, model: aiConfig.model, maxTokens: maxTokens };
+      }
+      const response = await fetch(cfg.endpoint.replace(/\/$/, '') + '/chat/completions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cfg.token },
+        body: JSON.stringify({ model: cfg.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: Math.min(maxTokens, cfg.maxTokens || maxTokens), temperature: temp, top_p: topP, frequency_penalty: freqPenalty, presence_penalty: presPenalty }),
         signal: aiAbortController.signal
       });
       if (!response.ok) { const errData = await response.json().catch(function () { return {}; }); throw new Error((errData.error && errData.error.message) || 'API error (' + response.status + ')'); }
@@ -3252,7 +3267,7 @@
     // REDESIGN: routed through js/ai-quota-core.js instead of the legacy
     // hardcoded client, since this is the primary "Project AI" surface.
     async function callProjectAIChat(userMessage) {
-      const config = await window.RehablixAIQuotaCore.resolveModelConfig('corpus101');
+      const config = await chosenModelConfig('corpus101');
       if (!config) throw new Error('AI not configured');
       if (currentUser) await window.RehablixAIQuotaCore.checkQuotaOrThrow(currentUser.uid, currentPlan);
       const fullContext = buildFullProjectSummary();

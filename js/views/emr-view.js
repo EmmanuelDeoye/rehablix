@@ -269,6 +269,25 @@
         return `<button type="button" class="btn btn-secondary emr-review-btn" data-kind="${kind}" data-key="${escapeHtml(key)}" style="font-size:0.7rem;padding:0.2rem 0.8rem;"><i class="bx bx-check-shield"></i> Mark as reviewed</button>`;
     }
 
+    // A discharged patient's record is read-only (no manual or AI changes)
+    // until re-admitted. Every control that adds, edits, deletes, generates,
+    // links or signs is hidden (css/emr.css .emr-locked) and refused here
+    // too; js/emr-store.js refuses the write itself as a last line.
+    const LOCKED_CONTROLS = [
+        '#editPatientBtn', '#editIntakeBtn', '#addProblemBtn', '#generateProblemsBtn', '.problem-edit', '.problem-delete', '.problem-save-btn',
+        '#addSummaryBtn', '#generateSummaryBtn', '#generateInsightsBtn', '#addTreatmentPlanBtn', '#generateTreatmentPlanBtn', '.plan-edit-btn', '.plan-save-btn', '.treatment-regenerate-btn',
+        '#addNextSessionActivityBtn', '#generateNextSessionBtn', '#regenerateNextSessionBtn', '#signNextSessionBtn', '#endNextSessionPlanBtn',
+        '.activity-edit-btn', '.activity-delete-btn', '.activity-save-btn', '#addProgressBtn', '#aiProgressBtn', '#submitAiProgressAnswers',
+        '.progress-edit-btn', '.progress-delete-btn', '#paneDischargeNew', '#dischargePatientBtn', '.emr-review-btn', '.session-sign-btn',
+        '.linked-record-link-btn', '.linked-record-unlink-btn', '.emr-edit-link'
+    ].join(', ');
+    function patientLocked() {
+        return !!(currentPatientId && Store() && Store().isDischarged(currentPatientData));
+    }
+    function lockedToast() {
+        showToast(Store() ? Store().LOCKED_MSG : 'This patient has been discharged, so their record is read-only.', 'warning', 5000);
+    }
+
     // =========================================================================
     // Robust parser for AI responses that should be a JSON array
     // =========================================================================
@@ -544,7 +563,8 @@
         if (!currentUser) return;
         try {
             const index = await loadPatientIndex();
-            const entries = Object.entries(index || {}).filter(([, e]) => e);
+            // Discharged patients are in the archive: not counted, not pending, no insights.
+            const entries = Object.entries(index || {}).filter(([, e]) => e && e.active !== false);
             dashStats.patients.textContent = entries.length;
 
             document.getElementById('dashboardDate').textContent = new Date().toLocaleDateString(undefined, {
@@ -644,20 +664,21 @@
     // Re-applies search + filter + sort on top of allPatients (default: newest first)
     function applyPatientsListView() {
         const searchTerm = (document.getElementById('patientsSearchInput')?.value || '').trim().toLowerCase();
-        const filter = document.getElementById('patientsFilterSelect')?.value || 'all';
+        const filter = document.getElementById('patientsFilterSelect')?.value || 'current';
         const sortBy = document.getElementById('patientsSortSelect')?.value || 'newest';
 
         let list = [...allPatients];
 
-        if (filter === 'active') list = list.filter(p => p.status !== 'draft' && p.active !== false);
+        // Discharged patients live in their own list (the archive), not with current patients.
+        if (filter === 'current') list = list.filter(p => p.active !== false || p.status === 'draft');
+        else if (filter === 'active') list = list.filter(p => p.status !== 'draft' && p.active !== false);
         else if (filter === 'draft') list = list.filter(p => p.status === 'draft');
         else if (filter === 'discharged') list = list.filter(p => p.status !== 'draft' && p.active === false);
 
         if (searchTerm) {
             list = list.filter(p =>
                 (p.name || '').toLowerCase().includes(searchTerm) ||
-                (p.primaryDx || '').toLowerCase().includes(searchTerm) ||
-                (p.regNumber || '').toLowerCase().includes(searchTerm)
+                (p.primaryDx || '').toLowerCase().includes(searchTerm)
             );
         }
 
@@ -692,12 +713,14 @@
         // in EMR (.linked-record-item, Pending Documentation's cards).
         container.innerHTML = patients.map(p => {
             const initials = (p.name || '').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || '??';
-            const metaParts = [escapeHtml(p.primaryDx) || 'No diagnosis', escapeHtml(p.state) || null, p.regNumber ? `Reg # ${escapeHtml(p.regNumber)}` : null].filter(Boolean);
+            const sessions = Number(p.sessionCount) || 0;
+            const metaParts = [escapeHtml(p.primaryDx) || 'No diagnosis', escapeHtml(p.state) || null, `${sessions} session${sessions === 1 ? '' : 's'}`].filter(Boolean);
+            const discharged = p.status !== 'draft' && p.active === false;
             return `
                 <div class="patient-list-card" role="button" tabindex="0" aria-label="Open ${escapeHtml(p.name || 'patient')}" onclick="openPatient('${escapeHtml(p.id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPatient('${escapeHtml(p.id)}');}">
                     <div class="patient-list-avatar" aria-hidden="true">${escapeHtml(initials)}</div>
                     <div class="patient-list-info">
-                        <div class="patient-list-name">${escapeHtml(p.name) || 'Unknown'} ${p.status === 'draft' ? '<span class="tag tag-amber">Draft</span>' : ''}</div>
+                        <div class="patient-list-name">${escapeHtml(p.name) || 'Unknown'} ${p.status === 'draft' ? '<span class="tag tag-amber">Draft</span>' : ''}${discharged ? '<span class="tag tag-gray"><i class="bx bx-lock-alt" aria-hidden="true"></i> Discharged</span>' : ''}</div>
                         <div class="patient-list-meta">${metaParts.join(' · ')}</div>
                     </div>
                     <i class="bx bx-chevron-right"></i>
@@ -721,8 +744,12 @@
                 const val = snapshot.val();
                 currentPatientData = val || {};
                 // Keep this patient's lightweight index entry current after
-                // every change (ours, a teammate's, or another tool's).
-                if (Store() && currentPatientId === patientId) Store().updateIndex(scopeUid, patientId, val);
+                // every change (ours, a teammate's, or another tool's), then
+                // the dashboard and patient list that read it, so their counts
+                // and lists always match the open record.
+                if (Store() && currentPatientId === patientId) {
+                    Promise.resolve(Store().updateIndex(scopeUid, patientId, val)).then(() => { loadDashboardData(); loadPatientsList(); });
+                }
                 renderPatientData();
             });
             const snapshot = await patientListenerRef.once('value');
@@ -741,12 +768,13 @@
         document.getElementById('patientHeroDx').textContent = currentPatientData.primaryDx || 'No diagnosis';
         const initials = currentPatientData.name?.split(' ').map(n => n[0]).join('') || '??';
         document.getElementById('patientAvatar').textContent = initials.toUpperCase();
-        document.getElementById('patientHeroRegNumber').textContent = currentPatientData.regNumber || '—'; // EMR UPGRADE (item 4)
         document.getElementById('patientHeroAge').textContent = currentPatientData.dob ? calculateAge(currentPatientData.dob) : (currentPatientData.age || '—'); // EMR UPGRADE (item 1): fall back to typed age when DOB isn't recorded
         document.getElementById('patientHeroCategory').textContent = currentPatientData.category || '—';
         document.getElementById('patientHeroProfession').textContent = currentPatientData.profession || currentPatientData.department || '—';
         document.getElementById('patientHeroState').textContent = currentPatientData.state || '—';
-        document.getElementById('patientHeroSession').textContent = currentPatientData.sessionCount || 0;
+        // (the same number as Previous Sessions lists)
+        document.getElementById('patientHeroSession').textContent = Store() ? Store().sessionCountOf(currentPatientData) : Object.keys(currentPatientData.sessions || {}).length;
+        renderLockState();
         const statusBadge = document.getElementById('patientHeroStatusBadge');
         if (currentPatientData.status === 'draft') {
             statusBadge.textContent = 'Draft';
@@ -758,6 +786,9 @@
             statusBadge.textContent = 'Discharged';
             statusBadge.className = 'status-badge status-pending';
         }
+        // (the status in the details row says the same as the badge)
+        const metaStatus = document.getElementById('patientHeroStatus');
+        if (metaStatus) { metaStatus.textContent = statusBadge.textContent; metaStatus.className = statusBadge.className; }
         loadPatientIntake();
         loadLinkedRecords();
         renderProblemList();
@@ -768,6 +799,37 @@
         loadPatientProgress();
         loadPatientTimeline(); // EMR AI UPGRADE: Timeline tab (item 6)
         loadPatientDischarge();
+    }
+
+    // Read-only look for a discharged patient, with the way back (Re-admit).
+    function renderLockState() {
+        const screen = document.getElementById('screen-patient');
+        const banner = document.getElementById('patientLockedBanner');
+        const locked = patientLocked();
+        if (screen) screen.classList.toggle('emr-locked', locked);
+        if (!banner) return;
+        banner.hidden = !locked;
+        if (!locked) { banner.innerHTML = ''; return; }
+        const d = currentPatientData || {};
+        const when = d.dischargedAt ? new Date(d.dischargedAt).toLocaleDateString() : '';
+        banner.innerHTML = `
+            <i class="bx bx-lock-alt" aria-hidden="true"></i>
+            <div class="emr-locked-text"><strong>Discharged${when ? ' on ' + escapeHtml(when) : ''}${d.dischargedBy ? ' by ' + escapeHtml(d.dischargedBy) : ''}.</strong> This record is in the Discharged list and is read-only: nothing can be added or changed, by hand or with AI.</div>
+            <button type="button" class="btn btn-secondary" id="readmitPatientBtn"><i class="bx bx-undo" aria-hidden="true"></i> Re-admit</button>`;
+        banner.querySelector('#readmitPatientBtn').addEventListener('click', readmitPatient);
+    }
+
+    async function readmitPatient() {
+        if (!currentPatientId || !currentUser || !Store()) return;
+        if (!confirm('Re-admit this patient? Their record moves back to the Active list and can be edited again (by hand and with AI). This is recorded in the audit log.')) return;
+        try {
+            await Store().readmitPatient(scopeUid, currentPatientId);
+            showToast('Patient re-admitted. Their record can be edited again.', 'success');
+            loadPatientsList();
+            loadDashboardData();
+        } catch (error) {
+            showToast('Could not re-admit the patient: ' + (error.message || 'unknown error'), 'error', 6000);
+        }
     }
 
     // =========================================================================
@@ -786,17 +848,18 @@
         const searchInput = document.getElementById('linkedRecordsSearchInput');
         if (!container || !currentUser || !currentPatientId || !window.RehablixPatientReg) return;
         const patient = currentPatientData || {};
-        const q = query !== undefined ? query : (patient.regNumber || patient.name || '');
+        // (records are found by the patient's name now; reference numbers are no longer used)
+        const q = query !== undefined ? query : (patient.name || '');
         if (searchInput && document.activeElement !== searchInput) searchInput.value = q;
         if (!q) {
-            container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-link"></i><p>This patient has no name or reg number to search by yet.</p></div>`;
+            container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-link"></i><p>This patient has no name to search by yet.</p></div>`;
             return;
         }
         container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-loader-alt bx-spin"></i><p>Searching Case Presentation/Report, Gait, ROM, and Assistive Device history…</p></div>`;
 
         try {
             const sources = window.RehablixPatientReg.SEARCH_SOURCES.filter(s => LINKED_RECORDS_SOURCES.includes(s.path));
-            const results = await window.RehablixPatientReg.findByRegOrName(scopeUid, q, sources);
+            const results = await window.RehablixPatientReg.findByRegOrName(scopeUid, q, sources, currentPatientId);
             const shown = results.map(r => ({
                 source: r.source, key: r.id, icon: LINKED_RECORDS_ICON[r.source] || 'bx-file',
                 type: r.title, date: r.date, content: contentFromLinkResult(r), patientName: r.patientName || null,
@@ -1117,6 +1180,14 @@
     // session plan). Stamps reviewer + time; reviewed content is then
     // protected from AI regeneration.
     const REVIEW_LABELS = { problemList: 'Problem', treatmentPlans: 'Treatment plan', summaries: 'Summary report', progressNotes: 'Progress note', dischargeSummaries: 'Discharge summary', sessions: 'Session note', nextSessionPlan: 'Next session plan' };
+    // (capture phase: runs before any control's own handler)
+    document.getElementById('screen-patient')?.addEventListener('click', (e) => {
+        if (!patientLocked()) return;
+        if (!e.target.closest(LOCKED_CONTROLS)) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        lockedToast();
+    }, true);
     document.getElementById('screen-patient')?.addEventListener('click', async (e) => {
         const btn = e.target.closest('.emr-review-btn');
         if (!btn || !currentPatientId || !Store()) return;
@@ -1128,6 +1199,7 @@
         try {
             let ok;
             if (kind === 'sessions') {
+                await Store().assertEditable(scopeUid, currentPatientId);
                 await database.ref(`history/${scopeUid}/patients/${currentPatientId}/sessions/${key}`).update(Store().reviewStamp());
                 ok = true;
             } else if (kind === 'nextSessionPlan') {
@@ -1557,7 +1629,8 @@
     }
 
     // =========================================================================
-    // Sessions Tab (view-only — entries are created by completing a Next Session Plan)
+    // Sessions Tab — each entry is one run of the Next Session Plan, signed by
+    // whoever ran it with their remark on how it went (see signNextSession).
     // =========================================================================
     function loadPatientSessions() {
         const container = document.getElementById('paneSessionsList');
@@ -1565,9 +1638,9 @@
         // Use Object.entries so the Firebase push-key is always available as a fallback id,
         // even for older sessions that predate the explicit `id` field.
         const sessions = currentPatientData?.sessions
-            ? Object.entries(currentPatientData.sessions).map(([key, val]) => ({ ...val, id: val.id || key }))
+            ? Object.entries(currentPatientData.sessions).filter(([, val]) => val).map(([key, val]) => ({ ...val, id: val.id || key }))
             : [];
-        countContainer.textContent = `${sessions.length} sessions`;
+        countContainer.textContent = `${sessions.length} session${sessions.length === 1 ? '' : 's'}`;
         if (sessions.length === 0) {
             container.innerHTML = `<div class="emr-empty-state"><i class="bx bx-calendar-check"></i><p>No sessions recorded yet</p></div>`;
             return;
@@ -1575,14 +1648,19 @@
         const today = new Date().toISOString().split('T')[0];
         const sorted = sessions.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         container.innerHTML = sorted.map(session => {
-            const bodyText = stripMarkdown(session.notes || session.content || session.plainText || '');
+            // (the remark is shown in its own box, so it is not repeated in the note text)
+            const rawText = String(session.plainText || session.notes || session.content || '');
+            const remarkTail = session.remark ? `How the session went (${session.signedBy || ''}):\n${session.remark}` : '';
+            const bodyText = stripMarkdown(remarkTail && rawText.endsWith(remarkTail) ? rawText.slice(0, -remarkTail.length).trim() : rawText);
+            const signedWhen = session.signedAt ? new Date(session.signedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '';
             return `
             <div class="session-card-x ${session.date === today ? 'today' : ''}" data-id="${escapeHtml(session.id)}">
                 <div class="session-card-x-header" role="button" tabindex="0">
                     <div>
                         <div class="session-date">${escapeHtml(session.date) || 'Unknown date'} — ${escapeHtml(session.time) || '--:--'}</div>
-                        <div class="session-title">${escapeHtml(session.type) || 'Session'}</div>
+                        <div class="session-title">${escapeHtml(session.type) || 'Session'}${session.planRun ? ` <span style="font-weight:400;color:var(--text-secondary);">· run ${escapeHtml(String(session.planRun))} of this plan</span>` : ''}</div>
                         <div class="session-therapist">${escapeHtml(session.therapist || currentUser?.displayName) || 'Clinician'}</div>
+                        ${session.signed && session.signedBy ? `<div class="session-signed-line"><i class="bx bx-pen" aria-hidden="true"></i> Signed by ${escapeHtml(session.signedBy)}${signedWhen ? ' · ' + escapeHtml(signedWhen) : ''}</div>` : ''}
                         <div class="session-tags">
                             ${session.aiGenerated && !session.signed ? reviewBadge(session) : (session.aiGenerated ? '<span class="tag tag-blue">AI Generated</span>' : '')}
                             ${session.codes ? session.codes.map(code => `<span class="tag tag-blue">${escapeHtml(code)}</span>`).join('') : ''}
@@ -1592,9 +1670,11 @@
                     <i class="bx bx-chevron-down session-chevron"></i>
                 </div>
                 <div class="session-card-x-body">
-                    <div class="session-card-x-content">${bodyText ? escapeHtml(bodyText) : '<em>No notes recorded yet.</em>'}</div>
+                    ${session.remark ? `<div class="session-remark"><span class="session-remark-label">How it went${session.signedBy ? ' — ' + escapeHtml(session.signedBy) : ''}</span>${escapeHtml(session.remark)}</div>` : ''}
+                    <div class="session-card-x-content" style="${session.remark ? 'margin-top:0.6rem;' : ''}">${bodyText ? escapeHtml(bodyText) : '<em>No notes recorded yet.</em>'}</div>
                     <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.6rem;">
-                        <a href="index.html?id=${encodeURIComponent(currentPatientId)}&type=session&sessionId=${encodeURIComponent(session.id)}#/docresult" target="_blank" rel="noopener" class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.8rem;display:inline-block;text-decoration:none;"><i class="bx bx-edit" aria-hidden="true"></i> Open Full Editor</a>
+                        <a href="index.html?id=${encodeURIComponent(currentPatientId)}&type=session&sessionId=${encodeURIComponent(session.id)}#/docresult" target="_blank" rel="noopener" class="btn btn-secondary" style="font-size:0.7rem;padding:0.2rem 0.8rem;display:inline-block;text-decoration:none;"><i class="bx bx-${patientLocked() ? 'show' : 'edit'}" aria-hidden="true"></i> ${patientLocked() ? 'Open' : 'Open Full Editor'}</a>
+                        ${session.signed ? '' : `<button type="button" class="btn btn-primary session-sign-btn" data-id="${escapeHtml(session.id)}" style="font-size:0.7rem;padding:0.2rem 0.8rem;"><i class="bx bx-pen" aria-hidden="true"></i> Sign with remark</button>`}
                         ${session.signed ? '' : reviewButton('sessions', session.id, session)}
                     </div>
                 </div>
@@ -1606,6 +1686,32 @@
                 header.closest('.session-card-x').classList.toggle('expanded');
             });
         });
+        container.querySelectorAll('.session-sign-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const result = await askSessionRemark('Sign this session', 'Add your remark on how the session went. Your name, the date and the time are signed with it.');
+                if (!result) return;
+                try {
+                    await Store().signExistingSession(scopeUid, currentPatientId, btn.dataset.id, result);
+                    showToast('Session signed', 'success');
+                    loadDashboardData();
+                } catch (err) {
+                    showToast('Could not sign the session: ' + (err.message || 'unknown error'), 'error', 6000);
+                }
+            });
+        });
+    }
+
+    // The remark a clinician signs a session with (required).
+    async function askSessionRemark(title, subtitle) {
+        const result = await showCustomModal({
+            title,
+            subtitle,
+            fields: [{ id: 'remark', type: 'textarea', rows: 8, label: 'How the session went', placeholder: 'What was done, how the patient responded, any changes from the plan, pain/function observed, what to do next time…' }]
+        });
+        if (!result) return null;
+        if (!result.remark) { showToast('Please write a remark on how the session went. Nothing was signed.', 'warning', 5000); return null; }
+        return result.remark;
     }
 
     // =========================================================================
@@ -1719,7 +1825,7 @@
             };
             // A reviewed plan is never overwritten by regeneration.
             const saved = await Store().mutateObject(scopeUid, pid, 'nextSessionPlan', cur => (cur && cur.reviewed) ? false : nextPlan, { allowEmpty: true });
-            if (!saved) throw new Error('The current next session plan has been reviewed, so it was not replaced. Complete it or remove its activities first.');
+            if (!saved) throw new Error('The current next session plan has been reviewed, so it was not replaced. Use "End this plan" first, then generate a new one.');
 
             updateLoadingProgress(100, 'Done!');
             setTimeout(() => {
@@ -1749,12 +1855,16 @@
             return;
         }
 
+        const runs = Number(nextPlan.timesDone) || 0;
+        const lastDone = nextPlan.lastDoneAt ? new Date(nextPlan.lastDoneAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '';
         container.innerHTML = `
-            <div style="margin-bottom:0.8rem;font-size:0.8rem;color:var(--text-secondary);">Created: ${escapeHtml(nextPlan.date) || ''}${nextPlan.type ? ' · ' + escapeHtml(nextPlan.type) : ''} ${reviewBadge(nextPlan)} ${reviewButton('nextSessionPlan', 'plan', nextPlan)}</div>
+            <div style="margin-bottom:0.3rem;font-size:0.8rem;color:var(--text-secondary);">Created: ${escapeHtml(nextPlan.date) || ''}${nextPlan.type ? ' · ' + escapeHtml(nextPlan.type) : ''} ${reviewBadge(nextPlan)} ${reviewButton('nextSessionPlan', 'plan', nextPlan)}</div>
+            <div class="next-session-runs">${runs ? `Done and signed ${runs} time${runs === 1 ? '' : 's'}${lastDone ? ` · last on ${escapeHtml(lastDone)}${nextPlan.lastDoneBy ? ' by ' + escapeHtml(nextPlan.lastDoneBy) : ''}` : ''}.` : 'Not done yet.'} Each time this plan is carried out, sign it below: it is added to Previous Sessions and the plan stays here for next time.</div>
             <div id="nextSessionActivitiesList"></div>
             <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
                 <button class="btn btn-secondary" id="regenerateNextSessionBtn"><i class="bx bx-magic"></i> Regenerate All</button>
-                <button class="btn btn-primary" id="completeNextSessionBtn"><i class="bx bx-check-circle"></i> Mark Session as Completed</button>
+                <button class="btn btn-secondary" id="endNextSessionPlanBtn" style="color:#dc2626;border-color:#dc2626;"><i class="bx bx-stop-circle"></i> End this plan</button>
+                <button class="btn btn-primary" id="signNextSessionBtn"><i class="bx bx-pen"></i> Sign session</button>
             </div>
         `;
 
@@ -1764,52 +1874,31 @@
             openSessionGenModal();
         });
 
-        document.getElementById('completeNextSessionBtn')?.addEventListener('click', async function() {
-            const result = await showCustomModal({
-                title: 'Complete Next Session',
-                subtitle: 'Describe how the session actually went. This becomes the Previous Session record.',
-                fields: [{
-                    id: 'summary',
-                    type: 'textarea',
-                    rows: 10,
-                    label: 'Session Summary',
-                    placeholder: 'What was completed, how the patient responded, any changes from the plan, pain/function observed, etc.'
-                }]
-            });
-            if (!result || !result.summary) return;
+        // One run of this plan, signed by whoever carried it out (you or a
+        // team member) with their remark. It becomes one Previous Session
+        // (one more in the count) and the plan stays for the next run.
+        document.getElementById('signNextSessionBtn')?.addEventListener('click', async function() {
+            const remark = await askSessionRemark('Sign this session', 'You carried out this plan with the patient. Write how it went: it is saved in Previous Sessions with your name, the date and the time. The plan stays here so it can be done again.');
+            if (!remark) return;
+            try {
+                const session = await Store().signPlannedSession(scopeUid, currentPatientId, remark);
+                if (window.RehablixCenter) window.RehablixCenter.logActivity('doc', 'Signed session', currentPatientData?.name || '').catch(() => {});
+                showToast(`Session signed and added to Previous Sessions (run ${session.planRun} of this plan).`, 'success', 4500);
+                loadDashboardData();
+            } catch (err) {
+                showToast('Could not sign the session: ' + (err.message || 'unknown error'), 'error', 6000);
+            }
+        });
 
-            const plan = currentPatientData.nextSessionPlan;
-            const planText = (plan.activities || []).map((a, i) =>
-                `${i + 1}. [${a.timeFrame || 'N/A'}] ${a.title}\nGoal: ${a.goal || 'N/A'}\n${a.details || ''}`
-            ).join('\n\n');
-            const combinedText = `Plan:\n${planText}\n\nSession Summary:\n${result.summary}`;
-
-            const pid = currentPatientId;
-            const newRef = database.ref(`history/${scopeUid}/patients/${pid}/sessions`).push();
-            const sessionData = {
-                id: newRef.key,
-                date: new Date().toISOString().split('T')[0],
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                type: plan.type || 'Follow-up Therapy Session',
-                therapist: currentUser.displayName || currentUser.email || 'Clinician',
-                signed: false,
-                timestamp: firebase.database.ServerValue.TIMESTAMP,
-                notes: combinedText,
-                content: combinedText,
-                plainText: combinedText,
-                problemIds: plan.problemIds || [],
-                treatmentPlanTitle: plan.treatmentPlanTitle || null,
-                aiGenerated: !!plan.problemIds
-            };
-            await newRef.set(sessionData);
-            await Store().incrementSessionCount(scopeUid, pid, 1);
-            await database.ref(`history/${scopeUid}/patients/${pid}/nextSessionPlan`).remove();
-            Store().audit(scopeUid, pid, 'create', `Session: ${sessionData.type}`);
-
-            showToast('Session completed and moved to Previous Sessions!', 'success');
-            loadPatientNextSession();
-            loadPatientSessions();
-            loadDashboardData();
+        document.getElementById('endNextSessionPlanBtn')?.addEventListener('click', async function() {
+            if (!confirm('End this session plan? The sessions already signed stay in Previous Sessions. You can then generate or build a new plan.')) return;
+            try {
+                await Store().mutateObject(scopeUid, currentPatientId, 'nextSessionPlan', () => null);
+                Store().audit(scopeUid, currentPatientId, 'delete', 'Next session plan ended');
+                showToast('Session plan ended.', 'success');
+            } catch (err) {
+                showToast('Could not end the plan: ' + (err.message || 'unknown error'), 'error', 6000);
+            }
         });
     }
 
@@ -2273,21 +2362,16 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
 
     async function dischargePatient() {
         if (!currentPatientId || !currentUser) return;
-        if (!confirm('Are you sure you want to discharge this patient? This will mark them as inactive.')) return;
+        if (patientLocked()) { lockedToast(); return; }
+        if (!confirm('Discharge this patient?\n\nTheir record moves to the Discharged list and becomes read-only: nothing can be added or changed, by hand or with AI. You can re-admit them later if they return.')) return;
         try {
-            await database.ref(`history/${scopeUid}/patients/${currentPatientId}`).update({ active: false, dischargedAt: new Date().toISOString() });
-            currentPatientData.active = false;
-            Store().audit(scopeUid, currentPatientId, 'discharge', 'Patient discharged');
-            showToast('Patient discharged successfully', 'success');
-            
-            const statusBadge = document.getElementById('patientHeroStatusBadge');
-            if (statusBadge) {
-                statusBadge.textContent = 'Discharged';
-                statusBadge.className = 'status-badge status-pending';
-            }
+            await Store().dischargePatient(scopeUid, currentPatientId);
+            showToast('Patient discharged. Their record is now in the Discharged list and is read-only.', 'success', 4500);
+            if (window.RehablixCenter) window.RehablixCenter.logActivity('doc', 'Discharged patient', currentPatientData?.name || '').catch(() => {});
+            loadPatientsList();
             loadDashboardData();
         } catch (error) {
-            showToast('Error discharging patient', 'error');
+            showToast('Error discharging patient: ' + (error.message || 'unknown error'), 'error');
         }
     }
 
@@ -2311,7 +2395,12 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
 
         (d.treatmentPlans || []).forEach(p => events.push({ date: p.date || '', sortKey: new Date(p.date || 0).getTime(), icon: 'bx-clipboard', label: `Treatment plan: ${p.title || 'Treatment Plan'}`, detail: '' }));
 
-        (d.sessions ? Object.values(d.sessions) : []).forEach(s => events.push({ date: s.date || '', sortKey: s.timestamp || new Date(s.date || 0).getTime(), icon: 'bx-calendar-check', label: `Session: ${s.type || 'Session'}`, detail: s.signed ? 'Signed' : 'Draft' }));
+        (d.sessions ? Object.values(d.sessions).filter(Boolean) : []).forEach(s => events.push({ date: s.date || '', sortKey: s.timestamp || new Date(s.date || 0).getTime(), icon: 'bx-calendar-check', label: `Session: ${s.type || 'Session'}`, detail: s.signed ? ('Signed' + (s.signedBy ? ' by ' + s.signedBy : '') + (s.remark ? ': ' + String(s.remark).slice(0, 140) : '')) : 'Draft' }));
+
+        // discharge / re-admission
+        if (d.lastDischargedAt) events.push({ date: new Date(d.lastDischargedAt).toLocaleDateString(), sortKey: new Date(d.lastDischargedAt).getTime(), icon: 'bx-exit', label: 'Discharged', detail: '' });
+        if (d.readmittedAt) events.push({ date: new Date(d.readmittedAt).toLocaleDateString(), sortKey: new Date(d.readmittedAt).getTime(), icon: 'bx-undo', label: 'Re-admitted', detail: d.readmittedBy ? 'By ' + d.readmittedBy : '' });
+        if (d.active === false && d.dischargedAt) events.push({ date: new Date(d.dischargedAt).toLocaleDateString(), sortKey: new Date(d.dischargedAt).getTime(), icon: 'bx-lock-alt', label: 'Discharged (record locked)', detail: d.dischargedBy ? 'By ' + d.dischargedBy : '' });
 
         (d.progressNotes || []).forEach(n => events.push({ date: n.date || '', sortKey: new Date(n.date || 0).getTime(), icon: 'bx-line-chart', label: n.title || 'Progress Note', detail: (n.ratings || []).length ? `${n.ratings.length} problem(s) rated` : '' }));
 
@@ -2440,13 +2529,13 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
             const toolKey = btn.dataset.tool;
             const resultsEl = document.getElementById('linkToolResults');
             if (!window.RehablixPatientReg || !currentPatientData) { resultsEl.innerHTML = '<em>Not available right now.</em>'; return; }
-            const query = currentPatientData.regNumber || currentPatientData.name;
-            if (!query) { resultsEl.innerHTML = '<em>This patient has no name or reg number to search by.</em>'; return; }
+            const query = currentPatientData.name || '';
+            if (!query) { resultsEl.innerHTML = '<em>This patient has no name to search by.</em>'; return; }
             resultsEl.innerHTML = '<em>Searching…</em>';
             const paths = LINK_TOOL_SOURCES[toolKey] || [];
             const sources = window.RehablixPatientReg.SEARCH_SOURCES.filter(s => paths.includes(s.path));
             try {
-                const results = await window.RehablixPatientReg.findByRegOrName(scopeUid, query, sources);
+                const results = await window.RehablixPatientReg.findByRegOrName(scopeUid, query, sources, currentPatientId);
                 if (!results.length) { resultsEl.innerHTML = '<em>No record found.</em>'; return; }
                 resultsEl.innerHTML = results.map((r, i) => `
                     <div class="link-tool-result-item" data-index="${i}" style="padding:0.4rem 0;border-bottom:1px solid var(--border-light);cursor:pointer;">
@@ -2705,6 +2794,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         data.status = isDraft ? 'draft' : 'active';
         const patientId = editingPatientId;
         try {
+            if (Store()) await Store().assertEditable(scopeUid, patientId);
             await database.ref(`history/${scopeUid}/patients/${patientId}`).update(data);
             if (Store()) Store().audit(scopeUid, patientId, 'edit', 'Intake details updated');
             showToast(isDraft ? 'Draft updated' : 'Patient updated!', 'success');
@@ -2721,6 +2811,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
             loadDashboardData();
             clearIntakeForm();
         } catch (error) {
+            if (error && error.code === 'discharged') { lockedToast(); return; }
             showToast('Error updating patient', 'error');
         }
     }
@@ -2755,6 +2846,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
 
     document.getElementById('editPatientBtn')?.addEventListener('click', function() {
         if (!currentPatientData) return;
+        if (patientLocked()) { lockedToast(); return; }
         isEditingPatient = true;
         editingPatientId = currentPatientId;
         switchScreen('intake');
@@ -2855,7 +2947,9 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
             // Collect every unsigned session that has no notes yet.
             const pendingRefs = [];
             for (const [patientId, patient] of Object.entries(patients)) {
-                if (!patient.sessions) continue;
+                if (!patient || !patient.sessions) continue;
+                if (Store() && Store().isDischarged(patient)) continue; // read-only records are never changed
+
                 for (const [sessionId, session] of Object.entries(patient.sessions)) {
                     const hasContent = (session.notes || session.content || '').trim().length > 0;
                     if (!session.signed && !hasContent) {
@@ -2921,12 +3015,14 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
     // reuses the SAME 4-tier model system Lixa already uses (js/plan-tiers.js:
     // Blix 360/OpenAI > Medulla 200 > Corpus 101 > Basal 100/DeepSeek), so a
     // Pro/Max clinician's deepest EMR outputs actually use the strongest
-    // unlocked model instead of Smart EMR always hardcoding DeepSeek. Quick,
-    // frequent generations (problem list, treatment plan, next session,
-    // progress notes) intentionally keep using the plain callDeepSeek() call
-    // below — no reason to spend a heavier model on those.
+    // unlocked model instead of Smart EMR always hardcoding DeepSeek.
+    // Now every Smart EMR generation (heavy and quick) uses the one model the
+    // user chose on any page (js/model-choice.js); the plain DeepSeek client is
+    // only the fallback when that call fails.
     // =========================================================================
     async function resolveHeavyModelConfig() {
+        // The model chosen on any page (js/model-choice.js) is the one Smart EMR works with.
+        if (window.RehablixModelChoice) return window.RehablixModelChoice.resolve();
         if (!window.RehabPlanTiers) return null;
         const tiers = window.RehabPlanTiers;
         const model = [...tiers.MODELS].sort((a, b) => a.rank - b.rank).find(m => tiers.isModelUnlocked(m.id, currentPlan));
@@ -2956,7 +3052,15 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         return [D.scrubText(systemPrompt, ids), D.scrubText(userPrompt, ids)];
     }
 
+    // No AI work on a discharged (read-only) record: refused before any tokens are spent.
+    function assertAIAllowed(patient) {
+        if (Store() && Store().isDischarged(patient || currentPatientData)) {
+            const e = new Error(Store().LOCKED_MSG); e.code = 'discharged'; throw e;
+        }
+    }
+
     async function callTieredAI(systemPrompt, userPrompt, maxTokens, patient) {
+        assertAIAllowed(patient);
         [systemPrompt, userPrompt] = deidentifyPrompts(systemPrompt, userPrompt, patient);
         // EMR AI UPGRADE (item 9): checked here too since a successful
         // tiered call below returns without ever going through
@@ -2971,7 +3075,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
             }
         }
         const config = await resolveHeavyModelConfig();
-        if (!config) return callDeepSeek(systemPrompt, userPrompt, maxTokens, patient);
+        if (!config) return callDeepSeek(systemPrompt, userPrompt, maxTokens, patient, true);
         try {
             const response = await fetch(`${config.endpoint}/chat/completions`, {
                 method: 'POST',
@@ -2984,26 +3088,32 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
                     top_p: config.top_p ?? 0.9
                 })
             });
-            if (!response.ok) return callDeepSeek(systemPrompt, userPrompt, maxTokens, patient);
+            if (!response.ok) return callDeepSeek(systemPrompt, userPrompt, maxTokens, patient, true);
             const data = await response.json();
             const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-            if (!content) return callDeepSeek(systemPrompt, userPrompt, maxTokens, patient);
+            if (!content) return callDeepSeek(systemPrompt, userPrompt, maxTokens, patient, true);
             if (currentUser && window.RehabPlanTiers) { // EMR AI UPGRADE (item 9) — weight 4 matches Blix's own weight in js/plan-tiers.js so a heavy model genuinely costs more against the same shared budget
                 window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlan, window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + content), config.weight || 1).catch(() => {});
             }
             return content;
         } catch (e) {
-            return callDeepSeek(systemPrompt, userPrompt, maxTokens, patient);
+            return callDeepSeek(systemPrompt, userPrompt, maxTokens, patient, true);
         }
     }
 
     // =========================================================================
-    // DeepSeek API Call
+    // AI call: the model chosen on any page (js/model-choice.js). `plain`
+    // (a heavy call that failed) uses this page's own DeepSeek client instead,
+    // so a generation never just breaks outright.
     // =========================================================================
-    async function callDeepSeek(systemPrompt, userPrompt, maxTokens = 2000, patient) {
+    async function callDeepSeek(systemPrompt, userPrompt, maxTokens = 2000, patient, plain) {
+        assertAIAllowed(patient);
         [systemPrompt, userPrompt] = deidentifyPrompts(systemPrompt, userPrompt, patient);
-        if (!aiConfig.token) {
-            throw new Error('AI is not configured yet (no API key loaded). Try again in a moment, or reload the page.');
+        let cfg = !plain && window.RehablixModelChoice ? await window.RehablixModelChoice.resolve() : null;
+        if (!cfg) {
+            if (!aiConfig.token) await fetchTokens();
+            if (!aiConfig.token) throw new Error('AI is not configured yet (no API key loaded). Try again in a moment, or reload the page.');
+            cfg = { token: aiConfig.token, endpoint: aiConfig.endpoint, model: aiConfig.model, maxTokens: 9000, weight: 1 };
         }
         // EMR AI UPGRADE (item 9): one quota check here covers every Smart
         // EMR AI call (problem list, treatment plans, next session,
@@ -3018,22 +3128,22 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
                 throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
             }
         }
-        const url = `${aiConfig.endpoint}/chat/completions`;
+        const url = `${cfg.endpoint.replace(/\/$/, '')}/chat/completions`;
         let response;
         try {
             response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${aiConfig.token}`
+                    'Authorization': `Bearer ${cfg.token}`
                 },
                 body: JSON.stringify({
-                    model: aiConfig.model,
+                    model: cfg.model,
                     messages: [
                         { role: 'system', content: systemPrompt },
                         { role: 'user', content: userPrompt }
                     ],
-                    max_tokens: maxTokens,
+                    max_tokens: Math.min(maxTokens, cfg.maxTokens || maxTokens),
                     temperature: 0.4,
                     top_p: 0.9
                 })
@@ -3057,7 +3167,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         }
         const content = data.choices[0].message.content;
         if (currentUser && window.RehabPlanTiers) { // EMR AI UPGRADE (item 9)
-            window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlan, window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + content), 1).catch(() => {});
+            window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlan, window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + content), cfg.weight || 1).catch(() => {});
         }
         return content;
     }

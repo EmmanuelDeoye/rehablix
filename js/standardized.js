@@ -4,6 +4,7 @@
 (function () {
 let githubToken = '';
 let apiEndpoint = '';
+let lastWeight = 1; // the chosen model's quota weight (js/plan-tiers.js), for the usage report
 let currentUser = null;
 let generatedContent = '';
 let generatedToolName = '';
@@ -477,11 +478,11 @@ Requirements:
           throw new Error(`You've used your token budget for this window. It resets in about ${resetMins} minute(s).`);
         }
       }
-      if (!githubToken || !apiEndpoint) throw new Error('API credentials not loaded');
+      if (!window.RehablixModelChoice && (!githubToken || !apiEndpoint)) throw new Error('API credentials not loaded');
       const prompt = buildPrompt(toolName, includeGuides);
       const content = await callAIWithValidation(prompt, toolName, 1);
       if (currentUser && window.RehabPlanTiers) { // EMR UPGRADE (item 9)
-        window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlan, window.RehabPlanTiers.estimateTokens(prompt + content), 1).catch(() => {});
+        window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlan, window.RehabPlanTiers.estimateTokens(prompt + content), lastWeight).catch(() => {});
       }
 
       generatedContent = content;
@@ -503,16 +504,27 @@ Requirements:
     }
   }
 
+  // The AI model chosen on any page (js/model-choice.js); this page's own GPT-4.1 set-up if that is unavailable.
+  async function chosenModel() {
+    const c = window.RehablixModelChoice ? await window.RehablixModelChoice.resolve() : null;
+    if (c) return c;
+    if (!githubToken) { const t = await fetchTokens(); if (t) { githubToken = t.token; apiEndpoint = t.endpoint; } }
+    return githubToken ? { token: githubToken, endpoint: apiEndpoint, model: 'gpt-4.1', maxTokens: 20000, weight: 1 } : null;
+  }
+
   async function callAIWithValidation(prompt, toolName, attempt) {
-    const response = await fetch(`${apiEndpoint}/chat/completions`, {
+    const cfg = await chosenModel();
+    if (!cfg) throw new Error('AI service is not configured. Please try again later.');
+    lastWeight = cfg.weight || 1;
+    const response = await fetch(`${cfg.endpoint.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${githubToken}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.token}` },
       body: JSON.stringify({
         messages: [
           { role: 'system', content: 'You output clean HTML with proper tables. No extra text.' },
           { role: 'user', content: prompt }
         ],
-        model: 'gpt-4.1', temperature: 0.3, max_tokens: attempt === 1 ? 4000 : 5500
+        model: cfg.model, temperature: 0.3, max_tokens: Math.min(attempt === 1 ? 4000 : 5500, cfg.maxTokens || 5500)
       })
     });
 

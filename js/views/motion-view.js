@@ -307,9 +307,8 @@
     function refreshPatientHint() {
       const name = patientNameInput.value.trim().toLowerCase();
       const emr = name && emrPatients.find(p => p.name.toLowerCase() === name);
-      // EMR UPGRADE (item 4): surface the patient's reference number once linked.
       patientHint.textContent = emr
-        ? `✓ Linked to Smart EMR${emr.regNumber ? ' — ' + emr.regNumber : ''} — confirmed results will be filed in this patient’s record.`
+        ? `✓ Linked to Smart EMR — ${emr.name}. Confirmed results will be filed in this patient’s record.`
         : (emrPatients.length ? 'Choose a Smart EMR patient to file confirmed results in their record, or type a name.' : 'Type a name (Smart EMR patients appear here when available).');
       if (emr && !heightInput.value && emr.heightCm) heightInput.value = emr.heightCm;
     }
@@ -325,11 +324,9 @@
         emrScopeUid = uid;
         // Names/reg numbers only — the lightweight index, not full records.
         const allPatients = window.RehablixEmrStore ? await window.RehablixEmrStore.loadIndex(uid) : (await firebase.database().ref(`history/${uid}/patients`).once('value')).val();
-        emrPatients = Object.entries(allPatients || {}).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null, heightCm: p && (p.heightCm || p.height) ? Number(p.heightCm || p.height) || null : null })).filter(p => p.name);
-        // EMR UPGRADE (item 4): `label` shows the reg number alongside the
-        // name in the browser's autocomplete list; `value` stays just the
-        // name so selecting an option still fills the input the same way.
-        patientList.innerHTML = emrPatients.map(p => `<option value="${escapeHtml(p.name)}" label="${escapeHtml(p.name)}${p.regNumber ? ' (' + escapeHtml(p.regNumber) + ')' : ''}"></option>`).join('');
+        // (discharged patients are read-only, so new results are never filed in their record)
+        emrPatients = Object.entries(allPatients || {}).filter(([, p]) => p && p.active !== false).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null, heightCm: p && (p.heightCm || p.height) ? Number(p.heightCm || p.height) || null : null })).filter(p => p.name);
+        patientList.innerHTML = emrPatients.map(p => `<option value="${escapeHtml(p.name)}" label="${escapeHtml(p.name)}"></option>`).join('');
       } catch (err) { console.warn('[motion] could not load Smart EMR patients', err); }
     }
 

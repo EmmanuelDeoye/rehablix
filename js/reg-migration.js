@@ -89,7 +89,13 @@
 
   // Public entry point. `paths` — one path (string) or several (array) that
   // belong to the SAME page, checked together and offered as one prompt.
+  // Reference numbers are no longer shown (records are found and linked by
+  // the patient's name), so nobody is asked to backfill them. Set to true to
+  // bring the prompt back if reference numbers are shown again.
+  const PROMPT_ENABLED = false;
+
   async function checkAndPrompt(scopeUid, paths) {
+    if (!PROMPT_ENABLED) return;
     if (!scopeUid || !paths || !window.RehablixPatientReg) return;
     const list = Array.isArray(paths) ? paths : [paths];
     let groups;

@@ -1900,3 +1900,31 @@
 .ai-draft-tag { white-space: normal; }
 .emr-review-btn { margin-top: 0.4rem; }
 .summary-card .emr-review-btn { margin: 0 0.8rem 0.6rem; }
+
+/* Discharged patients: read-only record (js/views/emr-view.js LOCKED_CONTROLS) */
+.tag-gray { background: rgba(100, 116, 139, 0.14); color: #64748b; }
+.emr-locked-banner {
+  display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap;
+  margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 0.8rem;
+  border: 1px solid rgba(100, 116, 139, 0.35); background: rgba(100, 116, 139, 0.08);
+  color: var(--text-primary); font-size: 0.85rem;
+}
+.emr-locked-banner[hidden] { display: none; }
+.emr-locked-banner > .bx { font-size: 1.3rem; color: #64748b; }
+.emr-locked-text { flex: 1 1 220px; min-width: 0; }
+.emr-locked-banner .btn { flex: 0 0 auto; width: auto; font-size: 0.75rem; padding: 0.3rem 0.9rem; }
+#screen-patient.emr-locked :is(#editPatientBtn, #editIntakeBtn, #addProblemBtn, #generateProblemsBtn, .problem-edit, .problem-delete, .problem-save-btn,
+  #addSummaryBtn, #generateSummaryBtn, #generateInsightsBtn, #addTreatmentPlanBtn, #generateTreatmentPlanBtn, .plan-edit-btn, .plan-save-btn, .treatment-regenerate-btn,
+  #addNextSessionActivityBtn, #generateNextSessionBtn, #regenerateNextSessionBtn, #signNextSessionBtn, #endNextSessionPlanBtn,
+  .activity-edit-btn, .activity-delete-btn, .activity-save-btn, #addProgressBtn, #aiProgressBtn, #submitAiProgressAnswers,
+  .progress-edit-btn, .progress-delete-btn, #paneDischargeNew, #dischargePatientBtn, .emr-review-btn, .session-sign-btn,
+  .linked-record-link-btn, .linked-record-unlink-btn, .emr-edit-link) { display: none !important; }
+
+/* Signed sessions: who signed, when, and their remark */
+.session-signed-line { margin-top: 0.15rem; font-size: 0.72rem; color: var(--text-secondary); }
+.session-remark {
+  margin-top: 0.6rem; padding: 0.6rem 0.75rem; border-left: 3px solid var(--accent); border-radius: 0.4rem;
+  background: var(--accent-soft); font-size: 0.82rem; white-space: pre-wrap; color: var(--text-primary);
+}
+.session-remark-label { display: block; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; color: var(--accent); margin-bottom: 0.2rem; }
+.next-session-runs { font-size: 0.78rem; color: var(--text-secondary); margin: 0.2rem 0 0.8rem; }

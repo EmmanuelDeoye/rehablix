@@ -97,4 +97,10 @@ console.log('Firebase config loaded');
 // verifyPayment / webhook functions (rehablix-android/backend/functions) and
 // the draft database rules are deployed — both need owner approval first.
 window.REHABLIX_SERVER_BILLING = false;
+
+// AI keys kept on the server (js/server-ai.js). While false, the site reads the keys as it always has.
+// Set to true only AFTER aiChat, aiTranscribe, aiSpeak and liveToken are deployed (see
+// rehablix-android/backend/BACKEND-KEYS.md); then lock `tokens` in the rules and rotate the keys.
+window.REHABLIX_SERVER_AI = false;
+window.REHABLIX_AI_FUNCTIONS = 'https://us-central1-rehablix-ai.cloudfunctions.net';
 window.REHABLIX_BILLING_ENDPOINT = 'https://us-central1-rehablix-ai.cloudfunctions.net/verifyPayment';

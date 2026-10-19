@@ -1521,10 +1521,21 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     return pieces;
   }
 
+  // The narrative is written with the AI model chosen on any page (js/model-choice.js); this
+  // page's own GPT-4.1 set-up if that is unavailable. (Transcription itself is always Whisper.)
+  let narrativeWeight = 1;
+  async function narrativeModel() {
+    const c = window.RehablixModelChoice ? await window.RehablixModelChoice.resolve() : null;
+    if (c) return c;
+    if (!aiConfig.token) await loadAiConfig();
+    return aiConfig.token && aiConfig.endpoint ? { token: aiConfig.token, endpoint: aiConfig.endpoint, model: aiConfig.model, maxTokens: 20000, weight: 1 } : null;
+  }
+
   async function cleanupTranscript(rawText, professionalKey, onProgress) {
     if (!rawText || !rawText.trim()) return '';
-    if (!aiConfig.token) await loadAiConfig();
-    if (!aiConfig.token || !aiConfig.endpoint) return rawText;
+    const cfg = await narrativeModel();
+    if (!cfg) return rawText;
+    narrativeWeight = cfg.weight || 1;
 
     const professionalLabel = PROFESSIONAL_LABELS[professionalKey] || 'clinician';
     const systemPrompt = buildNarrativeSystemPrompt(professionalLabel);
@@ -1535,15 +1546,15 @@ Output ONLY the narrative text, as flowing paragraphs.`;
       if (onProgress) onProgress(i, pieces.length);
       try {
         if (!transcriptionAbortController) transcriptionAbortController = new AbortController();
-        const url = `${aiConfig.endpoint.replace(/\/$/, '')}/chat/completions`;
+        const url = `${cfg.endpoint.replace(/\/$/, '')}/chat/completions`;
         const response = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiConfig.token}` },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.token}` },
           body: JSON.stringify({
-            model: aiConfig.model,
+            model: cfg.model,
             // Linked patient's name / DOB / phone numbers are stripped locally first.
             messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: deidentify(pieces[i]) }],
-            max_tokens: 4000, temperature: 0.3
+            max_tokens: Math.min(4000, cfg.maxTokens || 4000), temperature: 0.3
           }),
           signal: transcriptionAbortController.signal
         });
@@ -1579,7 +1590,7 @@ Output ONLY the narrative text, as flowing paragraphs.`;
         const pct = 70 + Math.round(((i + 1) / total) * 25);
         updateProcessingProgress(pct, `Writing section ${i + 1} of ${total}…`);
       });
-      recordQuotaUsage(rawText + cleanedTranscript, 1);
+      recordQuotaUsage(rawText + cleanedTranscript, narrativeWeight);
     } catch (err) {
       if (err.name === 'AbortError') throw err; // cancelled — let the caller's catch handle it
       // Out of quota (or any other cleanup failure) — the raw transcript is
@@ -1972,8 +1983,9 @@ Output ONLY the narrative text, as flowing paragraphs.`;
       }
       // Names/reg numbers only — the lightweight index, not full records.
         const allPatients = window.RehablixEmrStore ? await window.RehablixEmrStore.loadIndex(uid) : (await firebase.database().ref(`history/${uid}/patients`).once('value')).val();
-      emrPatientsForLink = Object.entries(allPatients || {}).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null })).filter(p => p.name);
-      audioPatientList.innerHTML = emrPatientsForLink.map(p => `<option value="${escapeHtml(p.name)}" label="${escapeHtml(p.name)}${p.regNumber ? ' (' + escapeHtml(p.regNumber) + ')' : ''}"></option>`).join('');
+      // (discharged patients are read-only, so new records are never linked to them)
+      emrPatientsForLink = Object.entries(allPatients || {}).filter(([, p]) => p && p.active !== false).map(([id, p]) => ({ id, name: (p && p.name) || '', regNumber: (p && p.regNumber) || null })).filter(p => p.name);
+      audioPatientList.innerHTML = emrPatientsForLink.map(p => `<option value="${escapeHtml(p.name)}" label="${escapeHtml(p.name)}"></option>`).join('');
     } catch (err) { console.warn('[audio] could not load Smart EMR patients', err); }
   }
   function refreshAudioPatientMatch() {
@@ -1982,7 +1994,7 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     matchedEmrPatient = name ? emrPatientsForLink.find(p => p.name.toLowerCase() === name) || null : null;
     if (audioPatientHint) {
       audioPatientHint.textContent = matchedEmrPatient
-        ? `✓ Linked to Smart EMR${matchedEmrPatient.regNumber ? ' — ' + matchedEmrPatient.regNumber : ''}`
+        ? `✓ Linked to Smart EMR — ${matchedEmrPatient.name}`
         : '';
     }
     checkPreviousSessions();
@@ -2000,9 +2012,9 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     lastPrevSessionLookupId = matchedEmrPatient.id;
     if (!window.RehablixPatientReg || !scopeUid) return;
     try {
-      const query = matchedEmrPatient.regNumber || matchedEmrPatient.name;
+      const query = matchedEmrPatient.name;
       const sources = window.RehablixPatientReg.SEARCH_SOURCES.filter(s => s.path === 'audio');
-      const results = await window.RehablixPatientReg.findByRegOrName(scopeUid, query, sources);
+      const results = await window.RehablixPatientReg.findByRegOrName(scopeUid, query, sources, matchedEmrPatient.id);
       prevSessionsForPatient = results.filter(r => r.id !== firebaseAudioId);
       if (prevSessionsForPatient.length > 0) {
         const latest = prevSessionsForPatient[0];

@@ -55,7 +55,21 @@
   // An empty local cache on the first pass is handled by RTDB's retry: we
   // return null, the server rejects the stale hash and re-runs us with the
   // real value.
+  // ---------------------------------------------------------------------
+  // Discharged patients are read-only (by hand and by AI) until re-admitted.
+  // Every write below checks first, so no screen, tool or AI path can change
+  // a discharged record, wherever it is called from.
+  // ---------------------------------------------------------------------
+  const LOCKED_MSG = 'This patient has been discharged, so their record is read-only. Re-admit them to make changes.';
+  function isDischarged(p) { return !!p && p.active === false && p.status !== 'draft'; }
+  async function assertEditable(scope, pid) {
+    if (!scope || !pid) return;
+    const snap = await db().ref(`${patientPath(scope, pid)}/active`).once('value');
+    if (snap.val() === false) { const e = new Error(LOCKED_MSG); e.code = 'discharged'; throw e; }
+  }
+
   async function mutateList(scope, pid, field, fn, opts) {
+    await assertEditable(scope, pid);
     const ref = db().ref(`${patientPath(scope, pid)}/${field}`);
     let result;
     const res = await ref.transaction(cur => {
@@ -111,6 +125,7 @@
   // Transaction on a single object node (e.g. nextSessionPlan).
   // fn(obj|null) returns the new object, null to delete, or false to abort.
   async function mutateObject(scope, pid, field, fn, opts) {
+    await assertEditable(scope, pid);
     const ref = db().ref(`${patientPath(scope, pid)}/${field}`);
     let result;
     const res = await ref.transaction(cur => {
@@ -124,8 +139,99 @@
     return result == null ? true : result;
   }
 
-  function incrementSessionCount(scope, pid, delta) {
+  async function incrementSessionCount(scope, pid, delta) {
+    await assertEditable(scope, pid);
     return db().ref(`${patientPath(scope, pid)}/sessionCount`).transaction(cur => Math.max(0, (Number(cur) || 0) + delta));
+  }
+
+  // ---------------------------------------------------------------------
+  // Sessions. A patient's session count is always the number of entries in
+  // Previous Sessions (the hero, the tab, the patient list and the dashboard
+  // all show the same number); `sessionCount` is kept equal to it for older
+  // readers.
+  // ---------------------------------------------------------------------
+  function sessionCountOf(p) { return Object.keys((p && p.sessions) || {}).length; }
+
+  async function recountSessions(scope, pid) {
+    const snap = await db().ref(`${patientPath(scope, pid)}/sessions`).once('value');
+    const n = Object.keys(snap.val() || {}).length;
+    await db().ref(`${patientPath(scope, pid)}/sessionCount`).set(n);
+    return n;
+  }
+
+  function signStamp(remark) {
+    const a = actor();
+    return { signed: true, signedBy: a.name, signedByUid: a.uid, signedAt: new Date().toISOString(), remark: String(remark || '').trim() };
+  }
+
+  // One run of the Next Session Plan, signed by whoever ran it (the clinician
+  // or a team member) with their remark on how it went. It is added to
+  // Previous Sessions and counts as one session; the plan itself stays, so
+  // the same plan can be done (and signed) again and again.
+  async function signPlannedSession(scope, pid, remark) {
+    await assertEditable(scope, pid);
+    const planRef = db().ref(`${patientPath(scope, pid)}/nextSessionPlan`);
+    const plan = (await planRef.once('value')).val();
+    if (!plan) throw new Error('There is no session plan to sign. Create one first.');
+    const stamp = signStamp(remark);
+    if (!stamp.remark) throw new Error('Please write a remark on how the session went.');
+    const planText = (plan.activities || []).filter(Boolean).map((a, i) =>
+      `${i + 1}. [${a.timeFrame || 'N/A'}] ${a.title || 'Activity'}\nGoal: ${a.goal || 'N/A'}\n${a.details || ''}`
+    ).join('\n\n') || String(plan.plainText || '').trim();
+    const combined = `Plan:\n${planText || 'Not recorded'}\n\nHow the session went (${stamp.signedBy}):\n${stamp.remark}`;
+    const now = new Date();
+    const ref = db().ref(`${patientPath(scope, pid)}/sessions`).push();
+    const session = Object.assign({
+      id: ref.key,
+      date: now.toISOString().split('T')[0],
+      time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      type: plan.type || 'Follow-up Therapy Session',
+      therapist: stamp.signedBy,
+      timestamp: firebase.database.ServerValue.TIMESTAMP,
+      notes: combined, content: combined, plainText: combined,
+      problemIds: plan.problemIds || [],
+      treatmentPlanTitle: plan.treatmentPlanTitle || null,
+      planRun: (Number(plan.timesDone) || 0) + 1,
+      aiGenerated: !!plan.aiGenerated
+    }, stamp);
+    await ref.set(session);
+    await planRef.update({ timesDone: session.planRun, lastDoneAt: stamp.signedAt, lastDoneBy: stamp.signedBy });
+    await recountSessions(scope, pid);
+    audit(scope, pid, 'sign', `Session: ${session.type} (run ${session.planRun})`);
+    return session;
+  }
+
+  // Signs a session that is already in Previous Sessions (older unsigned
+  // notes) with the signer's remark.
+  async function signExistingSession(scope, pid, sessionId, remark) {
+    await assertEditable(scope, pid);
+    const stamp = signStamp(remark);
+    if (!stamp.remark) throw new Error('Please write a remark on how the session went.');
+    const ref = db().ref(`${patientPath(scope, pid)}/sessions/${sessionId}`);
+    const cur = (await ref.once('value')).val();
+    if (!cur) throw new Error('That session could not be found. It may have been removed.');
+    const base = String(cur.plainText || cur.notes || cur.content || '').trim();
+    const text = (base ? base + '\n\n' : '') + `How the session went (${stamp.signedBy}):\n${stamp.remark}`;
+    await ref.update(Object.assign({ notes: text, content: text, plainText: text }, stamp));
+    audit(scope, pid, 'sign', `Session: ${cur.type || 'Session'}`);
+    return true;
+  }
+
+  // ---------------------------------------------------------------------
+  // Discharge / re-admit
+  // ---------------------------------------------------------------------
+  async function dischargePatient(scope, pid) {
+    const a = actor();
+    await db().ref(patientPath(scope, pid)).update({ active: false, dischargedAt: new Date().toISOString(), dischargedBy: a.name, dischargedByUid: a.uid });
+    audit(scope, pid, 'discharge', 'Patient discharged (record locked)');
+  }
+
+  async function readmitPatient(scope, pid) {
+    const a = actor();
+    const ref = db().ref(patientPath(scope, pid));
+    const was = (await ref.child('dischargedAt').once('value')).val();
+    await ref.update({ active: true, dischargedAt: null, dischargedBy: null, dischargedByUid: null, lastDischargedAt: was || null, readmittedAt: new Date().toISOString(), readmittedBy: a.name, readmittedByUid: a.uid });
+    audit(scope, pid, 'readmit', 'Patient re-admitted (record unlocked)');
   }
 
   // ---------------------------------------------------------------------
@@ -181,18 +287,20 @@
 
   function indexEntryFrom(p) {
     if (!p) return null;
-    const pending = pendingOf(p);
+    // (a discharged record is read-only, so nothing in it is "pending")
+    const pending = isDischarged(p) ? [] : pendingOf(p);
     const e = {
       name: p.name || '', regNumber: p.regNumber || null, primaryDx: p.primaryDx || '',
       state: p.state || '', category: p.category || '', profession: p.profession || p.department || '',
       status: p.status || 'active', active: p.active !== false,
       createdAt: typeof p.createdAt === 'number' ? p.createdAt : (Date.parse(p.createdAt) || 0),
       updatedAt: Date.now(),
-      sessionCount: Object.keys(p.sessions || {}).length || Number(p.sessionCount) || 0,
+      sessionCount: sessionCountOf(p),
+      dischargedAt: p.active === false ? (p.dischargedAt || null) : null,
       pendingCount: pending.length,
       pendingNotes: pending.filter(x => x.kind === 'session').length,
       pending: pending.slice(0, 20),
-      painTrendUp: painTrendUp(p)
+      painTrendUp: !isDischarged(p) && painTrendUp(p)
     };
     const h = p.heightCm || p.height;
     if (h) e.heightCm = Number(h) || null;
@@ -268,6 +376,8 @@
   window.RehablixEmrStore = {
     toArray, newId, fingerprint, locate,
     mutateList, addItem, updateItem, removeItem, replaceUnreviewedAI, mutateObject, incrementSessionCount,
+    LOCKED_MSG, isDischarged, assertEditable,
+    sessionCountOf, recountSessions, signPlannedSession, signExistingSession, dischargePatient, readmitPatient,
     actor, reviewStamp, isUnreviewedAI, audit, reviewBadge,
     indexEntryFrom, updateIndex, loadIndex, allocateRegNumber
   };

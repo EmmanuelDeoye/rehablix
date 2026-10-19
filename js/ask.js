@@ -77,9 +77,10 @@
   // Vision-capable model (GPT-4.1 via GitHub Models marketplace) – used when
   // an image or a video (sampled as frames) is attached.
   let visionConfig = { token: null, endpoint: null, model: 'gpt-4.1' };
-  // Which of the 4 named models (js/plan-tiers.js) the user picked in the
-  // composer — persisted across sessions like the theme preference.
-  let selectedModelId = localStorage.getItem('rehab-lixa-model') || 'corpus101';
+  // Which of the 4 named models (js/plan-tiers.js) the user picked — the one
+  // choice every page shares (js/model-choice.js; only a model the plan
+  // unlocks), persisted across sessions like the theme preference.
+  let selectedModelId = window.RehablixModelChoice ? window.RehablixModelChoice.id() : (localStorage.getItem('rehab-lixa-model') || 'corpus101');
 
   let currentConversationId = null;
   let conversationTitle = null;
@@ -850,11 +851,18 @@ ${window.RehablixKnowledge ? window.RehablixKnowledge.text('web') : ''}`;
         showToast(`${model.label} requires the ${tiers.PLAN_LABELS[model.minPlan]} plan or higher. Upgrade to unlock it.`, 'error', 4500);
         return;
       }
+      // (the same choice for every page: js/model-choice.js tells the other pickers)
+      if (window.RehablixModelChoice) { if (!window.RehablixModelChoice.set(modelId, { quiet: true })) return; }
+      else localStorage.setItem('rehab-lixa-model', modelId);
       selectedModelId = modelId;
-      localStorage.setItem('rehab-lixa-model', modelId);
       updateModelPickerLabel();
       closeModelPicker();
     });
+
+    // a model chosen on another page (or another tab), or a plan change
+    if (window.RehablixModelChoice) {
+      cleanupFns.push(window.RehablixModelChoice.onChange(id => { selectedModelId = id; updateModelPickerLabel(); }));
+    }
 
     const onDocClickCloseModelPicker = (e) => {
       if (!modelPickerPopup.hidden && !modelPickerPopup.contains(e.target) && e.target !== modelPickerBtn && !modelPickerBtn.contains(e.target)) closeModelPicker();

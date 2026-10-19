@@ -91,6 +91,7 @@
   <link rel="stylesheet" href="css/bottom-nav.css">
   <link rel="stylesheet" href="css/ask.css">
   <link rel="stylesheet" href="css/lixa.css">
+  <link rel="stylesheet" href="css/model-choice.css">
   <link rel="stylesheet" href="css/workspace.css">
   <link rel="stylesheet" href="css/format.css">
   <link rel="stylesheet" href="css/standardized.css">
@@ -239,6 +240,8 @@
 
   <!-- Scripts -->
   <script src="js/config.js" defer></script>
+  <!-- AI keys kept on the server (off until window.REHABLIX_SERVER_AI is switched on). Before ai-transport.js. -->
+  <script src="js/server-ai.js" defer></script>
   <!-- Must load before any AI code: DeepSeek reliability + OpenAI fallback/web-search routing. -->
   <script src="js/ai-transport.js" defer></script>
   <!-- De-identifies patient data before any AI request (EMR, Audio Coach, Lixa). -->
@@ -266,6 +269,7 @@
        standalone router view that can mount before Lixa ever has, so it
        calls this shared module directly instead. -->
   <script src="js/ai-quota-core.js" defer></script>
+  <script src="js/model-choice.js" defer></script>
   <script src="js/plan.js" defer></script>
   <script src="js/handoff.js" defer></script>
   <!-- Shared clinical-context builder for a Smart EMR patient — used by

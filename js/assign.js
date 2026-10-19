@@ -576,20 +576,32 @@ The final text must read like a specific, thoughtful student wrote it for this s
   // =========================================================================
   // MULTI-PASS AI GENERATION v2.1
   // =========================================================================
+  // The AI model chosen on any page (js/model-choice.js); this page's own DeepSeek set-up if that is unavailable.
+  let lastWeight = 1; // the chosen model's quota weight (js/plan-tiers.js), for the usage report
+  async function chosenModel() {
+    const c = window.RehablixModelChoice ? await window.RehablixModelChoice.resolve() : null;
+    if (c) return c;
+    if (!aiConfig.token && !(await fetchTokens())) return null;
+    return { token: aiConfig.token, endpoint: aiConfig.endpoint, model: aiConfig.model, maxTokens: 9000, weight: 1 };
+  }
+
   async function callAIWithCancel(systemPrompt, userPrompt, maxTokens, temp, topP, freqPenalty, presPenalty) {
-    const response = await fetch(`${aiConfig.endpoint}/chat/completions`, {
+    const cfg = await chosenModel();
+    if (!cfg) throw new Error('AI service not configured. Please try again later.');
+    lastWeight = cfg.weight || 1;
+    const response = await fetch(`${cfg.endpoint.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${aiConfig.token}`
+        'Authorization': `Bearer ${cfg.token}`
       },
       body: JSON.stringify({
-        model: aiConfig.model,
+        model: cfg.model,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        max_tokens: maxTokens,
+        max_tokens: Math.min(maxTokens, cfg.maxTokens || maxTokens),
         temperature: temp,
         top_p: topP,
         frequency_penalty: freqPenalty,
@@ -647,12 +659,9 @@ The final text must read like a specific, thoughtful student wrote it for this s
       return;
     }
 
-    if (!aiConfig.token) {
-      const ok = await fetchTokens();
-      if (!ok) {
-        showToast('AI service not configured. Please try again later.', 'error');
-        return;
-      }
+    if (!(await chosenModel())) {
+      showToast('AI service not configured. Please try again later.', 'error');
+      return;
     }
 
     isGenerating = true;
@@ -754,7 +763,7 @@ Return ONLY the polished HTML. No markdown fences.`;
       generatedHtml = content;
       if (currentUser && window.RehabPlanTiers) { // EMR UPGRADE (item 9) — approximates the 3-pass pipeline's cost from the final output length
         const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free';
-        window.RehabPlanTiers.consumeQuota(currentUser.uid, plan, window.RehabPlanTiers.estimateTokens(generatedHtml) * 3, 1).catch(() => {});
+        window.RehabPlanTiers.consumeQuota(currentUser.uid, plan, window.RehabPlanTiers.estimateTokens(generatedHtml) * 3, lastWeight).catch(() => {});
       }
 
       // Score the output

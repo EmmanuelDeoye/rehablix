@@ -67,6 +67,9 @@
   text-align: center;
 }
 
+/* No theme button in the navbar on the Lixa chat page (the theme still changes on every other page). */
+body[data-route="lixa"] #themeToggle { display: none !important; }
+
 /* ===== Model picker (composer) ===== */
 .model-picker-btn {
   display: inline-flex;

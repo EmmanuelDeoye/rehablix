@@ -64,13 +64,15 @@
     return isNaN(d.getTime()) ? String(v) : (String(v).includes('/') ? v : d.toLocaleDateString());
   }
 
-  // Reads one source's node and returns matches for `query` (either an
-  // exact reg-number match or a substring name match). `sourcePath` lets a
-  // caller search only its own tools (e.g. Motion only needs its own three
-  // nodes) instead of every source every time.
-  async function findByRegOrName(scopeUid, query, sources) {
+  // Reads one source's node and returns matches for `query` (a substring of
+  // the patient's name; an exact reg number still matches older records).
+  // `patientId` (optional, the Smart EMR patient id) also matches records
+  // that were linked to that patient when they were saved, whatever name
+  // they were saved under. `sources` lets a caller search only its own
+  // tools (e.g. Motion only needs its own three nodes).
+  async function findByRegOrName(scopeUid, query, sources, patientId) {
     const q = String(query || '').trim().toLowerCase();
-    if (!scopeUid || !q) return [];
+    if (!scopeUid || (!q && !patientId)) return [];
     const list = sources || SEARCH_SOURCES;
     const resultsBySource = await Promise.all(list.map(async (src) => {
       try {
@@ -82,7 +84,7 @@
             if (!item) return null;
             const name = String(item[src.nameField] || '').toLowerCase();
             const reg = String(item[src.regField] || '').toLowerCase();
-            const isMatch = (reg && reg === q) || (name && name.includes(q));
+            const isMatch = (patientId && item.emrPatientId === patientId) || (q && ((reg && reg === q) || (name && name.includes(q))));
             if (!isMatch) return null;
             return {
               source: src.path, id, type: src.type,

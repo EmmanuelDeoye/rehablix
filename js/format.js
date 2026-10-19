@@ -7,6 +7,7 @@
 // view DOM, only plain values/localStorage).
 let githubToken = '';
 let apiEndpoint = '';
+let lastWeight = 1; // the chosen model's quota weight (js/plan-tiers.js), for the usage report
 let currentUser = null;
 let historyItems = [];
 let currentPlan = 'free';
@@ -668,7 +669,7 @@ Return ONLY the HTML.`;
       showToast(`⚠️ You've reached your ${FREE_MONTHLY_LIMIT} generation limit for this month. Upgrade to Student or Pro for unlimited access. Resets in ${daysLeft} days.`, true, 6000);
       return;
     }
-    if (!githubToken || !apiEndpoint) {
+    if (!window.RehablixModelChoice && (!githubToken || !apiEndpoint)) {
       showToast('API credentials not loaded. Please refresh and try again.', true);
       return;
     }
@@ -723,7 +724,7 @@ Return ONLY the HTML.`;
       const prompt = buildPrompt(formData);
       const html = await callAIWithValidation(prompt, 1);
       if (currentUser && window.RehabPlanTiers) { // EMR UPGRADE (item 9)
-        window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlan, window.RehabPlanTiers.estimateTokens(prompt + html), 1).catch(() => {});
+        window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlan, window.RehabPlanTiers.estimateTokens(prompt + html), lastWeight).catch(() => {});
       }
 
       window.currentGeneratedText = html;
@@ -754,18 +755,29 @@ Return ONLY the HTML.`;
     }
   });
 
+  // The AI model chosen on any page (js/model-choice.js); this page's own GPT-4.1 set-up if that is unavailable.
+  async function chosenModel() {
+    const c = window.RehablixModelChoice ? await window.RehablixModelChoice.resolve() : null;
+    if (c) return c;
+    if (!githubToken) { const t = await fetchTokens(); if (t) { githubToken = t.token; apiEndpoint = t.endpoint; } }
+    return githubToken ? { token: githubToken, endpoint: apiEndpoint, model: 'gpt-4.1', maxTokens: 20000, weight: 1 } : null;
+  }
+
   async function callAIWithValidation(prompt, attempt) {
-    const response = await fetch(`${apiEndpoint}/chat/completions`, {
+    const cfg = await chosenModel();
+    if (!cfg) throw new Error('AI service is not configured. Please try again later.');
+    lastWeight = cfg.weight || 1;
+    const response = await fetch(`${cfg.endpoint.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${githubToken}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.token}` },
       body: JSON.stringify({
         messages: [
           { role: 'system', content: 'You are a senior rehabilitation therapist. You always return clean, printable HTML forms. Never use Markdown or code fences.' },
           { role: 'user', content: prompt }
         ],
-        model: 'gpt-4.1',
+        model: cfg.model,
         temperature: 0.7,
-        max_tokens: attempt === 1 ? 4000 : 5500
+        max_tokens: Math.min(attempt === 1 ? 4000 : 5500, cfg.maxTokens || 5500)
       })
     });
 

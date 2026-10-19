@@ -64,32 +64,40 @@
         <div class="lxa-chip lxa-page"><i class="fas fa-comment-dots"></i><span></span></div>
         <button type="button" class="lxa-round" data-act="close" aria-label="Close Lixa Agent" title="Close"><i class="fas fa-times"></i></button>
       </div>
-      <div class="lxa-modes">
-        <div class="lxa-switch" role="group" aria-label="How Lixa talks">
-          <button type="button" data-act="standard" aria-pressed="true">Standard</button>
-          <button type="button" data-act="live" aria-pressed="false"><i class="fas fa-bolt"></i> Live</button>
+      <!-- Three columns on a desktop (the controls left, Lixa in the middle, cards and panels right);
+           on a phone the columns melt into one (display: contents) in the usual order. -->
+      <div class="lxa-left">
+        <div class="lxa-modes">
+          <div class="lxa-switch" role="group" aria-label="How Lixa talks">
+            <button type="button" data-act="standard" aria-pressed="true">Standard</button>
+            <button type="button" data-act="live" aria-pressed="false"><i class="fas fa-bolt"></i> Live</button>
+          </div>
+          <span class="lxa-miclive" role="status" hidden><span class="lxa-dot"></span>Mic live</span>
         </div>
-        <span class="lxa-miclive" role="status" hidden><span class="lxa-dot"></span>Mic live</span>
-      </div>
-      <div class="lxa-mode" hidden><i class="fas"></i><span class="lxa-mode-label"></span><span class="lxa-mode-score"></span><button type="button" data-act="endmode">End</button></div>
-      <div class="lxa-stage">
-        <div class="lxa-figure">
-          <div class="lxa-working" hidden></div>
-          <canvas class="lxa-canvas" aria-label="Lixa"></canvas>
+        <div class="lxa-mode" hidden><i class="fas"></i><span class="lxa-mode-label"></span><span class="lxa-mode-score"></span><button type="button" data-act="endmode">End</button></div>
+        <div class="lxa-controls">
+          <button type="button" class="lxa-ctl" data-act="settings" aria-label="Voice settings" title="Settings"><i class="fas fa-sliders-h"></i></button>
+          <button type="button" class="lxa-ctl" data-act="type" aria-label="Type instead" title="Type"><i class="fas fa-keyboard"></i></button>
+          <button type="button" class="lxa-mic" data-act="mic" aria-label="Talk to Lixa"><i class="fas fa-microphone"></i></button>
+          <button type="button" class="lxa-ctl" data-act="skip" aria-label="Skip this sentence" title="Skip"><i class="fas fa-forward"></i></button>
+          <button type="button" class="lxa-ctl" data-act="details" aria-label="Show details" title="Details"><i class="fas fa-list"></i></button>
         </div>
-        <div class="lxa-panel lxa-settings" hidden></div>
-        <div class="lxa-panel lxa-details" hidden><div class="lxa-panel-head"><b>Details</b><button type="button" data-act="closepanel" aria-label="Close details"><i class="fas fa-times"></i></button></div><div class="lxa-details-body"></div></div>
       </div>
-      <div class="lxa-cards"></div>
-      <div class="lxa-caption"><span class="lxa-who">You</span><span class="lxa-heard"></span></div>
-      <div class="lxa-hint" aria-live="polite"></div>
-      <form class="lxa-type" hidden><input type="text" placeholder="Type to Lixa…" aria-label="Type to Lixa" autocomplete="off"><button type="submit" aria-label="Send"><i class="fas fa-paper-plane"></i></button></form>
-      <div class="lxa-controls">
-        <button type="button" class="lxa-ctl" data-act="settings" aria-label="Voice settings" title="Settings"><i class="fas fa-sliders-h"></i></button>
-        <button type="button" class="lxa-ctl" data-act="type" aria-label="Type instead" title="Type"><i class="fas fa-keyboard"></i></button>
-        <button type="button" class="lxa-mic" data-act="mic" aria-label="Talk to Lixa"><i class="fas fa-microphone"></i></button>
-        <button type="button" class="lxa-ctl" data-act="skip" aria-label="Skip this sentence" title="Skip"><i class="fas fa-forward"></i></button>
-        <button type="button" class="lxa-ctl" data-act="details" aria-label="Show details" title="Details"><i class="fas fa-list"></i></button>
+      <div class="lxa-center">
+        <div class="lxa-stage">
+          <div class="lxa-figure">
+            <div class="lxa-working" hidden></div>
+            <canvas class="lxa-canvas" aria-label="Lixa"></canvas>
+          </div>
+          <div class="lxa-panel lxa-settings" hidden></div>
+          <div class="lxa-panel lxa-details" hidden><div class="lxa-panel-head"><b>Details</b><button type="button" data-act="closepanel" aria-label="Close details"><i class="fas fa-times"></i></button></div><div class="lxa-details-body"></div></div>
+        </div>
+        <div class="lxa-caption"><span class="lxa-who">You</span><span class="lxa-heard"></span></div>
+        <div class="lxa-hint" aria-live="polite"></div>
+        <form class="lxa-type" hidden><input type="text" placeholder="Type to Lixa…" aria-label="Type to Lixa" autocomplete="off"><button type="submit" aria-label="Send"><i class="fas fa-paper-plane"></i></button></form>
+      </div>
+      <div class="lxa-right">
+        <div class="lxa-cards"></div>
       </div>`;
     document.body.appendChild(root);
     avatar = new window.LixaAgentAvatar(root.querySelector('.lxa-canvas'));
@@ -102,6 +110,22 @@
     };
 
     if ('ResizeObserver' in window) new ResizeObserver(fitFigure).observe(root.querySelector('.lxa-stage'));
+    // Desktop: three columns, and the settings / details panels sit in the right
+    // column beside Lixa instead of over her. Phone: they open over the stage.
+    const desk = window.matchMedia ? window.matchMedia('(min-width: 1024px) and (min-height: 560px)') : null;
+    const arrange = () => {
+      const on = !!(desk && desk.matches);
+      root.classList.toggle('lxa-desktop', on);
+      const home = root.querySelector(on ? '.lxa-right' : '.lxa-stage');
+      ['.lxa-settings', '.lxa-details'].forEach(sel => {
+        const p = root.querySelector(sel);
+        if (!p || p.parentNode === home) return;
+        if (on) home.insertBefore(p, home.firstChild); else home.appendChild(p);
+      });
+      fitFigure();
+    };
+    if (desk) { if (desk.addEventListener) desk.addEventListener('change', arrange); else if (desk.addListener) desk.addListener(arrange); }
+    arrange();
     root.addEventListener('click', onClick);
     root.querySelector('.lxa-canvas').addEventListener('click', () => {
       if (!session) return;
@@ -198,7 +222,9 @@
   function fitFigure() {
     if (!root || root.hidden) return;
     const stage = root.querySelector('.lxa-stage'), fig = root.querySelector('.lxa-figure');
-    const w = Math.max(60, Math.min(stage.clientWidth, 560, stage.clientHeight * 1736 / 1024));
+    // (the desktop's middle column has room for a much bigger Lixa)
+    const cap = root.classList.contains('lxa-desktop') ? 900 : 560;
+    const w = Math.max(60, Math.min(stage.clientWidth, cap, stage.clientHeight * 1736 / 1024));
     fig.style.width = Math.floor(w) + 'px';
     fig.style.height = Math.floor(w * 1024 / 1736) + 'px';
   }
@@ -206,6 +232,14 @@
   // ------------------------------------------------------------------ drawing the state
   function seg(key, options, current) {
     return '<div class="lxa-seg">' + options.map(([val, label]) => `<button type="button" data-act="set" data-key="${key}" data-val="${val}" class="${String(current) === val ? 'on' : ''}">${label}</button>`).join('') + '</div>';
+  }
+
+  // The settings panel is only rebuilt when what it shows changes (so the model
+  // picker's popup keeps its place); the shared model picker goes in its slot.
+  function setSettings(el, html) {
+    if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+    const slot = el.querySelector('.lxa-model-slot');
+    if (slot && !slot.firstChild && window.RehablixModelChoice) slot.appendChild(window.RehablixModelChoice.chip());
   }
 
   function render() {
@@ -230,15 +264,17 @@
     // settings
     const settings = root.querySelector('.lxa-settings');
     settings.hidden = panel !== 'settings';
-    if (panel === 'settings') settings.innerHTML =
+    if (panel === 'settings') setSettings(settings,
       `<div class="lxa-row"><span>Voice answers</span>${seg('short', [['0', 'Full'], ['1', 'Short']], session.shortAnswers ? '1' : '0')}</div>` +
       `<div class="lxa-row"><span>Mute Lixa's voice</span>${seg('muted', [['0', 'Off'], ['1', 'On']], session.muted ? '1' : '0')}</div>` +
       `<div class="lxa-row"><span>Accent</span>${seg('accent', [['us', 'US'], ['gb', 'UK'], ['au', 'AU'], ['in', 'India']], session.accent)}</div>` +
+      (window.RehablixModelChoice ? `<div class="lxa-row"><span>AI model${session.live ? ' (Standard)' : ''}</span><span class="lxa-model-slot"></span></div>` +
+        `<p class="lxa-small">The same model on every page: changing it here changes it in Lixa chat and the tools too.${session.live ? ' Live always talks with Gemini Live.' : ''}</p>` : '') +
       `<div class="lxa-row"><span>Ask before changes</span>${seg('confirm', [['1', 'On'], ['0', 'Off']], session.autoApprove ? '0' : '1')}</div>` +
       `<p class="lxa-small${session.autoApprove ? ' lxa-danger' : ''}">${session.autoApprove ? 'Off: Lixa creates, edits and deletes as soon as you ask, without a Confirm card. Turn it back on any time.' : 'On: Lixa shows a Confirm card before she creates, edits or deletes anything.'}</p>` +
       (session.live ? `<div class="lxa-row"><span>Live voice</span>${seg('livevoice', window.LixaAgentLive.VOICES.map(([n, sound]) => [n, n + ' · ' + sound]), session.live.voice)}</div>` +
         `<p class="lxa-small">Live minutes: ${esc(session.live.usage || (B().plan() === 'free' ? 'paid plans only' : '…'))}. In Live you can talk over her any time; Standard waits until she has finished.</p>` : '') +
-      (window.LixaAgentSession.canListen ? '' : `<p class="lxa-small">This browser can't listen. Use Chrome, Edge or Safari to talk to her, or type.</p>`);
+      (window.LixaAgentSession.canListen ? '' : `<p class="lxa-small">This browser can't listen. Use Chrome, Edge or Safari to talk to her, or type.</p>`));
 
     // details
     const details = root.querySelector('.lxa-details');
