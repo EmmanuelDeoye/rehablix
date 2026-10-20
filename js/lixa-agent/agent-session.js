@@ -108,7 +108,9 @@
       if (this.live) this.live.release();
       this.stop();
       this.handsFree = false;
+      this.stopRest();
       this.stopRecog();
+      if (this.restCtx) { try { this.restCtx.close(); } catch (e) { /* ignore */ } this.restCtx = null; }
     }
 
     // ------------------------------------------------------------------ patients' identifiers (never said aloud by the cloud voice)
@@ -137,6 +139,7 @@
       this.stop();
       this.micDenied = false;                 // (a tap on the mic tries the microphone again)
       this.handsFree = true;
+      this.stopRest();                        // (a tap means the user is about to speak: the recogniser starts at once)
       this.set({ note: null });
       this.setState('Listening');
       this.syncEars();
@@ -159,7 +162,8 @@
     syncEars() {
       const want = this.wantedEars();
       if (want !== this.ears) { this.ears = want; this.said = ''; clearTimeout(this.holdTimer); }
-      if (want === 'off') this.stopRecog(); else this.startRecog();
+      if (want !== 'listen') this.stopRest();
+      if (want === 'off') this.stopRecog(); else if (!this.resting) this.startRecog();
       this.view.listening = want === 'listen';
     }
     startRecog() {
@@ -170,7 +174,7 @@
       // (Chrome on Android repeats earlier words in "continuous" mode — the caption showed words said once several times —
       // so there it listens one sentence at a time and starts again by itself, as the Lixa chat's mic does)
       r.continuous = !ANDROID; r.interimResults = true; r.maxAlternatives = 1;
-      r.onresult = e => this.onResult(e);
+      r.onresult = e => { r.heard = true; this.onResult(e); };
       r.onerror = e => {
         const noMic = e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'audio-capture';
         if (noMic) {
@@ -184,12 +188,69 @@
         if (this.recog !== r) return;
         this.recog = null;
         // (browsers end a session after a while of silence or on errors: it starts again while it is still wanted)
-        if (this.wantedEars() !== 'off') setTimeout(() => { if (!this.recog && this.wantedEars() !== 'off') this.startRecog(); }, 250);
+        if (this.wantedEars() === 'off') return;
+        // (on Android, nobody spoke in that session: she rests, without the recogniser and its tones, until somebody does)
+        if (ANDROID && !r.heard && this.ears === 'listen' && !this.said) { this.rest(); return; }
+        this.restartRecogSoon();
       };
       this.recog = r;
       try { r.start(); } catch (e) { this.recog = null; }
     }
     stopRecog() { const r = this.recog; this.recog = null; if (r) { try { r.abort(); } catch (e) { /* ignore */ } } }
+    restartRecogSoon(ms) { setTimeout(() => { if (!this.recog && !this.resting && this.wantedEars() !== 'off') this.startRecog(); }, ms || 250); }
+
+    // ------------------------------------------------------------------ resting (no tones while nobody speaks)
+    // Chrome on Android plays a tone each time its recogniser starts and stops, and with nobody speaking a session
+    // ends after a few seconds and has to be started again: a tone every few seconds in a quiet room (a page cannot
+    // mute it). So after a silent session she rests: the microphone is only read for its loudness (no recogniser, no
+    // tone, nothing sent anywhere), and the recogniser starts the moment somebody begins to speak.
+    rest() {
+      if (this.resting || this.released) return;
+      const md = navigator.mediaDevices;
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!md || !md.getUserMedia || !Ctx) { this.restartRecogSoon(); return; }
+      this.resting = true;
+      const token = this.restToken = {};
+      md.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false } }).then(stream => {
+        if (this.restToken !== token) { stream.getTracks().forEach(t => t.stop()); return; }
+        const ctx = this.restCtx || (this.restCtx = new Ctx());
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        const src = ctx.createMediaStreamSource(stream);
+        const an = ctx.createAnalyser(); an.fftSize = 1024; src.connect(an);
+        const buf = new Float32Array(an.fftSize);
+        this.restStream = stream; this.restSrc = src;
+        let floor = -55, frames = 0;
+        const recent = [];
+        this.restTimer = setInterval(() => {
+          an.getFloatTimeDomainData(buf);
+          let sum = 0;
+          for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+          const db = 10 * Math.log10(sum / buf.length + 1e-12);
+          // the first fifth of a second only measures the room
+          if (++frames <= 7) { floor += 0.5 * (db - floor); return; }
+          const loud = db > floor + 9 && db > -50;
+          if (!loud) floor += (db < floor ? 0.3 : 0.02) * (db - floor);
+          recent.push(loud); if (recent.length > 8) recent.shift();
+          // a voice: loud for about 150 ms of the last 240 ms (a click or a knock is shorter)
+          if (recent.filter(Boolean).length >= 5) this.wake();
+        }, 30);
+      }, () => {
+        // (the microphone can't be read this way: the recogniser as before)
+        if (this.restToken === token) { this.resting = false; this.restToken = null; this.restartRecogSoon(); }
+      });
+    }
+    /** Somebody began to speak while she rested: the recogniser takes over (once the microphone is let go). */
+    wake() {
+      if (!this.resting) return;
+      this.stopRest();
+      this.restartRecogSoon(150);
+    }
+    stopRest() {
+      this.resting = false; this.restToken = null;
+      clearInterval(this.restTimer); this.restTimer = null;
+      if (this.restSrc) { try { this.restSrc.disconnect(); } catch (e) { /* ignore */ } this.restSrc = null; }
+      if (this.restStream) { this.restStream.getTracks().forEach(t => { try { t.stop(); } catch (e) { /* ignore */ } }); this.restStream = null; }
+    }
 
     onResult(e) {
       let finals = '', interim = '';
