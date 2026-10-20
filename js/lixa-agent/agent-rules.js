@@ -328,7 +328,7 @@
   const APP = new RegExp(
     "\\b(open(?!-)|opening|go to|goto|take me to|navigate|launch|bring up|show me (my|all my|the (patient|file|note|project|record|document|chat|page|screen|list)s?\\b)|list (my|all my)|" +
     "(find|search|look up|look for|look through|search for) (my|our|the (patient|file|note|project|record|document|chat)s?\\b)|search (in|through)|" +
-    "(create|generate|draft) (a|an|the|my|some|me|it|this|that)\\b|make (a|an|the|my|some|me a|me an)\\b|write (a|an|me|the|my) (note|report|document|plan|format|summary|letter|deck|presentation|assignment|progress)|" +
+    "fill (in|out|it|this)\\b|type (it|this|that|in|into|the|my)\\b|paste|press (the|it|generate|start|ok|next|save|continue)\\b|tap (the|on)\\b|click|(the|this|that) (form|box|field|button)\\b|write (it|this|that) (in|into)\\b|put (it|this|that) (in|into)\\b|(create|generate|draft) (a|an|the|my|some|me|it|this|that)\\b|make (a|an|the|my|some|me a|me an)\\b|write (a|an|me|the|my) (note|report|document|plan|format|summary|letter|deck|presentation|assignment|progress)|" +
     "delete|remove (it|this|that|my|all|these|those)\\b|export|download|share (it|this|that|my)|send (it|this|that|my)|save (it|this|that|my)|upload|attach|undo|clear the|change the (theme|workspace)|set (the )?(theme|mode)|switch (to|the|my|workspace)|" +
     "dark mode|light mode|my (patients?|files?|projects?|notes?|documents?|history|chats?|decks?|recordings?|results?|reports?|sets?|workspace|account|plan|subscription)|" +
     "this (page|screen|section|chapter|tab|patient|project|file|document)|on (the |my )?screen|the (patient|project) (list|record)|chapter \\w+|section \\w+|" +

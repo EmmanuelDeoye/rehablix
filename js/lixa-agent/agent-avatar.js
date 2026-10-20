@@ -231,7 +231,8 @@
       // the sound being said (from the words): how open, round or spread, and lips shut for m/b/p whatever the loudness
       const vis = speakingMouth && P.viseme >= 0 && P.viseme < VISEMES.length ? VISEMES[P.viseme] : null;
       const open = vis ? Math.min(1, o * vis[0]) : o;
-      let hw = REST.hw, up = REST.up, lo = REST.lo, my = REST.y, round = 0, roundSize = 1;
+      let hw = REST.hw, up = REST.up, lo = REST.lo, my = REST.y, round = 0;
+      const roundSize = 1;
       if (state === 'Listening' && feel === 'neutral') { hw = LISTEN.hw; up = LISTEN.up; lo = LISTEN.lo; my = LISTEN.y; }
       const img = 0;
       if (state === 'Success') { hw = 166; up = 34; lo = 238; my = 552; }               // wide and happy
@@ -250,13 +251,16 @@
         if (vis) {
           const shut = vis[2];          // m, b, p: the lips pressed together, a little wider and flatter than at rest
           if (shut > 0) { hw += (74 - hw) * shut; up += (10 - up) * shut; lo += (20 - lo) * shut; my += (574 - my) * shut; }
-          if (vis[3] > 0) { round = Math.max(round, vis[3] * (0.35 + 0.65 * Math.min(1, o / 0.35))); roundSize = vis[4]; }   // "o", "oo"
+          // "o", "oo": the same mouth rounds (narrower, the upper lip lifting; smaller for "oo"), so nothing is laid over
+          // her mouth (an oval drawn on top of it showed as a second mouth)
+          const r = vis[3] * (0.35 + 0.65 * Math.min(1, o / 0.35));
+          if (r > 0) { const size = vis[4]; hw += (34 + 30 * size - hw) * r; up += (-(55 + 35 * open) * size - up) * r; lo += ((90 + 70 * open) * size - lo) * r; }
         }
       }
       this.mHalfW = approach(this.mHalfW, hw, dt, 14 * fast); this.mUpper = approach(this.mUpper, up, dt, 20 * fast);
       this.mLower = approach(this.mLower, lo, dt, 20 * fast); this.mY = approach(this.mY, my, dt, 14 * fast);
       this.mRound = approach(this.mRound, round, dt, 18 * fast); this.mImage = approach(this.mImage, img, dt, 12 * fast);
-      this.mRoundSize = approach(this.mRoundSize, roundSize * (speakingMouth ? 0.8 + 0.4 * open : 1), dt, 16 * fast);
+      this.mRoundSize = approach(this.mRoundSize, roundSize, dt, 16 * fast);
 
       // arms: whole sprites cross-faded, one arm at a time while speaking
       if (speaking) {

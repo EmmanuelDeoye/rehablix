@@ -444,7 +444,7 @@
             this.stillTimer = setTimeout(still, STILL_FIRST_MS);
           },
           onToolEnd: () => { clearTimeout(this.stillTimer); this.set({ status: 'Thinking…' }); if (this.state === 'Working') this.setState('Thinking'); },
-          confirm: text => this.askToConfirm(text),
+          confirm: (text, tapOnly) => this.askToConfirm(text, tapOnly ? text.replace(/\?$/, '') + '? This can\'t be undone: tap Confirm if you want me to go ahead.' : null, false, tapOnly),
           approvePlan: steps => this.askToStart(steps),
           onPlanProgress: steps => this.set({ plan: { steps: steps.map(s => Object.assign({}, s)), awaiting: false } })
         }, signal, this.found);
@@ -534,12 +534,13 @@
       });
     }
 
-    askToConfirm(text, spoken, isPlan) {
+    askToConfirm(text, spoken, isPlan, tapOnly) {
       // (confirmations turned off: it goes ahead, as if the user had tapped Confirm)
       if (this.autoApprove && !isPlan) return Promise.resolve(true);
       return new Promise(resolve => {
         this.confirmResolve = resolve;
-        this.set({ confirm: { text, plan: !!isPlan } });
+        // tapOnly: a change that cannot be undone; a spoken yes does not count for it (hearConfirm)
+        this.set({ confirm: { text, plan: !!isPlan, tapOnly: !!tapOnly } });
         this.setState('NeedsConfirmation');
         // (said within this turn's own speech, so nothing of the answer is cut off)
         const job = this.speechJob;
@@ -563,7 +564,10 @@
       // neither, heard while or just after she spoke, is her voice and is left alone)
       const recent = Date.now() - this.lastSoundAt < ECHO_WINDOW_MS;
       if (/^(no|nope|cancel|don'?t|stop|abort|not now|never ?mind|leave it|forget it|hold on|wait)\b/.test(t)) this.answerConfirm(false);
-      else if (/^(please )?(yes|yeah|yep|yup|sure|ok(ay)?|alright|all right|go ahead|do it|confirm|please do|yes please|proceed|go on|continue|carry on)\b/.test(t)) this.answerConfirm(true);
+      else if (/^(please )?(yes|yeah|yep|yup|sure|ok(ay)?|alright|all right|go ahead|do it|confirm|please do|yes please|proceed|go on|continue|carry on)\b/.test(t)) {
+        if (this.view.confirm && this.view.confirm.tapOnly) this.set({ note: 'This one needs a tap: Confirm or Cancel.' });
+        else this.answerConfirm(true);
+      }
       else if (!recent) this.set({ note: "I didn't catch that. Tap Confirm or Cancel, or say yes or no." });
     }
 
@@ -575,6 +579,8 @@
         loggedIn: () => !!B().user(),
         showFound: list => this.set({ found: list }),
         clearScreen: () => this.host.clearScreen(),
+        // (typing and pressing on the page: the agent screen steps back so the user sees it happen)
+        minimize: () => { if (this.host.minimize) this.host.minimize(); },
         patientIds: () => this.patientIds || [],
         pageDetail: () => this.host.pageDetail(this.patientIds || [])
       };
@@ -639,18 +645,23 @@
      * Live wants to change something: the same Confirm / Cancel card, without holding Live up (she carries on talking).
      * Answered by a tap, or a spoken yes or no that Live heard (answerLive); no answer in 60 seconds is a no.
      */
-    liveAsk(text) {
+    liveAsk(text, tapOnly) {
       if (this.confirmResolve) this.answerConfirm(false);
       return new Promise(resolve => {
         this.confirmResolve = resolve;
-        this.set({ confirm: { text } });
+        this.set({ confirm: { text, tapOnly: !!tapOnly } });
         if (this.host.restore) this.host.restore();
         clearTimeout(this.confirmTimer);
         this.confirmTimer = setTimeout(() => { this.set({ note: 'No answer, so I left it. Nothing was changed.' }); this.answerConfirm(false); }, 60000);
       });
     }
     /** Live heard the user say yes or no while a Confirm card is up. */
-    answerLive(yes) { if (this.confirmResolve) this.answerConfirm(!!yes); }
+    answerLive(yes) {
+      if (!this.confirmResolve) return;
+      // (a change that cannot be undone needs a tap: a spoken yes does not count for it)
+      if (yes && this.view.confirm && this.view.confirm.tapOnly) { this.set({ note: 'This one needs a tap: Confirm or Cancel.' }); return; }
+      this.answerConfirm(!!yes);
+    }
 
     /** One exchange from Live: into this conversation (so Standard carries on from it) and into the Lixa chat. */
     liveExchange(said, answer) {
