@@ -124,6 +124,8 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
     get_current_screen: [],
     find_items: [['query', 'STRING', false, "words to look for in the titles of the user's saved work"]],
     open_item: [['ref', 'STRING', true, 'a ref exactly as returned by find_items']],
+    emr_create_patient: [['from', 'STRING', false, '"pasted" (what the user pasted to you), "chat" (the last report in the Lixa chat) or "page" (the presentation on the screen)']],
+    web_search: [['query', 'STRING', true, 'what to look up on the web (never a patient\'s name or other identifier)']],
     clear_screen: [],
     set_theme: [['mode', 'STRING', true, 'light, dark or system']],
     create_document: [['tool', 'STRING', true, 'which creator to use (see the description)'], ['request', 'STRING', true, "what to create, in the user's words, with every detail they gave"]],
@@ -518,6 +520,7 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
     async start() {
       if (this.on) return;
       this.prompt = null;
+      if (this.s.micBusy) { this.s.set({ note: 'Audio Transcription is using the microphone. Live can start once it stops recording.' }); return; }
       const plan = B().plan();
       if (!LIMITS[plan]) { this.prompt = { title: NOTES.PAID_TITLE, text: NOTES.PAID_TEXT, upgrade: true }; this.changed(); return; }
       const u = B().user();

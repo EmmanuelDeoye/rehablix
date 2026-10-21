@@ -69,6 +69,19 @@
       this.live = window.LixaAgentLive ? new window.LixaAgentLive(this) : null;
       // one voice for both modes: Standard speaks with the voice chosen for Live (Leda by default)
       if (this.live && this.live.voice) this.voice.herVoice = this.live.voice;
+      // Another part of the app is recording (Audio Transcription, js/audio.js): she lets go of the microphone
+      // until it is done, so the recording gets the microphone to itself.
+      this.micBusy = false;
+      this.onMicBusy = e => {
+        const busy = !!(e && e.detail && e.detail.busy);
+        if (busy === this.micBusy) return;
+        this.micBusy = busy;
+        if (busy && this.live && this.live.on) this.live.end(false);
+        this.set({ note: busy ? "I've stopped listening while Audio Transcription records." : null });
+        if (!busy && this.handsFree && this.state === 'Idle') this.setState('Listening');
+        this.syncEars();
+      };
+      window.addEventListener('rehablix:mic-busy', this.onMicBusy);
     }
 
     /** Her voice, for Standard and Live together. */
@@ -105,6 +118,7 @@
 
     release() {
       this.released = true;
+      window.removeEventListener('rehablix:mic-busy', this.onMicBusy);
       if (this.live) this.live.release();
       this.stop();
       this.handsFree = false;
@@ -136,6 +150,7 @@
     listen() {
       if (!SR) return;
       if (this.view.confirm) return;
+      if (this.micBusy) { this.set({ note: 'Audio Transcription is using the microphone. I can listen again once it stops recording.' }); return; }
       this.stop();
       this.micDenied = false;                 // (a tap on the mic tries the microphone again)
       this.handsFree = true;
@@ -149,7 +164,7 @@
 
     /** What the recogniser should be doing now. */
     wantedEars() {
-      if (this.released || !SR || this.micDenied) return 'off';
+      if (this.released || !SR || this.micDenied || this.micBusy) return 'off';
       // (Live has the microphone: a yes or no to a Confirm card is heard by Live itself)
       if (this.live && this.live.on) return 'off';
       if (this.view.confirm) return 'confirm';
@@ -348,6 +363,14 @@
       this.voice.unlock();
       this.stop();
       this.set({ heard: t });
+      // A pasted presentation or report: kept here as it is (emr_create_patient reads it on this device), and the SI
+      // gets it with the patient's name, date of birth and phone taken out.
+      const F = window.RehablixEmrFromText;
+      if (F && t.length >= 200) {
+        this.pastedReport = t;
+        this.ask(F.deidentify(t, F.identifiers(t)));
+        return;
+      }
       this.ask(t);
     }
 
@@ -643,7 +666,9 @@
         // (typing and pressing on the page: the agent screen steps back so the user sees it happen)
         minimize: () => { if (this.host.minimize) this.host.minimize(); },
         patientIds: () => this.patientIds || [],
-        pageDetail: () => this.host.pageDetail(this.patientIds || [])
+        pageDetail: () => this.host.pageDetail(this.patientIds || []),
+        // the presentation or report the user pasted here, as typed (identifiers included: read on this device only)
+        pastedReport: () => this.pastedReport || ''
       };
     }
 

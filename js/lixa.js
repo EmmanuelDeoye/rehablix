@@ -483,8 +483,9 @@
     // =====================================================================
     // Chat helpers
     // =====================================================================
-    function pushUserText(text, attachedFiles) {
-      const msg = { role: 'user', content: text, displayContent: text, timestamp: Date.now() };
+    // [aiContent]: what later turns send to the SI, when it must differ from what is shown (identifiers taken out).
+    function pushUserText(text, attachedFiles, aiContent) {
+      const msg = { role: 'user', content: aiContent || text, displayContent: text, timestamp: Date.now() };
       // Show the attached files on the message, as a normal chat message does.
       if (attachedFiles && attachedFiles.length) {
         msg.attachmentMeta = attachedFiles.map(a => ({ name: a.name, icon: (core.fileTypeIcon && a.file) ? core.fileTypeIcon(a.file) : 'fa-file-lines' }));
@@ -1323,6 +1324,9 @@
 
       if (!text) return false;
 
+      // "create this patient in Smart EMR", with a pasted or attached presentation / report (js/emr-from-text.js)
+      if (window.RehablixEmrFromText && window.RehablixEmrFromText.wants(text)) return await createEmrPatient(text, attachedFiles);
+
       // "/word", "/pdf", "/powerpoint"
       const fileCommand = parseFileCommand(text);
       if (fileCommand) return await startFileCommand(fileCommand.format, text, fileCommand.rest, attachedFiles);
@@ -1352,6 +1356,46 @@
       }
 
       return false;
+    }
+
+    /** The text of a file card (a Lixa-made presentation or report), for reading. */
+    function cardText(card) {
+      if (!card) return '';
+      if (card.text) return String(card.text);
+      if (!card.html) return '';
+      const div = document.createElement('div');
+      div.innerHTML = card.html;
+      return div.innerText || div.textContent || '';
+    }
+
+    // A Smart EMR patient (draft) from the presentation or report in the message, its attachments, or — when only
+    // the request was typed — the last long report or presentation in this chat. The patient's name, date of birth and
+    // phone stay on the device; the message is kept for the SI with them taken out.
+    async function createEmrPatient(text, attachedFiles) {
+      const F = window.RehablixEmrFromText;
+      let source = [text, attachmentTextOf(attachedFiles)].filter(Boolean).join('\n\n');
+      if (source.replace(/\s+/g, ' ').length < 200) {
+        const msgs = core.getMessages() || [];
+        for (let i = msgs.length - 1; i >= 0 && i >= msgs.length - 8; i--) {
+          const m = msgs[i];
+          const c = m.fileCard ? cardText(m.fileCard) : (m.displayContent || m.content || '');
+          if (c && c.replace(/\s+/g, ' ').length >= 300) { source = c + '\n\n' + source; break; }
+        }
+      }
+      const ids = F.identifiers(source);
+      pushUserText(text, attachedFiles, F.deidentify(text, ids));
+      if (!core.getCurrentUser()) { pushAssistantText('Log in to create patients in Smart EMR.'); return true; }
+      showStatus(['Reading the report…', 'Keeping the name and contact details on this device…', 'Filling the biodata and intake…', 'Creating the patient in Smart EMR…']);
+      try {
+        const d = await F.draft(source);
+        const result = await F.create(d.fields, attachedFiles && attachedFiles.length ? 'attached report' : 'report');
+        hideStatus();
+        pushAssistantText(F.summary(result, d));
+      } catch (e) {
+        hideStatus();
+        pushAssistantText((e && e.message) || 'I could not create the patient just now. Please try again.');
+      }
+      return true;
     }
 
     function handleFileAction(actionId, card) {

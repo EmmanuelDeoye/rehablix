@@ -19,6 +19,16 @@
     'hello hi hey good sorry yes no okay ok').split(' '));
   const CLOSERS = new Set('thanks you please okay ok bye goodbye hello hi hey morning afternoon evening night now it that there again done right sorry'.split(' '));
 
+  // "tutor" is often written as "twitter" ("be my twitter", "twitter mode"). The app has nothing to do with
+  // Twitter, so the word is read as "tutor" unless it is plainly about the social site ("on Twitter", "Twitter account").
+  const TUTOR_HEARD = /(^|[^\w@#])(twitter|tweeter|twita|tuta)(s?)\b(?!\s*(?:account|post|posts|page|handle|feed|thread|app|\.com|link|profile|followers))/gi;
+  function fixTutor(text) {
+    return String(text || '').replace(TUTOR_HEARD, (all, pre, word, s, at, whole) => {
+      if (/\b(?:on|from|via|follow)\s+(?:the\s+)?$/i.test(whole.slice(0, at + pre.length))) return all;
+      return pre + (word[0] === word[0].toUpperCase() ? 'Tutor' : 'tutor') + s;
+    });
+  }
+
   function fixName(text) {
     let out = String(text || '');
     const m = NAME_AT_START.exec(out);
@@ -34,7 +44,7 @@
       const before = out.slice(0, e.index).trimEnd().split(' ').pop().toLowerCase().replace(/^[,.]+|[,.]+$/g, '');
       if (CLOSERS.has(before)) { const at = e.index + e[1].length; out = out.slice(0, at) + 'Lixa' + out.slice(at + e[2].length); }
     }
-    return out;
+    return fixTutor(out);
   }
 
   // ------------------------------------------------------------------ "On it!"
@@ -156,6 +166,7 @@
       switch (tool) {
         case 'open_tool': return title ? 'Opening ' + title + '.' : null;
         case 'find_items': return 'Let me look through your saved work.';
+        case 'web_search': return 'Let me check the web.';
         case 'create_document': return "I'm starting that for you in your Lixa chat.";
         default: return null;
       }
@@ -166,6 +177,7 @@
         case 'search_app_map': return 'Finding the right tool…';
         case 'get_current_screen': return 'Looking at this page…';
         case 'find_items': return 'Searching your saved work…';
+        case 'web_search': return 'Searching the web…';
         case 'open_item': return 'Opening it…';
         case 'create_document': return 'Starting your document…';
         case 'set_theme': return 'Changing the theme…';
@@ -351,7 +363,14 @@
     HAND_OFF,
     KIND: { TUTOR: 'TUTOR', GAME: 'GAME', THERAPIST: 'THERAPIST', PATIENT: 'PATIENT' },
     /** Whether [said] is clearly a request to do something in the app; if not, it is talk. */
-    needsApp(said) { const s = String(said || ''); return APP.test(s) || MAKE_FILE.test(s); },
+    needsApp(said) {
+      const s = String(said || '');
+      // (a question that needs the live web goes to the agent, which has web_search)
+      const web = typeof window !== 'undefined' && window.RehablixAI && window.RehablixAI.needsWebSearch(s);
+      // (and "create this patient in Smart EMR" to the agent, which has emr_create_patient)
+      const emr = typeof window !== 'undefined' && window.RehablixEmrFromText && window.RehablixEmrFromText.wants(s);
+      return APP.test(s) || MAKE_FILE.test(s) || !!web || !!emr;
+    },
     /** She says she made (or is making) something. */
     claimsAction(text) { return CLAIMS.test(String(text || '')); },
     /** How she treats greetings and pleasantries: with the user's first name (blank when unknown). Same text as Android. */

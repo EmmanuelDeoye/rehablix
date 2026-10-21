@@ -71,6 +71,7 @@
     // cleanupFns convention — harmless under keep-alive (mount() only ever
     // runs once), but correct if this view is ever un-keep-alived later.
     let lastAuthUid = null;
+    let incomingFor = null;     // whose incoming transfers the dashboard is showing
     const unsubAuth = firebase.auth().onAuthStateChanged(async user => {
         // Data-integrity fix: a different account logging into the same tab
         // must not inherit the previous user's open patient / realtime
@@ -81,6 +82,8 @@
             if (patientListenerRef) { patientListenerRef.off('value'); patientListenerRef = null; }
             currentPatientId = null;
             currentPatientData = null;
+            if (window.RehablixEmrTransfer) window.RehablixEmrTransfer.stop();
+            incomingFor = null;
             if (screens.patient && screens.patient.classList.contains('active')) switchScreen('dashboard');
         }
         lastAuthUid = user ? user.uid : null;
@@ -559,8 +562,25 @@
         return out;
     }
 
+    // Patients other accounts are transferring to this one (js/emr-transfer.js), at the top of the dashboard.
+    function showIncomingTransfers() {
+        const T = window.RehablixEmrTransfer;
+        if (!T || !currentUser || incomingFor === currentUser.uid) return;
+        const header = document.querySelector('#screen-dashboard .emr-page-header');
+        if (!header) return;
+        let el = document.getElementById('emrIncomingTransfers');
+        if (!el) { el = document.createElement('div'); el.id = 'emrIncomingTransfers'; el.hidden = true; header.parentNode.insertBefore(el, header.nextSibling); }
+        incomingFor = currentUser.uid;
+        T.useToast(showToast);
+        T.incoming(el, newId => {
+            loadPatientsList(); loadDashboardData();
+            if (newId && scopeUid === currentUser.uid) window.openPatient(newId);
+        });
+    }
+
     async function loadDashboardData() {
         if (!currentUser) return;
+        showIncomingTransfers();
         try {
             const index = await loadPatientIndex();
             // Discharged patients are in the archive: not counted, not pending, no insights.
@@ -775,6 +795,9 @@
         // (the same number as Previous Sessions lists)
         document.getElementById('patientHeroSession').textContent = Store() ? Store().sessionCountOf(currentPatientData) : Object.keys(currentPatientData.sessions || {}).length;
         renderLockState();
+        // transfer to another account (js/emr-transfer.js): own records only
+        if (window.RehablixEmrTransfer) window.RehablixEmrTransfer.useToast(showToast);
+        if (window.RehablixEmrTransfer) window.RehablixEmrTransfer.patientBar(document.getElementById('patientLockedBanner'), scopeUid, currentPatientId, currentPatientData);
         const statusBadge = document.getElementById('patientHeroStatusBadge');
         if (currentPatientData.status === 'draft') {
             statusBadge.textContent = 'Draft';

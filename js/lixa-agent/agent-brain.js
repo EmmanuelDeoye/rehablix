@@ -430,6 +430,34 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
     }
   };
 
+  /**
+   * The presentation or report emr_create_patient reads (on this device only): what the user pasted to her, the last
+   * long message or file in the Lixa chat, or the page open on the screen. {text, label}
+   */
+  function reportSource(from, host) {
+    const long = s => s && String(s).replace(/\s+/g, ' ').length >= 200;
+    const pasted = () => { const t = host.pastedReport ? host.pastedReport() : ''; return long(t) ? { text: t, label: 'pasted report' } : null; };
+    const chat = () => {
+      const core = window.LixaCore;
+      const msgs = (core && core.getMessages && core.getMessages()) || [];
+      for (let i = msgs.length - 1; i >= 0 && i >= msgs.length - 10; i--) {
+        const m = msgs[i];
+        let t = m.displayContent || m.content || '';
+        if (m.fileCard && m.fileCard.html) { const div = document.createElement('div'); div.innerHTML = m.fileCard.html; t = div.innerText || div.textContent || ''; }
+        if (long(t)) return { text: t, label: m.fileCard ? 'presentation in the Lixa chat' : 'report in the Lixa chat' };
+      }
+      return null;
+    };
+    const page = () => {
+      const el = document.querySelector('#resultContent, .result-content, .doc-result, main') || document.body;
+      const t = el ? (el.innerText || '') : '';
+      return long(t) ? { text: t.slice(0, 20000), label: 'presentation on the screen' } : null;
+    };
+    const order = from === 'chat' ? [chat, pasted, page] : from === 'page' ? [page, pasted, chat] : [pasted, chat, page];
+    for (const f of order) { const s = f(); if (s) return s; }
+    return { text: '', label: '' };
+  }
+
   /** The screen tools (the same six as Android). */
   function screenTools(host) {
     const typedByHer = new Set();
@@ -552,6 +580,54 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
       open_item: {
         risk: 'READ', describe: 'open_item {"ref": "<ref from find_items>"} — opens that saved item.',
         async run(a) { return openFound(store, a.ref, host); }
+      },
+      emr_create_patient: {
+        risk: 'WRITE', describe: 'emr_create_patient {"from": "pasted|chat|page"} — WRITE: creates a new DRAFT patient in Smart EMR, with biodata and intake read from a case presentation or report: the one the user pasted to you ("pasted"), the last report or presentation in the Lixa chat ("chat"), or the presentation open on the screen ("page"). The patient\'s name, date of birth and phone are read on the device and never reach you.',
+        async run(a) {
+          const F = window.RehablixEmrFromText;
+          if (!F) return { ok: false, text: 'Creating patients from a report is not available on this page.' };
+          if (!user()) return { ok: false, text: 'The user is not logged in. Tell them to log in first.' };
+          const src = reportSource(String(a.from || '').toLowerCase(), host);
+          if (!src.text) return { ok: false, text: 'There is no presentation or report to read. Ask the user to paste it here, attach it in the Lixa chat, or open it.' };
+          let d, r;
+          try { d = await F.draft(src.text); r = await F.create(d.fields, src.label); }
+          catch (e) { return { ok: false, text: (e && e.message) || 'The patient could not be created.' }; }
+          const filled = ['primaryDx', 'chiefComplaint', 'category', 'profession', 'state', 'goals', 'assessment'].filter(k => d.fields[k]);
+          return { ok: true, text: 'Created a draft patient in Smart EMR' + (r.regNumber ? ' (Reg #' + r.regNumber + ')' : '') + ' from the ' + src.label + '. Intake filled: ' + (filled.join(', ') || 'little') + '.' +
+            (d.missing.length ? ' Not found in the report: ' + d.missing.join(', ') + ' (tell the user to add them in Smart EMR).' : '') +
+            ' Tell the user to check and confirm it in Smart EMR. Never say the patient\'s name.' };
+        }
+      },
+      web_search: {
+        risk: 'READ', describe: 'web_search {"query": "<what to look up>"} — searches the live web (current guidelines, research, news, prices, websites) and returns a short answer with its sources. Use it for anything that needs up-to-date or online information. Never put a patient\'s name, date of birth, phone number or other identifier in the query.',
+        async run(a) {
+          const u = user();
+          if (!u) return { ok: false, text: 'Searching the web needs an account. Tell the user to log in first.' };
+          const AI = window.RehablixAI;
+          const cfg = AI && await AI.webSearchConfig();
+          if (!cfg) return { ok: false, text: 'Web search is not available right now.' };
+          const raw = String(a.query || '').trim();
+          const query = (window.RehablixDeidentify ? window.RehablixDeidentify.scrubText(raw, host.patientIds()) : raw).slice(0, 500);
+          if (!query) return { ok: false, text: 'Say what to search for.' };
+          await Quota.check();
+          const messages = [
+            { role: 'system', content: 'Search the web and answer for a rehabilitation clinician in under 150 words, plainly, without markdown headings. Then list up to 3 sources, one per line, as "Source: <site or title> — <URL>".' },
+            { role: 'user', content: query }
+          ];
+          let res;
+          try {
+            res = await fetch(cfg.endpoint + '/chat/completions', {
+              method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cfg.token },
+              body: JSON.stringify(AI.buildChatBody(cfg, messages, 1500, false))
+            });
+          } catch (e) { return { ok: false, text: "The web can't be reached right now." }; }
+          if (!res.ok) return { ok: false, text: 'The web search did not work just now (error ' + res.status + ').' };
+          const j = await res.json().catch(() => ({}));
+          const answer = String((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '').trim();
+          if (!answer) return { ok: false, text: 'The web search came back empty.' };
+          Quota.report(query + ' ' + answer, cfg.weight);
+          return { ok: true, text: 'From the web (say it in your own words and mention where it comes from):\n' + answer.slice(0, 3000) };
+        }
       },
       clear_screen: {
         risk: 'READ', describe: 'clear_screen {} — takes the found list and details off the agent screen (nothing is deleted).',

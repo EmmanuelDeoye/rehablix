@@ -606,6 +606,11 @@ function mount() {
     isPaused = false;
     interimEl = null;
 
+    // Lixa Agent (if open) lets go of the microphone first, so this recording has it to itself
+    // (js/lixa-agent/agent-session.js); a short wait gives the browser time to release it.
+    announceMic(true);
+    await new Promise(r => setTimeout(r, 300));
+
     try {
       // AUDIO UPGRADE: browser-native noise suppression/echo cancellation/
       // auto gain — the bare `{ audio: true }` this used to send left all
@@ -631,6 +636,7 @@ function mount() {
       }
       populateMicDevices(); // now that permission is granted, real device labels are available
     } catch (err) {
+      announceMic(false);
       console.error('getUserMedia failed:', err.name, err.message);
       const messages = {
         NotAllowedError: 'Microphone permission was denied for this site. Check your browser\'s site settings (not just the app-level OS permission) and allow microphone access for rehablix, then reload.',
@@ -684,6 +690,7 @@ function mount() {
 
     mediaRecorder.onstop = () => {
       if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+      announceMic(false);
       releaseWakeLock();
       // AUDIO FIX: the final ondataavailable chunk fires before this event
       // per spec — resolving here (instead of a blind setTimeout after
@@ -718,7 +725,13 @@ function mount() {
       try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
       try { if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop(); } catch (e) {}
       try { if (mediaStream) mediaStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+      announceMic(false);
     };
+  }
+
+  /** Tells Lixa Agent that this page is (or is no longer) recording from the microphone. */
+  function announceMic(busy) {
+    try { window.dispatchEvent(new CustomEvent('rehablix:mic-busy', { detail: { busy: !!busy, by: 'audio' } })); } catch (e) { /* old browser */ }
   }
 
   pauseResumeBtn.addEventListener('click', async () => {

@@ -123,6 +123,7 @@
       navigator.serviceWorker.register('/service-worker.js');
     }
   </script>
+  <script src="js/update-notice.js" defer></script>
 </head>
 <body data-migrate-types="projects">
   <nav class="navbar">
@@ -279,6 +280,10 @@
   <!-- Shared patient reference-number generator + cross-tool lookup —
        used by Smart EMR, Motion, Presentation, and Audio. -->
   <script src="js/patient-reg.js" defer></script>
+  <!-- A Smart EMR patient from a pasted/attached presentation or report (Lixa chat, Lixa Agent, result page). -->
+  <script src="js/emr-from-text.js" defer></script>
+  <!-- Smart EMR patient transfer between accounts (the server function patientTransfer does the move). -->
+  <script src="js/emr-transfer.js" defer></script>
   <!-- Backfills missing reference numbers on records saved before the
        system above existed — each view calls this with its own scope/paths. -->
   <script src="js/reg-migration.js" defer></script>

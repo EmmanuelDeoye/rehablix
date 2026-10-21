@@ -287,6 +287,7 @@
       updateWordAndCharCount();
       setEditorReadOnly(!currentIsOwner);
       updatePublicToggleVisibility();
+      if (type === 'case' && currentIsOwner) addEmrButton();
 
       if (!currentIsOwner) showToast('📖 You are viewing a shared document (read-only)', 'info', 3000);
     } catch (err) {
@@ -294,6 +295,37 @@
       showToast('Failed to load document: ' + err.message, 'error');
       if (editor) editor.innerHTML = '<div class="loading-editor"><i class="fas fa-exclamation-circle"></i> Error loading document. It may be private or does not exist.</div>';
     }
+  }
+
+  // --- Smart EMR patient from this presentation (js/emr-from-text.js) ----
+  // The patient's name, date of birth and phone are read here and never sent to the SI; the patient is created as a
+  // draft for the clinician to check in Smart EMR.
+  function addEmrButton() {
+    const F = window.RehablixEmrFromText;
+    if (!F || !printBtn || !printBtn.parentNode || document.getElementById('emrFromResultBtn')) return;
+    const b = document.createElement('button');
+    b.className = 'action-btn'; b.id = 'emrFromResultBtn'; b.type = 'button';
+    b.title = 'Create this patient in Smart EMR';
+    b.innerHTML = '<i class="fas fa-user-plus"></i> <span>Create patient in EMR</span>';
+    printBtn.parentNode.appendChild(b);
+    b.addEventListener('click', async () => {
+      if (b.disabled) return;
+      const text = editor ? (editor.innerText || '') : '';
+      if (!confirm('Create a draft patient in Smart EMR from this presentation?\n\nThe name, date of birth and phone number stay on this device; the SI reads the rest to fill the intake.')) return;
+      b.disabled = true;
+      const label = b.querySelector('span'); const before = label.textContent;
+      label.textContent = 'Creating…';
+      try {
+        const d = await F.draft(text);
+        const r = await F.create(d.fields, 'case presentation');
+        showToast('Draft patient created in Smart EMR' + (r.regNumber ? ' (Reg #' + r.regNumber + ')' : '') + '. Check and confirm it there.' +
+          (d.missing.length ? ' Not found: ' + d.missing.join(', ') + '.' : ''), 'success', 7000);
+      } catch (e) {
+        showToast((e && e.message) || 'Could not create the patient.', 'error', 6000);
+      } finally {
+        b.disabled = false; label.textContent = before;
+      }
+    });
   }
 
   // --- Save --------------------------------------------------------------
