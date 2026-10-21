@@ -26,7 +26,7 @@ LIXA (this chat)
 - Messages can be copied, edited and regenerated. Live web search is used automatically when a question needs current information.
 
 WORKSPACE TOOLS
-- Smart EMR: patient records with registration numbers, intake, SI clinical summaries, treatment plans, session notes, progress notes and discharge summaries. Patient names, dates of birth and phone numbers are never sent to SI.
+- Smart EMR: patient records with registration numbers, intake, SI clinical summaries, treatment plans, session notes, progress notes and discharge summaries. Patient details are sent to the SI so it can help in full; each user is responsible for their own patients' privacy.
 - Motion & Gait Analyzer: camera-based, voice-guided joint range-of-motion, gait and assistive-device assessment with a report.
 - Audio Transcription: "Record live" or "Upload Audio". Two modes: Transcribe (plain transcript and session narrative) and Coach (for a live session: needs patient/caregiver consent, labels therapist and patient automatically and suggests one follow-up question). Session details (patient, session type, profession) are under the sliders icon. A transcript can be linked to an EMR patient.
 - Deck Studio: designed PowerPoint decks from a topic or notes; choose audience, slide count and style, preview, restyle for free, ask for changes, download .pptx.

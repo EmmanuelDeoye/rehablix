@@ -1385,7 +1385,7 @@
       const ids = F.identifiers(source);
       pushUserText(text, attachedFiles, F.deidentify(text, ids));
       if (!core.getCurrentUser()) { pushAssistantText('Log in to create patients in Smart EMR.'); return true; }
-      showStatus(['Reading the report…', 'Keeping the name and contact details on this device…', 'Filling the biodata and intake…', 'Creating the patient in Smart EMR…']);
+      showStatus(['Reading the report…', 'Filling the biodata and intake…', 'Creating the patient in Smart EMR…']);
       try {
         const d = await F.draft(source);
         const result = await F.create(d.fields, attachedFiles && attachedFiles.length ? 'attached report' : 'report');

@@ -2129,27 +2129,27 @@ body[data-route]:not([data-route="lixa"]):not([data-route="workspace"]) #themeTo
 .tool-switcher { position: relative; display: inline-flex; }
 .tool-switcher[hidden] { display: none; }
 .tool-switcher-btn.active { background: var(--accent-soft); color: var(--accent); }
-/* The list drops down under the icon as a frosted-glass card (like the profile
-   menu): rounded, only as wide as its content, with a soft sheen along the top. */
-.tool-switcher-panel { position: fixed; z-index: 1300; width: max-content; max-width: min(280px, calc(100vw - 16px)); display: flex; flex-direction: column; overflow: hidden; border-radius: 1.15rem;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.52));
-  -webkit-backdrop-filter: blur(22px) saturate(170%); backdrop-filter: blur(22px) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  box-shadow: 0 18px 44px rgba(15, 40, 45, 0.20), 0 2px 6px rgba(15, 40, 45, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  opacity: 0; transform: translateY(-8px) scale(0.98); transform-origin: top right; transition: opacity 0.18s ease, transform 0.18s ease; }
-.tool-switcher-panel::before { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; background: linear-gradient(125deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 38%, rgba(255, 255, 255, 0) 70%, rgba(255, 255, 255, 0.18) 100%); }
-.tool-switcher-panel.open { opacity: 1; transform: none; }
+/* The tools open as a sheet over a dimmed page: round coloured icons, three to a
+   row, like WhatsApp's attach sheet. It rises from the bottom on phones and sits
+   in the middle on wide screens. */
+.tool-switcher-panel { position: fixed; inset: 0; z-index: 1300; display: flex; align-items: flex-end; justify-content: center; padding: 12px; background: rgba(15, 23, 42, 0); transition: background 0.2s ease; }
+.tool-switcher-panel.open { background: rgba(15, 23, 42, 0.45); }
 .tool-switcher-panel[hidden] { display: none; }
-[data-theme="dark"] .tool-switcher-panel { background: linear-gradient(145deg, rgba(38, 54, 63, 0.80), rgba(24, 36, 43, 0.60)); border-color: rgba(255, 255, 255, 0.14); box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.16); }
-[data-theme="dark"] .tool-switcher-panel::before { background: linear-gradient(125deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 38%, rgba(255, 255, 255, 0) 72%, rgba(255, 255, 255, 0.05) 100%); }
-.tool-switcher-menu { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0.4rem; }
-.tool-switcher-item { width: 100%; display: flex; align-items: center; gap: 0.7rem; min-height: 42px; padding: 0.5rem 0.9rem 0.5rem 0.65rem; border: none; background: none; border-radius: 0.7rem; font: inherit; font-size: 0.88rem; color: var(--text-primary); text-align: left; cursor: pointer; white-space: nowrap; }
-.tool-switcher-item i { width: 1.2rem; text-align: center; color: var(--text-secondary); font-size: 0.9rem; }
+.tool-switcher-sheet { position: relative; width: min(420px, 100%); max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); display: flex; flex-direction: column; overflow: hidden; border-radius: 1.4rem; background: var(--surface); border: 1px solid var(--border-light); box-shadow: 0 -8px 40px rgba(15, 40, 45, 0.22); transform: translateY(24px); opacity: 0; transition: transform 0.22s ease, opacity 0.22s ease; padding-bottom: env(safe-area-inset-bottom, 0px); }
+.tool-switcher-panel.open .tool-switcher-sheet { transform: none; opacity: 1; }
+@media (min-width: 768px) { .tool-switcher-panel { align-items: center; } }
+.tool-switcher-head { display: flex; align-items: center; justify-content: space-between; padding: 0.9rem 0.9rem 0.2rem 1.2rem; font-weight: 700; font-size: 1rem; color: var(--text-primary); }
+.tool-switcher-close { width: 36px; height: 36px; border: none; border-radius: 50%; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 1rem; }
+.tool-switcher-close:hover, .tool-switcher-close:focus-visible { background: var(--accent-soft); color: var(--accent); outline: none; }
+.tool-switcher-menu { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem 0.3rem; padding: 0.6rem 0.8rem 1.1rem; }
+.tool-switcher-item { display: flex; flex-direction: column; align-items: center; gap: 0.45rem; padding: 0.6rem 0.2rem; border: none; background: none; border-radius: 1rem; font: inherit; font-size: 0.78rem; line-height: 1.25; color: var(--text-primary); text-align: center; cursor: pointer; }
+.tool-switcher-icon { width: 54px; height: 54px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 1.3rem; box-shadow: 0 4px 12px rgba(15, 40, 45, 0.18); transition: transform 0.15s ease; }
+.tool-switcher-label { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tool-switcher-item:hover .tool-switcher-icon, .tool-switcher-item:focus-visible .tool-switcher-icon { transform: scale(1.06); }
 .tool-switcher-item:hover, .tool-switcher-item:focus-visible { background: var(--accent-soft); outline: none; }
 .tool-switcher-item.active { color: var(--accent); font-weight: 700; background: var(--accent-soft); }
-.tool-switcher-item.active i { color: var(--accent); }
-.tool-switcher-divider { height: 1px; margin: 0.3rem 0.4rem; background: var(--border-light); }
-@media (prefers-reduced-motion: reduce) { .tool-switcher-panel { transition: none; } }
+.tool-switcher-item.active .tool-switcher-icon { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--accent); }
+@media (prefers-reduced-motion: reduce) { .tool-switcher-panel, .tool-switcher-sheet, .tool-switcher-icon { transition: none; } }
 
 /* Bolder type where it carries the brand or a page's main heading */
 .logo-lop { font-weight: 800; letter-spacing: 0.2px; }

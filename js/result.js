@@ -311,7 +311,7 @@
     b.addEventListener('click', async () => {
       if (b.disabled) return;
       const text = editor ? (editor.innerText || '') : '';
-      if (!confirm('Create a draft patient in Smart EMR from this presentation?\n\nThe name, date of birth and phone number stay on this device; the SI reads the rest to fill the intake.')) return;
+      if (!confirm('Create a draft patient in Smart EMR from this presentation?\n\nThe SI reads it to fill the biodata and intake; check and confirm the patient in Smart EMR.')) return;
       b.disabled = true;
       const label = b.querySelector('span'); const before = label.textContent;
       label.textContent = 'Creating…';

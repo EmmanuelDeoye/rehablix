@@ -101,6 +101,9 @@ window.REHABLIX_SERVER_BILLING = false;
 // AI keys kept on the server (js/server-ai.js). While false, the site reads the keys as it always has.
 // Set to true only AFTER aiChat, aiTranscribe, aiSpeak and liveToken are deployed (see
 // rehablix-android/backend/BACKEND-KEYS.md); then lock `tokens` in the rules and rotate the keys.
+// Patients' names, dates of birth and phone numbers go to the SI in full (the owner's decision, 2026-10-21: each user
+// is responsible for their own patients' privacy). false = removed before anything is sent (js/deidentify.js).
+window.REHABLIX_SEND_IDENTIFIERS = true;
 window.REHABLIX_SERVER_AI = true;    // (on since 2026-10-21: the four AI functions are deployed)
 window.REHABLIX_AI_FUNCTIONS = 'https://us-central1-rehablix-ai.cloudfunctions.net';
 window.REHABLIX_BILLING_ENDPOINT = 'https://us-central1-rehablix-ai.cloudfunctions.net/verifyPayment';

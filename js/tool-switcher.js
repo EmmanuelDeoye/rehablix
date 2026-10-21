@@ -1,27 +1,27 @@
 // js/tool-switcher.js — the "all tools" button in the top bar.
 // On every tool page (not on Lixa or Workspace, which are one tap away on the
 // bottom bar) a tools icon sits just before the profile/login control. It
-// drops the list of tools down under the icon — a frosted-glass card with
-// rounded corners that is only as wide as its content, like the profile menu —
-// so the user can jump straight from one tool to another without going back
-// to Workspace first.
+// opens the tools as a sheet over the page: round coloured icons, three to a
+// row (like WhatsApp's attach sheet), so the user can jump straight from one
+// tool to another without going back to Workspace first.
 (function () {
+  // (2026-10-21: a modal grid of round coloured icons, three to a row, like WhatsApp's attach sheet; Android: Navbar.kt)
   const TOOLS = [
-    { route: 'lixa', label: 'Lixa', icon: 'fa-comment-dots' },
-    { route: 'workspace', label: 'Workspace', icon: 'fa-th-large' },
-    { divider: true },
-    { route: 'emr', label: 'Smart EMR', icon: 'fa-notes-medical' },
-    { route: 'motion', label: 'Motion & Gait', icon: 'fa-walking' },
-    { route: 'audio', label: 'Audio Transcription', icon: 'fa-microphone' },
-    { route: 'deck', label: 'Deck Studio', icon: 'fa-file-powerpoint' },
-    { route: 'presentation', label: 'Presentation Maker', icon: 'fa-file-alt' },
-    { route: 'format', label: 'Assessment Format', icon: 'fa-clipboard-list' },
-    { route: 'standardized', label: 'Standardized Tools', icon: 'fa-balance-scale' },
-    { route: 'assignment', label: 'Assignment Maker', icon: 'fa-pen-nib' },
-    { route: 'project', label: 'Project Maker', icon: 'fa-book' },
-    { route: 'study', label: 'Study Buddy', icon: 'fa-brain' },
-    { route: 'exam', label: 'Exam Simulator', icon: 'fa-stopwatch' },
+    { route: 'lixa', label: 'Lixa', icon: 'fa-comment-dots', color: '#0D9488' },
+    { route: 'workspace', label: 'Workspace', icon: 'fa-th-large', color: '#6366F1' },
+    { route: 'emr', label: 'Smart EMR', icon: 'fa-notes-medical', color: '#E11D48' },
+    { route: 'motion', label: 'Motion & Gait', icon: 'fa-walking', color: '#F59E0B' },
+    { route: 'audio', label: 'Audio Transcription', icon: 'fa-microphone', color: '#F97316' },
+    { route: 'deck', label: 'Deck Studio', icon: 'fa-file-powerpoint', color: '#DB2777' },
+    { route: 'presentation', label: 'Presentation Maker', icon: 'fa-file-alt', color: '#7C3AED' },
+    { route: 'format', label: 'Assessment Format', icon: 'fa-clipboard-list', color: '#0284C7' },
+    { route: 'standardized', label: 'Standardized Tools', icon: 'fa-balance-scale', color: '#059669' },
+    { route: 'assignment', label: 'Assignment Maker', icon: 'fa-pen-nib', color: '#0891B2' },
+    { route: 'project', label: 'Project Maker', icon: 'fa-book', color: '#2563EB' },
+    { route: 'study', label: 'Study Buddy', icon: 'fa-brain', color: '#9333EA' },
+    { route: 'exam', label: 'Exam Simulator', icon: 'fa-stopwatch', color: '#DC2626' },
   ];
+  const COLS = 3;
   const HIDDEN_ON = new Set(['lixa', 'workspace', '']);
 
   function init() {
@@ -42,13 +42,15 @@
       </button>`;
     anchor.insertAdjacentElement('afterend', wrap);   // auth.js adds Login / profile after this
 
-    // The menu lives on <body> and is placed under the icon when it opens: inside
-    // the (blurred) top bar its own frosted-glass blur could not see the page.
+    // The sheet lives on <body>, over a dimmed backdrop (a tap on the backdrop closes it).
     const panel = document.createElement('div');
     panel.className = 'tool-switcher-panel';
     panel.id = 'toolSwitcherPanel';
     panel.hidden = true;
-    panel.innerHTML = '<div class="tool-switcher-menu" id="toolSwitcherMenu" role="menu" aria-label="All tools"></div>';
+    panel.innerHTML = '<div class="tool-switcher-sheet" role="dialog" aria-modal="true" aria-labelledby="toolSwitcherTitle">' +
+      '<div class="tool-switcher-head"><span id="toolSwitcherTitle">All tools</span>' +
+      '<button type="button" class="tool-switcher-close" aria-label="Close"><i class="fas fa-times" aria-hidden="true"></i></button></div>' +
+      '<div class="tool-switcher-menu" id="toolSwitcherMenu" role="menu" aria-label="All tools"></div></div>';
     document.body.appendChild(panel);
 
     const btn = wrap.querySelector('#toolSwitcherBtn');
@@ -58,17 +60,11 @@
 
     function paint() {
       const here = current();
-      menu.innerHTML = TOOLS.map((t) => t.divider ? '<div class="tool-switcher-divider" role="separator"></div>'
-        : `<button type="button" role="menuitem" class="tool-switcher-item${t.route === here ? ' active' : ''}" data-route="${t.route}"${t.route === here ? ' aria-current="page"' : ''}><i class="fas ${t.icon}" aria-hidden="true"></i><span>${t.label}</span></button>`).join('');
+      menu.innerHTML = TOOLS.map((t) =>
+        `<button type="button" role="menuitem" class="tool-switcher-item${t.route === here ? ' active' : ''}" data-route="${t.route}"${t.route === here ? ' aria-current="page"' : ''}>` +
+        `<span class="tool-switcher-icon" style="background:${t.color}"><i class="fas ${t.icon}" aria-hidden="true"></i></span><span class="tool-switcher-label">${t.label}</span></button>`).join('');
     }
     const isOpen = () => panel.classList.contains('open');
-    // Right edge lined up with the icon, just below it, never off-screen.
-    function place() {
-      const r = btn.getBoundingClientRect();
-      panel.style.top = Math.round(r.bottom + 10) + 'px';
-      panel.style.right = Math.max(8, Math.round(window.innerWidth - r.right - 4)) + 'px';
-      panel.style.maxHeight = Math.max(180, Math.round(window.innerHeight - r.bottom - 26)) + 'px';
-    }
     function setOpen(open) {
       if (open === isOpen() && panel.hidden === !open) return;
       clearTimeout(closeTimer);
@@ -77,8 +73,7 @@
       if (open) {
         paint();
         panel.hidden = false;
-        place();
-        void panel.offsetWidth;                  // so the fade-in runs
+        void panel.offsetWidth;                  // so the slide-up runs
         panel.classList.add('open');
         const first = menu.querySelector('.tool-switcher-item.active') || menu.querySelector('.tool-switcher-item');
         if (first) first.focus({ preventScroll: true });
@@ -90,8 +85,8 @@
     function sync() { wrap.hidden = HIDDEN_ON.has(current()); if (wrap.hidden) setOpen(false); }
 
     btn.addEventListener('click', (e) => { e.stopPropagation(); setOpen(!isOpen()); });
-    document.addEventListener('click', (e) => { if (isOpen() && !panel.contains(e.target) && !wrap.contains(e.target)) setOpen(false); });
-    window.addEventListener('resize', () => { if (isOpen()) place(); });
+    // a tap on the backdrop (outside the sheet) or on the close button closes it
+    panel.addEventListener('click', (e) => { if (!e.target.closest('.tool-switcher-sheet') || e.target.closest('.tool-switcher-close')) setOpen(false); });
     menu.addEventListener('click', (e) => {
       const item = e.target.closest('.tool-switcher-item'); if (!item) return;
       setOpen(false);
@@ -101,8 +96,12 @@
     menu.addEventListener('keydown', (e) => {
       const items = Array.from(menu.querySelectorAll('.tool-switcher-item'));
       const i = items.indexOf(document.activeElement);
-      if (e.key === 'ArrowDown') { e.preventDefault(); (items[i + 1] || items[0]).focus(); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); (items[i - 1] || items[items.length - 1]).focus(); }
+      // arrows move around the grid
+      const go = (j) => { e.preventDefault(); (items[Math.max(0, Math.min(items.length - 1, j))] || items[0]).focus(); };
+      if (e.key === 'ArrowRight') go(i + 1);
+      else if (e.key === 'ArrowLeft') go(i - 1);
+      else if (e.key === 'ArrowDown') go(i + COLS);
+      else if (e.key === 'ArrowUp') go(i - COLS);
       else if (e.key === 'Escape') { setOpen(false); btn.focus(); }
     });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isOpen()) setOpen(false); });

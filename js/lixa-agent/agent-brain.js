@@ -214,7 +214,7 @@ LIXA AGENT MODE
 - Tools marked WRITE change things. The app itself asks the user to confirm each one before it runs (unless the user has turned that off), so do not ask "shall I?" yourself first — call the tool once you know exactly what the user wants. If the user says no, accept it.
 - To open a page or tool for the user, CALL open_tool. Never just answer with a link or tell the user where to tap.
 - You can only use tools in the list. If none fits, say so plainly and, if it helps, explain how the user can do it themselves from the app map. Deleting saved work is not something you can do here: tell the user where to do it.
-- Keep patient details on screen; speak about them generically. Never say or guess a patient's name.
+- Patients' details are given to you in full: use patients' names naturally, as the user does. Read phone numbers, dates of birth and addresses aloud only when the user asks; otherwise say they are on the screen.
 - A greeting or small talk gets a short, friendly spoken answer and no tool.
 - When the user is ending the conversation ("bye", "I have to go", "you can go now", "that's all"), answer with "goodbye": a short, warm farewell. Agent mode then closes itself.
 - "Clear the screen", "remove the files from the screen": use clear_screen. That only takes things off the screen; nothing is deleted.
@@ -558,7 +558,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
         async run() { const e = map.entry(host.route()); return { ok: true, text: (e ? e.title + ' (id "' + e.id + '")' : host.route()) + '. ' + host.pageDetail() }; }
       },
       find_items: {
-        risk: 'READ', describe: "find_items {\"query\": \"<words>\"} — searches the user's saved work (assessment formats, standardized tools, reports, decks, transcripts, assignments, study sets, motion analyses, Lixa chats). Titles of patient work are de-identified; the real titles are shown on screen.",
+        risk: 'READ', describe: "find_items {\"query\": \"<words>\"} — searches the user's saved work (assessment formats, standardized tools, reports, decks, transcripts, assignments, study sets, motion analyses, Lixa chats), with their real titles, which are also shown on screen.",
         async run(a) {
           const u = user(); if (!u) return { ok: false, text: 'The user is not logged in, so there is no saved work to search.' };
           const hits = await searchSaved(a.query || '', u.uid);
@@ -582,7 +582,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
         async run(a) { return openFound(store, a.ref, host); }
       },
       emr_create_patient: {
-        risk: 'WRITE', describe: 'emr_create_patient {"from": "pasted|chat|page"} — WRITE: creates a new DRAFT patient in Smart EMR, with biodata and intake read from a case presentation or report: the one the user pasted to you ("pasted"), the last report or presentation in the Lixa chat ("chat"), or the presentation open on the screen ("page"). The patient\'s name, date of birth and phone are read on the device and never reach you.',
+        risk: 'WRITE', describe: 'emr_create_patient {"from": "pasted|chat|page"} — WRITE: creates a new DRAFT patient in Smart EMR, with biodata and intake read from a case presentation or report: the one the user pasted to you ("pasted"), the last report or presentation in the Lixa chat ("chat"), or the presentation open on the screen ("page"). Use it whenever the user asks to add, create, register or save a patient (or a patient file, record, biodata or intake) from a case they gave you.',
         async run(a) {
           const F = window.RehablixEmrFromText;
           if (!F) return { ok: false, text: 'Creating patients from a report is not available on this page.' };
@@ -595,7 +595,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
           const filled = ['primaryDx', 'chiefComplaint', 'category', 'profession', 'state', 'goals', 'assessment'].filter(k => d.fields[k]);
           return { ok: true, text: 'Created a draft patient in Smart EMR' + (r.regNumber ? ' (Reg #' + r.regNumber + ')' : '') + ' from the ' + src.label + '. Intake filled: ' + (filled.join(', ') || 'little') + '.' +
             (d.missing.length ? ' Not found in the report: ' + d.missing.join(', ') + ' (tell the user to add them in Smart EMR).' : '') +
-            ' Tell the user to check and confirm it in Smart EMR. Never say the patient\'s name.' };
+            ' Tell the user to check and confirm it in Smart EMR.' };
         }
       },
       web_search: {

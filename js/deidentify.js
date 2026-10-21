@@ -18,6 +18,12 @@
   ];
   const BLOCKED = new Set(FIELD_BLOCKLIST.map(k => k.toLowerCase()));
 
+  // The owner's decision (2026-10-21): the SI gets patients' details in full — names, dates of birth, phone numbers —
+  // and each user is responsible for their own patients' privacy. While window.REHABLIX_SEND_IDENTIFIERS is true
+  // (js/config.js) nothing here removes anything, except where a caller asks for `strict` (text that goes to
+  // someone other than the SI). Set it to false to go back to removing them everywhere.
+  const SEND = () => window.REHABLIX_SEND_IDENTIFIERS === true;
+
   function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
   // Ages are kept (clinically useful) but coarsened to a band; exact DOB never leaves.
@@ -38,8 +44,9 @@
 
   // Free-text scrubbing. `identifiers` are extra literal strings to remove
   // (e.g. the patient's name parts, reg number, referring physician).
-  function scrubText(text, identifiers) {
+  function scrubText(text, identifiers, strict) {
     if (text == null) return '';
+    if (SEND() && !strict) return String(text);
     let out = String(text);
     (identifiers || []).filter(Boolean).map(String).map(s => s.trim()).filter(s => s.length >= 2)
       .sort((a, b) => b.length - a.length)
@@ -79,6 +86,7 @@
   // Deep-copies a record dropping blocked fields and scrubbing every string.
   function scrubRecord(value, identifiers, depth) {
     depth = depth || 0;
+    if (SEND()) return value;
     if (depth > 6 || value == null) return value;
     if (typeof value === 'string') return scrubText(value, identifiers);
     if (Array.isArray(value)) return value.map(v => scrubRecord(v, identifiers, depth + 1));
@@ -96,6 +104,12 @@
   // The single de-identified patient context every AI prompt should use.
   function patientContext(p) {
     if (!p) return {};
+    if (SEND()) {
+      const full = Object.assign({}, p);
+      const band = ageBand(p.dob || p.dateOfBirth, p.age);
+      if (band) full.ageBand = band;
+      return full;
+    }
     const ids = identifiersOf(p);
     const ctx = scrubRecord(p, ids);
     delete ctx.age;
@@ -104,5 +118,5 @@
     return ctx;
   }
 
-  window.RehablixDeidentify = { scrubText, scrubRecord, identifiersOf, patientContext, ageBand, BLOCKED_FIELDS: FIELD_BLOCKLIST };
+  window.RehablixDeidentify = { scrubText, scrubRecord, identifiersOf, patientContext, ageBand, BLOCKED_FIELDS: FIELD_BLOCKLIST, sendIdentifiers: SEND };
 })();

@@ -25,7 +25,13 @@
     new RegExp('\\b' + MAKE + '\\b[\\s\\S]{0,60}\\b' + THING + '\\b[\\s\\S]{0,60}\\b(?:in|into|on|to|for)\\b[\\s\\S]{0,12}\\b' + EMR + '\\b', 'i'),
     new RegExp('\\b' + MAKE + '\\b[\\s\\S]{0,40}\\b(?:in|into|on|to)\\s+(?:the\\s+|my\\s+)?' + EMR + '\\b', 'i'),
     new RegExp('\\b' + EMR + '\\b[\\s\\S]{0,30}\\b(?:patient|record|file|biodata|intake)\\b[\\s\\S]{0,30}\\b(?:for|from)\\s+(?:this|the|it|that)\\b', 'i'),
-    /\b(?:create|add|register|enrol|enroll|admit)\s+(?:this|the|a\s+new|new|a)\s+(?:patient|client)\b/i
+    /\b(?:create|add|register|enrol|enroll|admit)\s+(?:this|the|a\s+new|new|a)\s+(?:patient|client)\b(?!['’]s)/i,
+    // "create patient", "save this patient", "add patient to my records" (not "add the patient's pain score…")
+    /\b(?:create|add|register|enrol|enroll|admit|save)\s+(?:(?:this|the|a|new|my|her|his|their)\s+){0,2}(?:patient|client)\b(?!['’]s)/i,
+    // "open a new patient file", "create patient record"
+    /\b(?:create|open|start|make|set\s*up)\s+(?:a\s+)?(?:new\s+)?(?:patient|client)\s+(?:file|record|folder|profile|chart)\b/i,
+    // "create biodata and intake for this patient"
+    /\b(?:create|fill|make|add|generate|do)\b[\s\S]{0,20}\bbio-?data\b/i
   ];
   const NOT = /\b(?:don'?t|do\s+not|never|without|no\s+need\s+to|how\s+(?:do|can|to)\s+i)\b[\s\S]{0,25}\b(?:create|add|make|open|register|save|put)\b/i;
 
@@ -112,6 +118,12 @@
     ' "goals": "the functional goals stated or clearly implied (max 600 characters)",\n' +
     ' "assessment": "a concise clinical summary: history, examination and assessment findings, with the measures and scores given (max 1500 characters)",\n' +
     ' "age": number or null, "gender": "Male", "Female" or ""}';
+  // With patients' details sent in full (js/deidentify.js), the SI reads the biodata too.
+  const SYSTEM_FULL = SYSTEM.replace(
+    'The patient\'s name, date of birth and phone number have been removed (shown as [redacted], [date], [phone]); never guess or invent them. ',
+    'Read the patient\'s biodata from the text too; never guess or invent it. '
+  ).replace('{"primaryDx"', '{"name": "the patient\'s full name, without titles (Mr, Mrs…)", "dob": "date of birth as YYYY-MM-DD", "phone": "the patient\'s phone number",\n "primaryDx"');
+  const sendAll = () => !!(window.RehablixDeidentify && window.RehablixDeidentify.sendIdentifiers && window.RehablixDeidentify.sendIdentifiers());
 
   function pick(v, list) { const s = String(v || '').trim().toLowerCase(); return list.find(x => x.toLowerCase() === s) || ''; }
   function str(v, max) { return String(v == null ? '' : v).replace(/\s+\n/g, '\n').trim().slice(0, max); }
@@ -146,7 +158,7 @@
     if (!cfg) throw new Error('The SI service is not available right now.');
     const res = await fetch(cfg.endpoint.replace(/\/$/, '') + '/chat/completions', {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cfg.token },
-      body: JSON.stringify({ model: cfg.model, messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: clean }], max_tokens: 1800, temperature: 0.2, stream: false })
+      body: JSON.stringify({ model: cfg.model, messages: [{ role: 'system', content: sendAll() ? SYSTEM_FULL : SYSTEM }, { role: 'user', content: clean }], max_tokens: 1800, temperature: 0.2, stream: false })
     });
     if (!res.ok) throw new Error('The SI could not read the report just now. Please try again.');
     const j = await res.json().catch(() => ({}));
@@ -155,12 +167,14 @@
     const ai = parseJson(answer);
     if (!ai) throw new Error('The SI could not read the report just now. Please try again.');
     const aiAge = Number(ai.age);
+    // (what the text's own labels say comes first; the SI's reading fills the gaps when it was given the details)
+    const full = sendAll();
     const fields = {
-      name: ids.name,
-      dob: ids.dob,
+      name: ids.name || (full ? cleanName(ai.name) : ''),
+      dob: ids.dob || (full ? isoDate(ai.dob) : ''),
       age: ids.age != null ? ids.age : (aiAge > 0 && aiAge < 120 ? Math.round(aiAge) : null),
       gender: ids.gender || pick(ai.gender, ['Male', 'Female']),
-      phone: ids.phone,
+      phone: ids.phone || (full ? str(ai.phone, 30) : ''),
       primaryDx: str(ai.primaryDx, 200),
       chiefComplaint: str(ai.chiefComplaint, 600),
       category: pick(ai.category, CATEGORIES),
@@ -222,10 +236,10 @@
   /** A short summary for the chat, WITHOUT the patient's name, date of birth or phone (the chat goes to the SI). */
   function summary(result, d) {
     const f = d.fields;
-    const lines = ['I\'ve created the patient in Smart EMR' + (result.regNumber ? ' (Reg #' + result.regNumber + ')' : '') + ' as a **draft**, with the biodata and intake from the report.'];
+    const lines = ['I\'ve created ' + (sendAll() && f.name ? '**' + f.name + '**' : 'the patient') + ' in Smart EMR' + (result.regNumber ? ' (Reg #' + result.regNumber + ')' : '') + ' as a **draft**, with the biodata and intake from the report.'];
     const got = [];
     if (f.name) got.push('name'); if (f.dob) got.push('date of birth'); else if (f.age != null) got.push('age'); if (f.gender) got.push('sex'); if (f.phone) got.push('phone');
-    if (got.length) lines.push('- Biodata: ' + got.join(', ') + ' (kept on this device, never sent to the SI)');
+    if (got.length) lines.push('- Biodata: ' + got.join(', '));
     if (f.primaryDx) lines.push('- Diagnosis: ' + f.primaryDx);
     if (f.chiefComplaint) lines.push('- Chief complaint: ' + f.chiefComplaint.slice(0, 160) + (f.chiefComplaint.length > 160 ? '…' : ''));
     const more = [f.category, f.profession, f.state].filter(Boolean);
