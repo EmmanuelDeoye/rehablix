@@ -178,11 +178,11 @@
     }
 
     // No account yet — store a pending invite keyed by sanitized email.
-    await db().ref(`users/${centerUid}/centers/pendingInvites/${sanitizeEmailKey(cleanEmail)}`).set({
-      email: cleanEmail,
-      permissions: perms,
-      invitedAt: new Date().toISOString()
-    });
+    const pending = { email: cleanEmail, permissions: perms, invitedAt: new Date().toISOString() };
+    await db().ref(`users/${centerUid}/centers/pendingInvites/${sanitizeEmailKey(cleanEmail)}`).set(pending);
+    // ...and where that person (and only they) can find it when they sign up: centerInvites/{emailKey}/{centerUid}
+    // (the database rules do not let one account read every other account to look for invites).
+    await db().ref(`centerInvites/${sanitizeEmailKey(cleanEmail)}/${centerUid}`).set(Object.assign({ centerName }, pending)).catch(() => {});
     return { linked: false };
   }
 
@@ -192,8 +192,24 @@
   async function linkPendingInviteForUser(uid, email, name) {
     if (!email) return;
     const key = sanitizeEmailKey(email);
-    const usersSnap = await db().ref('users').once('value');
-    const users = usersSnap.val() || {};
+    const link = async (centerUid, invite, centerName) => {
+      const invitedAt = new Date().toISOString();
+      await db().ref(`users/${centerUid}/centers/members/${uid}`).set({
+        email: email.toLowerCase(), name: name || email, status: 'invited', permissions: invite.permissions || {}, addedAt: invitedAt
+      });
+      await db().ref(`users/${uid}/memberships/${centerUid}`).set({ centerName: centerName || 'a center', status: 'invited', invitedAt });
+      await db().ref(`users/${centerUid}/centers/pendingInvites/${key}`).remove().catch(() => {});
+      await db().ref(`centerInvites/${key}/${centerUid}`).remove().catch(() => {});
+    };
+    // Invites waiting for this email (readable only by this email's own account).
+    const mine = (await db().ref(`centerInvites/${key}`).once('value').catch(() => null));
+    const waiting = (mine && mine.val()) || {};
+    for (const centerUid of Object.keys(waiting)) await link(centerUid, waiting[centerUid] || {}, (waiting[centerUid] || {}).centerName);
+
+    // Older invites (made before centerInvites existed) are found by looking through the accounts, which only works
+    // while the database still allows it; under the locked-down rules this read is refused and simply skipped.
+    let users = {};
+    try { users = (await db().ref('users').once('value')).val() || {}; } catch (e) { return; }
 
     for (const centerUid of Object.keys(users)) {
       const center = users[centerUid].centers;
@@ -457,8 +473,13 @@
     const ownerSnap = await db().ref('centerSlugs/' + slug).once('value');
     const centerUid = ownerSnap.val();
     if (!centerUid) return null;
-    const centerSnap = await db().ref(`users/${centerUid}/centers`).once('value');
-    const center = centerSnap.val();
+    // (a member, or the owner, may read the whole center; anyone else only its public name — database rules)
+    let center = null;
+    try { center = (await db().ref(`users/${centerUid}/centers`).once('value')).val(); }
+    catch (e) {
+      const name = (await db().ref(`users/${centerUid}/centers/name`).once('value')).val();
+      center = name ? { name } : null;
+    }
     if (!center) return null;
     return { centerUid, ...center };
   }
