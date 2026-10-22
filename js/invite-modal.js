@@ -1,5 +1,5 @@
 // js/invite-modal.js
-// Shows a popup modal for any pending center invitations the current user
+// Shows a popup modal for any pending group invitations the current user
 // hasn't responded to yet — accept, decline, or dismiss to answer later
 // (they can always respond from settings.html afterwards too).
 
@@ -14,7 +14,7 @@
     overlay.innerHTML = `
       <div class="im-box">
         <div class="im-icon"><i class="fas fa-hospital"></i></div>
-        <h3>${invites.length > 1 ? "You've been invited to join centers" : "You've been invited to join a center"}</h3>
+        <h3>${invites.length > 1 ? "You've been invited to join groups" : "You've been invited to join a group"}</h3>
         <div class="im-invite-list" id="imInviteList"></div>
         <button type="button" class="im-later-btn" id="imLaterBtn">Decide Later</button>
       </div>
@@ -26,7 +26,7 @@
       const row = document.createElement('div');
       row.className = 'im-invite-row';
       row.innerHTML = `
-        <p><strong>${escapeHtml(invite.centerName || 'A center')}</strong> invited you to join their team on rehablix.</p>
+        <p><strong>${escapeHtml(invite.centerName || 'A group')}</strong> invited you to join their team on rehablix.</p>
         <div class="im-invite-actions">
           <button type="button" class="im-btn im-btn-decline" data-center="${invite.centerUid}">Decline</button>
           <button type="button" class="im-btn im-btn-accept" data-center="${invite.centerUid}">Accept</button>

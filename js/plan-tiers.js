@@ -60,13 +60,15 @@
   const MODELS = [
     {
       id: 'blix360', label: 'Blix 360', rank: 1,
-      provider: 'openai', apiModel: 'gpt-4.1', endpoint: 'https://api.openai.com/v1',
-      maxTokens: 20000, weight: 4, minPlan: 'pro',
+      // GPT-5: thinks before it answers and sees images (GPT-4.1 answers if GPT-5 cannot be reached: js/ai-transport.js).
+      // Charged at 2x what each call really uses, its thinking included (ai-transport.js ACTUAL_BILLING).
+      provider: 'openai', apiModel: 'gpt-5', endpoint: 'https://api.openai.com/v1',
+      maxTokens: 20000, weight: 2, minPlan: 'pro',
       temperature: 0.75, top_p: 0.95,
       responseStyle: 'Think deeply before answering. Consider edge cases, differential possibilities, and clinical nuance; structure complex answers with headings and sub-points. Depth and completeness matter more than brevity — this is the mode for genuinely hard or multi-part cases.',
-      tagline: 'Deepest · sees images',
-      strength: 'Deepest reasoning and the only model that understands images — best for complex or multi-image clinical cases, with the highest token ceiling for long, thorough answers.',
-      weakness: 'Slowest and most expensive; drains your token budget fastest.'
+      tagline: 'Strongest · thinks · sees images',
+      strength: 'The strongest model: it thinks before it answers, understands images, and handles the hardest multi-step cases and app work best, with the highest token ceiling for long, thorough answers.',
+      weakness: 'Slowest and most expensive: its thinking counts too, so it drains your token budget fastest.'
     },
     {
       id: 'medulla200', label: 'Medulla 200', rank: 2,
@@ -76,7 +78,7 @@
       responseStyle: 'Reason step by step before giving your final answer — briefly show the logical/clinical-reasoning chain that gets you there, then state a clear conclusion. Prioritize rigor for multi-part or differential-reasoning questions.',
       tagline: 'Step-by-step reasoning',
       strength: 'A dedicated chain-of-thought reasoning model — strong step-by-step logic for multi-part clinical questions, with a generous token ceiling for working through them.',
-      weakness: 'Text-only — no image support — and slower than Corpus/Basal since it reasons before answering.'
+      weakness: 'Text-only — no image support — and slower than Corpus/Basal since it reasons before answering; its thinking counts against your token budget too.'
     },
     {
       id: 'corpus101', label: 'Corpus 101', rank: 3,

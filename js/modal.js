@@ -129,14 +129,14 @@ function createAuthModal() {
               </button>
               <button type="button" class="account-type-option" data-account-type="center" id="acctTypeCenter">
                 <i class="fas fa-hospital"></i>
-                <span>Center / Organization</span>
+                <span>Group / Organization</span>
               </button>
             </div>
             <input type="hidden" id="regAccountType" value="individual">
-            <small class="form-hint">A Center account lets you invite other rehablix users, control their access to shared work, and track their activity.</small>
+            <small class="form-hint">A Group account lets you invite other rehablix users, control their access to shared work, and track their activity.</small>
           </div>
           <div class="form-group" id="regOrgNameGroup" style="display:none;">
-            <label for="regOrgName">Organization / Center Name</label>
+            <label for="regOrgName">Organization / Group Name</label>
             <input type="text" id="regOrgName" placeholder="e.g. Sunrise Rehab Clinic">
           </div>
           <div class="form-group">
@@ -203,39 +203,6 @@ function createAuthModal() {
     </div>
   `;
 
-  // ---------- Profile Modal ----------
-  const profileModalHTML = `
-    <div id="profileModal" class="modal">
-      <div class="modal-content glass profile-modal-content">
-        <button class="modal-close" id="closeProfileModal">&times;</button>
-        <div class="profile-header-card">
-          <div class="profile-avatar" id="profileAvatar"></div>
-          <h2 id="profileNameDisplay"></h2>
-          <span class="profile-specialization" id="profileSpec"></span>
-        </div>
-        <div class="profile-details-grid">
-          <div class="detail-item">
-            <span class="detail-label">Email</span>
-            <span class="detail-value" id="profileEmail"></span>
-          </div>
-          <div class="detail-item">
-            <span class="detail-label">Member Since</span>
-            <span class="detail-value" id="profileCreatedAt"></span>
-          </div>
-          <div class="detail-item">
-            <span class="detail-label">Subscription Plan</span>
-            <span class="detail-value" id="profilePlan"></span>
-          </div>
-        </div>
-        <p class="profile-id">User ID: <span id="profileUserId"></span></p>
-        <!-- Added a button to go to settings page -->
-        <div style="margin-top: 1rem; text-align: center;">
-          <button class="auth-btn" id="goToSettingsFromProfile" style="background: #009688;">⚙️ Account Settings</button>
-        </div>
-      </div>
-    </div>
-  `;
-
   // Toast element
   if (!document.getElementById('toast')) {
     const toastHTML = `<div id="toast" class="toast hidden"></div>`;
@@ -287,8 +254,8 @@ function createAuthModal() {
             <span class="profile-name" id="profileName"></span>
           </button>
           <div class="dropdown-menu" id="dropdownMenu">
-            <button class="dropdown-item" id="profileMenuItem">
-              <span>👤</span> My Profile
+            <button class="dropdown-item" id="profileMenuItem" style="display:none;">
+              <span>📊</span> Token usage
             </button>
             <button class="dropdown-item" id="settingsMenuItem">
               <span>⚙️</span> Settings
@@ -328,7 +295,7 @@ function createAuthModal() {
   });
 
   // Insert modals (settings modal is REMOVED)
-  document.body.insertAdjacentHTML('beforeend', modalHTML + feedbackModalHTML + profileModalHTML);
+  document.body.insertAdjacentHTML('beforeend', modalHTML + feedbackModalHTML);
 
   // ---------- Review Bar (Footer) ----------
   const footer = document.querySelector('footer.site-footer');
@@ -435,66 +402,9 @@ function createAuthModal() {
     });
   }
 
-  // ---------- Profile Modal Logic ----------
-  window.openProfileModal = async function() {
-    const user = firebase.auth().currentUser;
-    if (!user) return;
-
-    const profileModal = document.getElementById('profileModal');
-    if (!profileModal) return;
-
-    // Show loading state
-    document.getElementById('profileNameDisplay').textContent = 'Loading...';
-    document.getElementById('profileEmail').textContent = '';
-    document.getElementById('profileSpec').textContent = '';
-    document.getElementById('profileCreatedAt').textContent = '';
-    document.getElementById('profilePlan').textContent = '';
-    document.getElementById('profileUserId').textContent = '';
-
-    // Fetch user data from Firebase
-    const snapshot = await firebase.database().ref('users/' + user.uid).once('value');
-    const data = snapshot.val() || {};
-
-    // Populate
-    document.getElementById('profileNameDisplay').textContent = data.name || user.displayName || 'User';
-    document.getElementById('profileEmail').textContent = data.email || user.email;
-    document.getElementById('profileSpec').textContent = data.specialization || 'Not specified';
-    document.getElementById('profileCreatedAt').textContent = formatDate(data.createdAt);
-    document.getElementById('profileUserId').textContent = user.uid;
-
-    // Subscription
-    const subSnap = await firebase.database().ref('users/' + user.uid + '/subscription').once('value');
-    const sub = subSnap.val();
-    if (sub && sub.plan) {
-      document.getElementById('profilePlan').textContent = sub.plan.charAt(0).toUpperCase() + sub.plan.slice(1) +
-        (sub.ends ? ' (until ' + formatDate(sub.ends) + ')' : '');
-    } else {
-      document.getElementById('profilePlan').textContent = 'Free';
-    }
-
-    // Avatar
-    const avatarEl = document.getElementById('profileAvatar');
-    if (data.photoURL) {
-      avatarEl.innerHTML = `<img src="${data.photoURL}" alt="${data.name}" class="profile-avatar-img">`;
-    } else {
-      avatarEl.textContent = (data.name || user.email).charAt(0).toUpperCase();
-    }
-
-    profileModal.classList.add('show');
-    document.body.style.overflow = 'hidden';
-  };
-
-  document.getElementById('closeProfileModal')?.addEventListener('click', () => {
-    document.getElementById('profileModal').classList.remove('show');
-    document.body.style.overflow = '';
-  });
-
-  document.getElementById('profileModal')?.addEventListener('click', (e) => {
-    if (e.target === document.getElementById('profileModal')) {
-      document.getElementById('profileModal').classList.remove('show');
-      document.body.style.overflow = '';
-    }
-  });
+  // ---------- Profile menu > Token usage ----------
+  // (the "My Profile" modal was retired: the profile is on the Settings page; js/token-usage.js opens the token
+  // usage monitor for paid plans through window.openProfileModal)
 
   // ---------- Redirect to index.html#/settings when settings menu item is clicked ----------
   const settingsMenuItem = document.getElementById('settingsMenuItem');
@@ -506,22 +416,10 @@ function createAuthModal() {
     });
   }
 
-  // Also handle the settings button inside profile modal (if exists)
-  const goToSettingsBtn = document.getElementById('goToSettingsFromProfile');
-  if (goToSettingsBtn) {
-    goToSettingsBtn.addEventListener('click', () => {
-      window.location.href = 'index.html#/settings';
-    });
-  }
-
   // Close modals with Escape key
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (feedbackModal && feedbackModal.classList.contains('show')) closeFeedbackModal();
-      if (document.getElementById('profileModal')?.classList.contains('show')) {
-        document.getElementById('profileModal').classList.remove('show');
-        document.body.style.overflow = '';
-      }
     }
   });
 

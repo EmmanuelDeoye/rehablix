@@ -3472,8 +3472,8 @@
         if (window.RehablixCenter && typeof window.RehablixCenter.getEffectiveScopeUid === 'function') {
           try { scopeUid = await window.RehablixCenter.getEffectiveScopeUid('project'); } catch (err) { scopeUid = user.uid; }
         } else scopeUid = user.uid;
-        if (scopeUid === null) { showToast('Your access to Projects has been turned off by your center admin.', 'error', 6000); return; }
-        else if (scopeUid !== user.uid) showToast('Working on your center shared projects', 'info', 3000);
+        if (scopeUid === null) { showToast('Your access to Projects has been turned off by your group admin.', 'error', 6000); return; }
+        else if (scopeUid !== user.uid) showToast('Working on your group shared projects', 'info', 3000);
 
         await fetchTokens();
         await loadProjects();

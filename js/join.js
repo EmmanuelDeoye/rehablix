@@ -1,7 +1,7 @@
 // js/join.js
-// Drives join.html: resolves the ?c=slug in the URL to a center, then
+// Drives join.html: resolves the ?c=slug in the URL to a group, then
 // routes the visitor based on who they are — owner, active member,
-// revoked member, or a stranger who isn't part of this center at all.
+// revoked member, or a stranger who isn't part of this group at all.
 
 document.addEventListener('DOMContentLoaded', () => {
   const card = document.getElementById('joinCard');
@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     render(`
       <div class="join-icon"><i class="fas fa-link-slash"></i></div>
       <h2>Link not found</h2>
-      <p>We couldn't find a center at this link. Double-check the address, or ask your center admin for the correct one.</p>
+      <p>We couldn't find a center at this link. Double-check the address, or ask your group admin for the correct one.</p>
       <a href="index.html" class="btn-primary">Go to rehablix</a>
     `);
   }
@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     render(`
       <div class="join-icon"><i class="fas fa-hospital"></i></div>
       <h2>${escapeHtml(centerName)}</h2>
-      <p>Sign in with the email your center admin invited to get access to your team's tools and shared patient records.</p>
+      <p>Sign in with the email your group admin invited to get access to your team's tools and shared patient records.</p>
       <button class="btn-primary" id="joinLoginBtn"><i class="fas fa-right-to-bracket"></i> Sign In / Register</button>
     `);
     document.getElementById('joinLoginBtn')?.addEventListener('click', () => {
@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
     render(`
       <div class="join-icon join-icon-warn"><i class="fas fa-user-lock"></i></div>
       <h2>No access yet</h2>
-      <p>You're signed in, but this account doesn't have access to <strong>${escapeHtml(centerName)}</strong>. Ask the center admin to invite this email address, then reload this link.</p>
+      <p>You're signed in, but this account doesn't have access to <strong>${escapeHtml(centerName)}</strong>. Ask the group admin to invite this email address, then reload this link.</p>
       <a href="index.html" class="btn-secondary">Go to rehablix</a>
     `);
   }
@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
     render(`
       <div class="join-icon join-icon-warn"><i class="fas fa-user-lock"></i></div>
       <h2>Access paused</h2>
-      <p>Your access to <strong>${escapeHtml(centerName)}</strong> has been turned off by your center admin. Reach out to them to have it restored.</p>
+      <p>Your access to <strong>${escapeHtml(centerName)}</strong> has been turned off by your group admin. Reach out to them to have it restored.</p>
       <a href="index.html" class="btn-secondary">Go to rehablix</a>
     `);
   }
@@ -91,7 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       if (ctx.isCenterOwner && ctx.uid === center.centerUid) {
-        renderWelcome(center.name, 'your center dashboard');
+        renderWelcome(center.name, 'your group dashboard');
         setTimeout(() => { window.location.href = 'index.html#/settings'; }, 900);
         return;
       }
@@ -99,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // `ctx.centerId` only reflects whichever workspace is already the
       // user's *active* context — which, for someone landing on this link
       // for the first time (the whole point of this page), usually isn't
-      // set to this center yet. So look up their membership for THIS
+      // set to this group yet. So look up their membership for THIS
       // specific center directly, rather than relying on activeContext.
       const membership = (ctx.memberships || {})[center.centerUid] || null;
 
@@ -110,7 +110,7 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         if (membership.status === 'invited') {
           // First time following this link: accept the invite, which also
-          // switches their active workspace to this center.
+          // switches their active workspace to this group.
           await window.RehablixCenter.respondToInvite(center.centerUid, true);
         } else if (ctx.activeContext !== center.centerUid) {
           // Already an active member, just not currently "in" this
@@ -119,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
           await window.RehablixCenter.switchActiveContext(center.centerUid);
         }
       } catch (err) {
-        console.error('Could not activate center membership:', err);
+        console.error('Could not activate group membership:', err);
         renderNoAccess(center.name);
         return;
       }

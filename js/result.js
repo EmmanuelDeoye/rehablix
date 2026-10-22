@@ -229,7 +229,7 @@
           currentIsOwner = true;
         }
 
-        // Center members' records for shared tools live under the center
+        // Group members' records for shared tools live under the group
         // owner's uid (the same scope the tool itself saved them under), not
         // their own — look there too before giving up.
         if (!data && config.scopeTool && window.RehablixCenter && typeof window.RehablixCenter.getEffectiveScopeUid === 'function') {

@@ -216,6 +216,9 @@ LIXA AGENT MODE
 - To open a page or tool for the user, CALL open_tool. Never just answer with a link or tell the user where to tap.
 - You can only use tools in the list. Check them all first (screen_controls and press reach almost anything on the screen); only if none fits, say so plainly and, if it helps, explain how the user can do it themselves from the app map. Deleting saved work is not something you can do here: tell the user where to do it.
 - Patients' details are given to you in full: use patients' names naturally, as the user does. Read phone numbers, dates of birth and addresses aloud only when the user asks; otherwise say they are on the screen.
+- If the user asks why you could not do something in the app, be honest: the quick models (Basal 100, Corpus 101) are less reliable at work that takes several steps; Medulla 200 and Blix 360 manage it much better (the user picks the model in the model menu).
+- To SEE what is on the screen (exam questions and choices, a result, a report, a list), call read_screen; never say you can't see the screen.
+- When a box (dialog) is open, screen_controls lists only that box's controls: work it (fill its boxes, press its Generate / Save / OK). Do not press its Close or Cancel unless the user wants the box closed. Never ask the user to scroll or press a button for you.
 - A greeting or small talk gets a short, friendly spoken answer and no tool.
 - When the user is ending the conversation ("bye", "I have to go", "you can go now", "that's all"), answer with "goodbye": a short, warm farewell. Agent mode then closes itself.
 - "Clear the screen", "remove the files from the screen": use clear_screen. That only takes things off the screen; nothing is deleted.
@@ -235,7 +238,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
   // Told to her once when she turns a request down without trying a tool (Android: AgentOrchestrator.REFUSAL_NOTE).
   const REFUSAL_NOTE = "you said you can't, but you have not tried a tool, and your tools can do most things in this app. " +
     "open_tool opens any page or tool; find_items and open_item find and open the user's saved work (patients too); emr_create_patient adds a Smart EMR patient;" +
-    "screen_controls shows every box, button and switch on the screen, then type_text, replace_text and press fill them in, toggle and press them; " +
+    "read_screen reads the words on the screen; screen_controls shows every box, button and switch on the screen, then type_text, replace_text and press fill them in, toggle and press them; " +
     "create_document makes documents; web_search searches the web. Look at TOOLS and call the one that does what the user asked now. Say you can't only if no tool in the list can do it.";
   const FAILED = "Sorry, that didn't work. Nothing was changed.";
   const TOO_SLOW = 'Sorry, that took too long, so I stopped. Nothing was changed.';
@@ -305,7 +308,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
   /** What needs the user's yes when Lixa types or presses (the same rules as Android's ScreenRules). */
   const ScreenRules = {
     MONEY: /\b(pay|payment|subscribe|subscription|upgrade|buy|purchase|checkout|check out|card number|billing|top ?up|withdraw|transfer|donate)\b/i,
-    DANGER: /\b(delete|remove|discard|erase|clear all|clear history|wipe|discharge|re-?admit|sign out|log ?out|leave (the )?center|revoke|ban|block|reject|approve|share|publish|invite|export|download|overwrite|restore|reset|end (this )?plan|archive|mark as reviewed|sign(?! in| up)|uninstall|accept|agree)\b/i,
+    DANGER: /\b(delete|remove|discard|erase|clear all|clear history|wipe|discharge|re-?admit|sign out|log ?out|leave (the )?group|revoke|ban|block|reject|approve|share|publish|invite|export|download|overwrite|restore|reset|end (this )?plan|archive|mark as reviewed|sign(?! in| up)|uninstall|accept|agree)\b/i,
     CHANGE: /\b(generate|regenerate|save|add|create|apply|update|complete|submit|draft|insert|replace|fix|record)\b/i,
     AFFIRM: /^\s*(yes|ok|okay|confirm|continue|proceed|i understand|do it|go ahead|turn off|turn on|done)\b/i,
     press(label, route, boxText) {
@@ -480,21 +483,37 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
     const type = async (c, text, append) => {
       if (!c.enabled) return { ok: false, text: '"' + c.label + '" is not available right now.' };
       host.minimize();
+      await reveal(c);
       const before = Screen.setText(c, String(text || ''), append);
       if (before == null) return { ok: false, text: c.select ? '"' + c.label + '" has no choice like that. Its choices: ' + c.options.join(' / ') + '.' : 'The text could not be put in. Nothing was changed.' };
       typedByHer.add(c.label);
       return after((c.select ? 'Chose "' + text + '" in "' + c.label + '".' : 'Typed into "' + c.label + '".') + ' Nothing is saved or started until its button is pressed.');
     };
+    // (a button or box out of view is scrolled to first, so the user sees what she does)
+    const reveal = async c => {
+      const r = c.el.getBoundingClientRect();
+      if (r.top < 0 || r.bottom > window.innerHeight) { try { c.el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { c.el.scrollIntoView(); } await new Promise(res => setTimeout(res, 400)); }
+    };
     const press = async c => {
       if (!c.enabled) return { ok: false, text: '"' + c.label + '" can\'t be pressed right now (it is greyed out).' };
       host.minimize();
+      await reveal(c);
       c.el.click();
       return after('Pressed "' + c.label + '".');
     };
     return {
       screen_controls: {
-        risk: 'READ', describe: 'screen_controls {} — lists the text boxes, choices and buttons on the user\'s screen right now, on any page or open box (dialog), with an id each (f1… for boxes, b1… for buttons). Use it before filling in a form, writing instructions into a box or pressing a button such as Generate. It says whether a box is empty, never what is in it.',
+        risk: 'READ', describe: 'screen_controls {} — lists the text boxes, choices and buttons on the user\'s screen right now, on any page or open box (dialog), with an id each (f1… for boxes, b1… for buttons), including those further down the page (pressing one scrolls to it). Use it before filling in a form, writing instructions into a box or pressing a button such as Generate. It says whether a box is empty, never what is in it.',
         async run() { return { ok: true, text: Screen.describe(Screen.scan(scrub)) }; }
+      },
+      read_screen: {
+        risk: 'READ', describe: 'read_screen {} — reads the words on the user\'s screen right now (the box on top, else the page): a question and its answer choices in the Exam Simulator, a result, a report, a list, a message. Use it whenever you need to see what is on the screen. What is typed in text boxes is not included.',
+        async run() {
+          const root = Screen.box() || document.querySelector('#keepAliveHost:not([hidden]) .kept-alive-view:not([hidden])') || document.querySelector('#transientHost:not([hidden])') || document.body;
+          // (the page's own view, never the agent's screen; typed text lives in input values, which innerText leaves out)
+          const text = scrub(String(root.innerText || '').replace(/\n{3,}/g, '\n\n').trim()).slice(0, 4000);
+          return text ? { ok: true, text: 'The words on the screen (top to bottom):\n' + text } : { ok: false, text: 'The screen has no words that can be read right now.' };
+        }
       },
       type_text: {
         risk: 'READ', describe: 'type_text {"field": "<id or label words>", "text": "<what to type or paste; for a choice, the option>"} — types or pastes into an EMPTY text box, or makes a choice, on the screen (a form field, the instructions of a Generate box, the Project Maker editor…). Nothing is saved or started by typing. For a box that already has text use replace_text; in Smart EMR use replace_text.',
@@ -689,10 +708,13 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
       (store.lines.length ? '\n\nSAVED ITEMS FOUND EARLIER IN THIS CONVERSATION (also listed on the user\'s screen; open one with open_item):\n' + store.lines.join('\n') : '') +
       '\n\nAPP MAP (only the entries that look relevant to this request; use search_app_map for anything else):\n' + (relevant.length ? relevant.map(AppMap.brief).join('\n') : '(none matched)');
     const convo = [{ role: 'system', content: system }].concat(history, [{ role: 'user', content: said }]);
+    // (on the quick models, a job the model could not manage ends with which model would: Talk.modelNote)
+    const modelNote = R().Talk.modelNote(agentModelId(), plan());
+    const limit = reply => (modelNote ? reply + ' ' + modelNote : reply);
     let invalid = 0, claimChecked = false, refusalChecked = false, ranAny = false, changed = false, planSteps = null, planGrants = [];
     const startedAt = Date.now();
     for (let calls = 1; calls <= MAX_CALLS; calls++) {
-      if (Date.now() - startedAt > 180000) return { reply: TOO_SLOW };
+      if (Date.now() - startedAt > 180000) return { reply: limit(TOO_SLOW) };
       let shown = 0, held = false;                           // (a refusal she will be asked to rethink is not said)
       const raw = await stream(convo, { maxTokens: 900, temperature: 0.2 }, full => {
         const t = streamedReply(full);
@@ -701,7 +723,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
       }, signal);
       const step = parse(raw);
       if (step.invalid) {
-        if (++invalid >= 2) return { reply: FAILED };
+        if (++invalid >= 2) return { reply: limit(FAILED) };
         convo.push({ role: 'assistant', content: raw.slice(0, 900) }, { role: 'user', content: 'SYSTEM NOTE: that was not valid (' + step.invalid + '). Nothing was run. Reply again with ONE JSON object only, exactly in the form described.' });
         continue;
       }
@@ -719,13 +741,14 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
           convo.push({ role: 'assistant', content: raw.slice(0, 600) }, { role: 'user', content: 'SYSTEM NOTE: ' + REFUSAL_NOTE });
           continue;
         }
-        return { reply: step.reply, details: step.details, close: !!step.close };
+        // (still turned down after the reminder, with no tool tried: that is the model's limit)
+        return { reply: refusalChecked && !step.close && !ranAny && R().Talk.refuses(step.reply) ? limit(step.reply) : step.reply, details: step.details, close: !!step.close };
       }
       if (step.plan) {
         // A job in several parts: the plan on screen and said aloud, approved once (or at once with confirmations off).
         const steps = step.plan.filter(s => tools[s.tool]).map(s => ({ tool: s.tool, what: s.what || s.tool.replace(/_/g, ' '), risk: tools[s.tool].risk, status: 'pending' }));
         if (planSteps || steps.length < 2 || steps.length !== step.plan.length) {
-          if (++invalid >= 2) return { reply: FAILED };
+          if (++invalid >= 2) return { reply: limit(FAILED) };
           convo.push({ role: 'assistant', content: raw.slice(0, 600) }, { role: 'user', content: 'SYSTEM NOTE: ' + (planSteps ? 'a plan is already approved; carry on with it.' : 'that plan was not accepted and nothing was run: it needs 2 to 8 steps, each naming one tool from the list.') });
           continue;
         }
@@ -767,7 +790,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
       listener.onToolEnd(step.tool, result);
       convo.push({ role: 'assistant', content: raw.slice(0, 600) }, { role: 'user', content: dataBlock(step.tool, result) });
     }
-    return { reply: "I couldn't finish that in the steps I'm allowed, so I stopped." };
+    return { reply: limit("I couldn't finish that in the steps I'm allowed, so I stopped.") };
   }
 
   window.LixaAgentBrain = { loadMap, AppMap, stream, runAgent, openFound, Quota, QuotaError, AiError, user, plan, clock, parse, streamedReply, makeTools, userName, agentModelId, ScreenRules, Screen };

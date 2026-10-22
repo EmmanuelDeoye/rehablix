@@ -385,6 +385,18 @@
     claimsAction(text) { return CLAIMS.test(String(text || '')); },
     /** She turns down something in the app that her tools could do. */
     refuses(text) { return REFUSES.test(String(text || '')); },
+    /**
+     * For the quick models (Basal 100, Corpus 101), said when a job in the app stopped because the model could not
+     * manage it: that it is the model's limit, and which model to switch to. Null otherwise. (Android: AgentTalk.modelNote)
+     */
+    modelNote(modelId, plan) {
+      if (modelId !== 'basal100' && modelId !== 'corpus101') return null;
+      const T = typeof window !== 'undefined' && window.RehabPlanTiers;
+      const label = id => (T && T.getModel(id).label) || ({ basal100: 'Basal 100', corpus101: 'Corpus 101', medulla200: 'Medulla 200', blix360: 'Blix 360' })[id];
+      const better = ['medulla200', 'blix360'].filter(id => T && T.isModelUnlocked(id, plan)).map(label);
+      const lead = "That's a limit of " + label(modelId) + ', the model you have picked: it is built for quick answers, so work in the app that takes several steps is hard for it.';
+      return better.length ? lead + ' For this, switch to ' + better.join(' or ') + ' in the model menu.' : lead + ' Medulla 200, on the Basic plan, handles it much better.';
+    },
     /** How she treats greetings and pleasantries: with the user's first name (blank when unknown). Same text as Android. */
     nameLine(name) {
       return !name || !String(name).trim() ? '' :

@@ -490,7 +490,7 @@ function mount() {
 
   transcribeUploadBtn.addEventListener('click', async () => {
     if (!uploadedFile || !currentUser) return;
-    if (scopeUid === null) { showToast('Your access to Audio Transcription has been turned off by your center admin.', 'error', 6000); return; }
+    if (scopeUid === null) { showToast('Your access to Audio Transcription has been turned off by your group admin.', 'error', 6000); return; }
     try { await checkQuotaOrThrow(); } catch (err) { showToast(err.message, 'error', 6000); return; }
 
     localSessionId = newSessionId();
@@ -570,7 +570,7 @@ function mount() {
 
   async function startNewRecording(resume) {
     if (!currentUser) { showToast('Please log in first', 'error'); return; }
-    if (scopeUid === null) { showToast('Your access to Audio Transcription has been turned off by your center admin.', 'error', 6000); return; }
+    if (scopeUid === null) { showToast('Your access to Audio Transcription has been turned off by your group admin.', 'error', 6000); return; }
 
     if (!window.isSecureContext) {
       showToast('Microphone access needs a secure connection (https://). This page must be opened via your website URL, not a local file.', 'error', 7000);
@@ -2058,9 +2058,9 @@ Output ONLY the narrative text, as flowing paragraphs.`;
     }
 
     if (scopeUid === null) {
-      showToast('Your access to Audio Transcription has been turned off by your center admin.', 'error', 6000);
+      showToast('Your access to Audio Transcription has been turned off by your group admin.', 'error', 6000);
     } else if (scopeUid !== user.uid) {
-      showToast('Working on your center\'s shared transcripts', 'info', 3000);
+      showToast('Working on your group\'s shared transcripts', 'info', 3000);
     }
 
     if (window.rehabPlans) currentPlan = window.rehabPlans.getCurrentPlan() || 'free';

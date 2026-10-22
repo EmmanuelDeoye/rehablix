@@ -6,7 +6,7 @@
 //   * patientBar(el, scope, patientId, patient) — on the open patient: "Transfer to another account", or, while an
 //     offer is open, who it is waiting for and Cancel;
 //   * incoming(el, onAccepted) — on the dashboard: transfers sent to this account, with Accept / Decline.
-// Only patients in the user's own records (not a center's) can be transferred.
+// Only patients in the user's own records (not a group's) can be transferred.
 (function () {
   'use strict';
   const BASE = () => window.REHABLIX_AI_FUNCTIONS || 'https://us-central1-rehablix-ai.cloudfunctions.net';

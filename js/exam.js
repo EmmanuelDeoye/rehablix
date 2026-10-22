@@ -87,7 +87,7 @@
 
   // ===== State =====
   let currentUser = null;
-  let scopeUid = null; // center owner's uid for center members, so exam subjects/attempts are shared
+  let scopeUid = null; // group owner's uid for group members, so exam subjects/attempts are shared
   let subjects = {};      // shared with study.js: subjectId -> {name, topics:{...}}
   let attempts = {};      // attemptId -> {subjectId, title, questions, answers, score, topicBreakdown, createdAt}
   let activeSubjectId = null;
@@ -530,10 +530,10 @@ Generate exactly ${questionCount} multiple-choice questions at "${difficulty}" d
       scopeUid = user.uid;
     }
     if (scopeUid === null) {
-      showToast('Your access to Exam Simulator has been turned off by your center admin.', 'error', 6000);
+      showToast('Your access to Exam Simulator has been turned off by your group admin.', 'error', 6000);
       return;
     } else if (scopeUid !== user.uid) {
-      showToast('Working on your center\'s shared subjects', 'info', 3000);
+      showToast('Working on your group\'s shared subjects', 'info', 3000);
     }
 
     await loadSubjects();

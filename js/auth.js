@@ -194,7 +194,7 @@ function initializeAuth() {
   function recordUserVisit(userId, email, pageUrl) {
     if (!userId) return;
 
-    // If a center owner previously invited this email before they had an
+    // If a group owner previously invited this email before they had an
     // account, link them up now that they exist / are signing in.
     if (window.RehablixCenter && typeof window.RehablixCenter.linkPendingInviteForUser === 'function') {
       database.ref('users/' + userId + '/name').once('value')
@@ -209,7 +209,7 @@ function initializeAuth() {
     }
 
     // One-time silent migration from the old single memberOf field to the
-    // new multi-center memberships map.
+    // new multi-group memberships map.
     if (window.RehablixCenter && typeof window.RehablixCenter.migrateLegacyMembership === 'function') {
       window.RehablixCenter.migrateLegacyMembership(userId).catch(err => console.error('migrateLegacyMembership error:', err));
     }
@@ -837,7 +837,7 @@ function initializeAuth() {
       if (!name || !email || !password || !repeatPassword || !specialization) return;
 
       if (accountType === 'center' && !orgName) {
-        if (registerError) registerError.textContent = 'Please enter your organization / center name.';
+        if (registerError) registerError.textContent = 'Please enter your organization / group name.';
         return;
       }
       
@@ -882,7 +882,7 @@ function initializeAuth() {
         };
 
         if (accountType === 'center') {
-          userRecord.centerId = user.uid; // a center owner's own uid doubles as the center id
+          userRecord.centerId = user.uid; // a group owner's own uid doubles as the group id
         }
 
         // Rehablix Partners: if this visitor arrived via a partner's

@@ -279,7 +279,7 @@
       document.querySelectorAll('.tool-card-link').forEach(card => {
         const permKey = CARD_TOOL_MAP[card.getAttribute('data-tool')];
         let visible = true;
-        // Only the center-shared tools follow the center's permissions; the rest are always private and available.
+        // Only the center-shared tools follow the group's permissions; the rest are always private and available.
         if (permKey && window.RehablixCenter.SHARED_TOOLS.includes(permKey) && ctx.isActiveContextCenter && ctx.centerId !== ctx.ownCenterId) {
           visible = !(ctx.permissions && ctx.permissions[permKey] === false);
         }
@@ -344,7 +344,7 @@
       if (!window.RehablixCenter) { centerInitTimer = setTimeout(initCenterContext, 150); return; }
       const ctx = await window.RehablixCenter.getContext();
       if (!ctx.loggedIn) { hideWelcomeBanner(); return; }
-      if (ctx.isActiveContextCenter) showWelcomeBanner(ctx.activeCenterName || 'your center');
+      if (ctx.isActiveContextCenter) showWelcomeBanner(ctx.activeCenterName || 'your group');
       else hideWelcomeBanner();
       applyToolVisibility(ctx);
       renderSwitcher(ctx);

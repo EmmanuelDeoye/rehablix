@@ -37,8 +37,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // =========================================================================
     let currentUser = null;
     let scopeUid = null; // uid whose data (patients, etc.) this session actually reads/writes —
-                          // equals currentUser.uid for individuals/owners, or the center owner's
-                          // uid for a center member, so everyone on the team shares the same patients.
+                          // equals currentUser.uid for individuals/owners, or the group owner's
+                          // uid for a group member, so everyone on the team shares the same patients.
     let currentPatientId = null;
     let currentPatientData = null;
     let currentPlan = 'free';
@@ -61,11 +61,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
             scopeUid = await resolveScopeUid();
             if (scopeUid === null) {
-                showToast('Your access to Documentation has been turned off by your center admin. Contact them to restore it.', 'error', 6000);
+                showToast('Your access to Documentation has been turned off by your group admin. Contact them to restore it.', 'error', 6000);
                 return;
             }
             if (scopeUid !== user.uid) {
-                showToast('Working on your center\'s shared patients', 'info', 3000);
+                showToast('Working on your group\'s shared patients', 'info', 3000);
             }
 
             loadDashboardData();
@@ -77,7 +77,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Resolves which uid's patient data this session should use — see the
-    // scopeUid declaration above for why this differs for center members.
+    // scopeUid declaration above for why this differs for group members.
     async function resolveScopeUid() {
         if (window.RehablixCenter && typeof window.RehablixCenter.getEffectiveScopeUid === 'function') {
             try {

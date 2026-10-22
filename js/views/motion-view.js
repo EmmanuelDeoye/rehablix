@@ -1022,8 +1022,8 @@
         try { scopeUid = await window.RehablixCenter.getEffectiveScopeUid('rom'); }
         catch (err) { scopeUid = user.uid; }
       } else { scopeUid = user.uid; }
-      if (scopeUid === null) showToast('Your access to the Motion Analyzer has been turned off by your center admin.', 'error', 6000);
-      else if (scopeUid !== user.uid) showToast("Working on your center's shared records", 'info', 3000);
+      if (scopeUid === null) showToast('Your access to the Motion Analyzer has been turned off by your group admin.', 'error', 6000);
+      else if (scopeUid !== user.uid) showToast("Working on your group's shared records", 'info', 3000);
       if (scopeUid) {
         openResultFromLink(user);
         loadEmrPatients(user);

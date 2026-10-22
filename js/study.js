@@ -70,7 +70,7 @@
 
   // ===== State =====
   let currentUser = null;
-  let scopeUid = null; // center owner's uid for center members, so study sets/subjects are shared
+  let scopeUid = null; // group owner's uid for group members, so study sets/subjects are shared
   let subjects = {};          // subjectId -> {name, topics:{topicId:{name,masteryScore,timesReviewed,lastActivity}}, createdAt}
   let studySets = {};         // setId -> {subjectId, title, summary, flashcards:[], quiz:[], createdAt}
   let activeSubjectId = null;
@@ -892,10 +892,10 @@ Generate exactly ${flashcardCount} flashcards and exactly ${quizCount} quiz ques
       scopeUid = user.uid;
     }
     if (scopeUid === null) {
-      showToast('Your access to Study Buddy has been turned off by your center admin.', 'error', 6000);
+      showToast('Your access to Study Buddy has been turned off by your group admin.', 'error', 6000);
       return;
     } else if (scopeUid !== user.uid) {
-      showToast('Working on your center\'s shared study sets', 'info', 3000);
+      showToast('Working on your group\'s shared study sets', 'info', 3000);
     }
 
     await refreshAllData();

@@ -31,7 +31,7 @@
 
   // The reg number's prefix is the ACCOUNT OWNER's initials (whoever
   // history/{scopeUid}/... belongs to — the clinician themself, or the
-  // center owner for a shared scope), not the patient's. All patients under
+  // group owner for a shared scope), not the patient's. All patients under
   // one scopeUid share the same prefix and just increment the sequence.
   async function getOwnerName(scopeUid) {
     if (!scopeUid) return 'Clinician';

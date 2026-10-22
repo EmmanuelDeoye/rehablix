@@ -331,7 +331,7 @@
         if (noSubscriptionMsg) noSubscriptionMsg.style.display = 'block';
       }
 
-      // ==================== LOAD CENTER / ORGANIZATION CARD ====================
+      // ==================== LOAD GROUP / ORGANIZATION CARD ====================
       await loadCenterCard(uid, userData);
 
       // ==================== LOAD REHABLIX PARTNERS CARD ====================
@@ -406,10 +406,10 @@
   }
 
 
-  // Only these tools are shared with a center (RehablixCenter.SHARED_TOOLS);
+  // Only these tools are shared with a group (RehablixCenter.SHARED_TOOLS);
   // every other tool is private to each member and has no toggle.
   const TOOL_LABELS = { doc: 'Smart EMR', project: 'Project Maker', audio: 'Audio', exam: 'Exam Simulator' };
-  const SHARED_NOTE = 'Shared with your center: Smart EMR, Project Maker, Audio and Exam Simulator. Everything else (Lixa, Motion, Presentations, Study, Assignments, …) stays private to each person.';
+  const SHARED_NOTE = 'Shared with your group: Smart EMR, Project Maker, Audio and Exam Simulator. Everything else (Lixa, Motion, Presentations, Study, Assignments, …) stays private to each person.';
 
   // Center card rolls down/up; retracted by default.
   const centerCard = document.getElementById('centerCard');
@@ -426,7 +426,7 @@
     if (!body || !window.RehablixCenter) return;
 
     const ctx = await window.RehablixCenter.getContext();
-    // A declined invitation is done with: it isn't listed (the center can invite again).
+    // A declined invitation is done with: it isn't listed (the group can invite again).
     const membershipEntries = Object.entries(ctx.memberships || {}).filter(([, m]) => m && m.status !== 'declined'); // [centerUid, {status, centerName, ...}]
     const pendingCount = membershipEntries.filter(([, m]) => m.status === 'invited').length;
     const badge = document.getElementById('centerCardBadge');
@@ -448,18 +448,20 @@
         const actions = m.status === 'invited'
           ? `<button class="btn-mini respond-invite-btn" data-center="${centerUid}" data-accept="true">Accept</button>
              <button class="btn-mini danger respond-invite-btn" data-center="${centerUid}" data-accept="false">Decline</button>`
-          : '';
+          : m.status === 'active'
+            ? `<button class="btn-mini group-info-btn" data-center="${centerUid}" type="button"><i class="fas fa-info-circle"></i> Info</button>`
+            : '';
         return `
           <div class="member-row">
             <div class="member-row-head">
-              <div><strong>${escapeHtml(m.centerName || 'A center')}</strong></div>
+              <div><strong>${escapeHtml(m.centerName || 'A group')}</strong></div>
               <div class="member-row-actions">${statusBadge} ${actions}</div>
             </div>
           </div>
         `;
       }).join('');
       html += `
-        <h4 class="settings-subheading">Your Center Memberships</h4>
+        <h4 class="settings-subheading">Your Group Memberships</h4>
         <div class="members-list">${rows}</div>
       `;
       // Members choose where the shared tools save their work; owners always
@@ -476,7 +478,7 @@
           <p class="settings-hint">${SHARED_NOTE} You can also switch with the <i class="fas fa-user-friends"></i> icon on those pages.</p>
           <div class="workspace-choices">
             ${opt('individual', 'Personal account', 'fas fa-user')}
-            ${activeCenters.map(([cid, m]) => opt(cid, m.centerName || 'Center', 'fas fa-hospital')).join('')}
+            ${activeCenters.map(([cid, m]) => opt(cid, m.centerName || 'Group', 'fas fa-hospital')).join('')}
           </div>`;
       }
     }
@@ -486,28 +488,28 @@
       html += await renderOwnerSectionHtml(ctx.ownCenterId);
     } else {
       html += `
-        <h4 class="settings-subheading">${membershipEntries.length ? 'Own a Center Too?' : 'Center / Organization'}</h4>
-        <p class="settings-hint">Register as a <strong>Center / Organization</strong> to invite other rehablix
+        <h4 class="settings-subheading">${membershipEntries.length ? 'Own a Group Too?' : 'Group / Organization'}</h4>
+        <p class="settings-hint">Register as a <strong>Group / Organization</strong> to invite other rehablix
         users (e.g. staff or students), control their access to shared work at will, and track who did what.</p>
         <div class="form-group">
-          <label for="convertOrgName">Organization / Center Name</label>
+          <label for="convertOrgName">Organization / Group Name</label>
           <input type="text" id="convertOrgName" class="settings-input" placeholder="e.g. Sunrise Rehab Clinic">
         </div>
         <button class="btn-settings-primary" id="convertToCenterBtn">
-          <i class="fas fa-hospital"></i> Convert to Center Account
+          <i class="fas fa-hospital"></i> Convert to Group Account
         </button>
       `;
     }
 
     body.innerHTML = html;
 
-    // ---- Personal ⇄ center workspace for the shared tools ----
+    // ---- Personal ⇄ group workspace for the shared tools ----
     body.querySelectorAll('input[name="workspaceChoice"]').forEach(r => {
       r.addEventListener('change', async () => {
         try {
           await window.RehablixCenter.switchActiveContext(r.value);
           body.querySelectorAll('.workspace-choice').forEach(l => l.classList.toggle('on', l.contains(r)));
-          showToast(r.value === 'individual' ? 'Shared tools now use your personal account' : 'Shared tools now use your center', 'success');
+          showToast(r.value === 'individual' ? 'Shared tools now use your personal account' : 'Shared tools now use your group', 'success');
         } catch (err) {
           showToast(err.message || 'Could not switch', 'error');
         }
@@ -537,14 +539,14 @@
       if (!orgName) { showToast('Please enter your organization name', 'error'); return; }
       try {
         await window.RehablixCenter.convertToCenter(orgName);
-        showToast('Your account is now a Center account!', 'success');
+        showToast('Your account is now a Group account!', 'success');
         loadUserData(currentUser);
       } catch (err) {
         showToast(err.message || 'Could not convert account', 'error');
       }
     });
 
-    // ---- Owner console interactions (only present if this user owns a center) ----
+    // ---- Owner console interactions (only present if this user owns a group) ----
     if (ctx.isCenterOwner) {
       wireOwnerConsoleEvents(body, ctx.ownCenterId);
     }
@@ -615,11 +617,12 @@
     const canEditSlug = !currentSlug || cooldownDays === 0;
 
     return `
-      <h4 class="settings-subheading">Your Center: ${escapeHtml(center.name || '')}</h4>
-      <p class="settings-hint">${SHARED_NOTE} As the owner you always work in your center's data, so you won't see a workspace switch.</p>
+      <h4 class="settings-subheading">Your Group: ${escapeHtml(center.name || '')}
+        <button class="btn-mini group-info-btn" data-center="${centerUid}" type="button" style="margin-left:0.5rem;"><i class="fas fa-info-circle"></i> Group info</button></h4>
+      <p class="settings-hint">${SHARED_NOTE} As the owner you always work in your group's data, so you won't see a workspace switch.</p>
 
-      <h4 class="settings-subheading">Your Center's Link</h4>
-      <p class="settings-hint">Share this link with your team. Anyone with active access can use it to get straight to your center's tools.</p>
+      <h4 class="settings-subheading">Your Group's Link</h4>
+      <p class="settings-hint">Share this link with your team. Anyone with active access can use it to get straight to your group's tools.</p>
       ${currentSlug ? `
         <div class="center-link-display">
           <code>rehablix.com/${escapeHtml(currentSlug)}</code>
@@ -672,7 +675,7 @@
       try {
         const finalSlug = await window.RehablixCenter.setCenterSlug(btn.getAttribute('data-center'), raw);
         statusEl.textContent = '';
-        showToast(`Your center link is now rehablix.com/${finalSlug}`, 'success');
+        showToast(`Your group link is now rehablix.com/${finalSlug}`, 'success');
         loadUserData(currentUser);
       } catch (err) {
         statusEl.textContent = err.message || 'Could not save link';
@@ -719,7 +722,7 @@
     body.querySelectorAll('.remove-member-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const memberUid = btn.getAttribute('data-member');
-        openConfirmModal('Remove this member from your center? They will lose access to shared work.', async () => {
+        openConfirmModal('Remove this member from your group? They will lose access to shared work.', async () => {
           await window.RehablixCenter.removeMember(centerUid, memberUid);
           showToast('Member removed', 'success');
           loadUserData(currentUser);
@@ -894,10 +897,10 @@
   // ==================== DELETE ACCOUNT ====================
   // Removes everything this account owns: its own records (history/{uid} —
   // patients, sessions, projects, audio, …), profile + subscription
-  // (users/{uid}), partner/feedback records and its center memberships.
-  // A center OWNER's shared patient records live under their own history
-  // node and are removed with it; a center MEMBER's access to someone else's
-  // center data is only unlinked, never deleted.
+  // (users/{uid}), partner/feedback records and its group memberships.
+  // A group OWNER's shared patient records live under their own history
+  // node and are removed with it; a group MEMBER's access to someone else's
+  // group data is only unlinked, never deleted.
   async function deleteAllUserData(uid) {
     const memberships = (await db.ref(`users/${uid}/memberships`).once('value')).val() || {};
     const updates = {};

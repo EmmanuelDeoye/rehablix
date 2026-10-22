@@ -8,7 +8,7 @@
 //   2. Those identifiers are taken out of the text, and only the de-identified text goes to the SI, which fills the
 //      clinical intake (diagnosis, complaint, category, setting, goals, assessment). The patient's name, date of
 //      birth and phone number are never sent to the SI.
-//   3. The record is created in Smart EMR (the user's own records, or their center's) as a DRAFT with a
+//   3. The record is created in Smart EMR (the user's own records, or their group's) as a DRAFT with a
 //      registration number, for the clinician to check and confirm there.
 (function () {
   'use strict';
@@ -196,7 +196,7 @@
   async function scopeUid(u) {
     if (window.RehablixCenter && window.RehablixCenter.getEffectiveScopeUid) {
       const s = await window.RehablixCenter.getEffectiveScopeUid('doc');
-      if (s === null) throw new Error('Your center admin has turned off Smart EMR for you.');
+      if (s === null) throw new Error('Your group admin has turned off Smart EMR for you.');
       return s || u.uid;
     }
     return u.uid;

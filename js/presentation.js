@@ -101,7 +101,7 @@ if (typeof marked !== 'undefined') {
     // State & helpers
     // =========================================================================
     let currentUser = null;
-    let scopeUid = null; // center owner's uid for center members, so shared case history is used
+    let scopeUid = null; // group owner's uid for group members, so shared case history is used
     // Generation now rides on whichever of the 4 Lixa models the user has
     // selected (js/plan-tiers.js) and its token ceiling, instead of a
     // hardcoded model here — resolvePresentationModelConfig() below fills
@@ -1667,9 +1667,9 @@ ${combinedText || 'No notes provided.'}`;
                 scopeUid = user.uid;
             }
             if (scopeUid === null) {
-                showToast('Your access to Presentations has been turned off by your center admin.', 'error', 6000);
+                showToast('Your access to Presentations has been turned off by your group admin.', 'error', 6000);
             } else if (scopeUid !== user.uid) {
-                showToast('Working on your center\'s shared documents', 'info', 3000);
+                showToast('Working on your group\'s shared documents', 'info', 3000);
             }
             loadEmrPatientsForLink(user); // EMR UPGRADE (item 4)
             if (window.RehablixRegMigration && scopeUid) window.RehablixRegMigration.checkAndPrompt(scopeUid, 'caseHistory'); // EMR UPGRADE (item 5)

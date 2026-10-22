@@ -131,6 +131,7 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
     create_document: [['tool', 'STRING', true, 'which creator to use (see the description)'], ['request', 'STRING', true, "what to create, in the user's words, with every detail they gave"]],
     // the controls on screen (agent-brain.js screenTools)
     screen_controls: [],
+    read_screen: [],
     type_text: [['field', 'STRING', true, 'the text box: its id from screen_controls ("f2") or words from its label'], ['text', 'STRING', true, 'what to type or paste (for a choice: the option)']],
     replace_text: [['field', 'STRING', true, 'the text box: its id from screen_controls ("f2") or words from its label'], ['text', 'STRING', true, 'the new text'], ['mode', 'STRING', false, '"replace" (default) or "append"']],
     press: [['button', 'STRING', true, 'the button: its id from screen_controls ("b3") or its words ("Generate")']],

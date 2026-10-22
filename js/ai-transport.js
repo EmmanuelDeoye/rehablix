@@ -40,6 +40,17 @@
   // Reasoning + answer share max_tokens on deepseek-reasoner.
   const REASONER_MIN_TOKENS = 32768;
 
+  // ---- Blix 360 = GPT-5 (OpenAI's reasoning model: it thinks first, and sees images) ----
+  // It takes max_completion_tokens (thinking + answer) and no temperature / top_p; tools build their bodies the old
+  // way, so they are rewritten here. If GPT-5 is refused (or silent) the same request is answered by GPT-4.1, what
+  // Blix used before. (Android: ai/AiGateway.kt, the same rules.)
+  const BLIX_MODEL = 'gpt-5';
+  const OPENAI_REASONING_MIN = 16000;
+  // The thinking models are charged on what the provider says each call really used (the hidden thinking included),
+  // times this: the user's budget goes down by 2x the real tokens. The model's weight in plan-tiers.js is the same
+  // number, so what the caller already charged is topped up to it.
+  const ACTUAL_BILLING = { 'gpt-5': 2, 'deepseek-reasoner': 2 };
+
   const nativeFetch = window.fetch.bind(window);
   let openaiKey = null;
 
@@ -75,6 +86,7 @@
   function prepareDeepSeekBody(body) {
     if (body.model === 'deepseek-reasoner') {
       body.max_tokens = Math.max(body.max_tokens || 0, REASONER_MIN_TOKENS);
+      if (body.stream) body.stream_options = { include_usage: true };   // (charged on the real usage: ACTUAL_BILLING)
     } else if (!thinkingParamRejected) {
       body.thinking = { type: 'disabled' };
     }
@@ -160,6 +172,91 @@
     return res;
   }
 
+  // ---- the thinking models: charged on their real usage (ACTUAL_BILLING) ----
+  function topUp(billedAs, body, answer, usage) {
+    const times = ACTUAL_BILLING[billedAs];
+    const uid = currentUid();
+    if (!times || !usage || !uid || !window.RehabPlanTiers || !window.rehabPlans) return;
+    const plan = window.rehabPlans.getCurrentPlan() || 'free';
+    // the caller charged its estimate of the visible text times the model's weight (= times)
+    const charged = window.RehabPlanTiers.estimateTokens(promptText(body) + (answer || '')) * times;
+    const extra = Math.ceil(usage * times - charged);
+    if (extra > 0) window.RehabPlanTiers.consumeQuota(uid, plan, extra, 1).catch(function () {});
+  }
+  /** Passes the response on unchanged, reading its answer and real usage on the way to charge [billedAs]'s top-up. */
+  function billed(res, billedAs, body) {
+    if (!res || !res.ok || !ACTUAL_BILLING[billedAs]) return res;
+    if (!body.stream) {
+      res.clone().json().then(function (d) {
+        const c = d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+        topUp(billedAs, body, c || '', d && d.usage && d.usage.total_tokens);
+      }).catch(function () {});
+      return res;
+    }
+    if (!res.body || !res.body.getReader) return res;
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let text = '', buf = '', usage = null;
+    const stream = new ReadableStream({
+      async pull(controller) {
+        const r = await reader.read();
+        if (r.done) { topUp(billedAs, body, text, usage); controller.close(); return; }
+        buf += decoder.decode(r.value, { stream: true });
+        const lines = buf.split('\n'); buf = lines.pop() || '';
+        lines.forEach(function (l) {
+          const t = l.trim();
+          if (!t.startsWith('data:')) return;
+          try {
+            const j = JSON.parse(t.slice(5).trim());
+            if (j.usage && j.usage.total_tokens) usage = j.usage.total_tokens;          // (the last chunk)
+            const d = j.choices && j.choices[0] && j.choices[0].delta; if (d && d.content) text += d.content;
+          } catch (e) { /* partial */ }
+        });
+        controller.enqueue(r.value);
+      },
+      cancel(reason) { return reader.cancel(reason); }
+    });
+    return new Response(stream, { status: res.status, statusText: res.statusText, headers: res.headers });
+  }
+
+  function isOpenAIChat(url, init) {
+    return typeof url === 'string' && url.indexOf('api.openai.com') >= 0 && url.indexOf('/chat/completions') >= 0 &&
+      init && String(init.method || 'GET').toUpperCase() === 'POST' && typeof init.body === 'string';
+  }
+  /** GPT-5's own request: thinking + answer in max_completion_tokens, no sampling settings, the usage at the end. */
+  function prepareBlixBody(b) {
+    const want = b.max_completion_tokens || b.max_tokens || 4096;
+    delete b.max_tokens; delete b.temperature; delete b.top_p; delete b.frequency_penalty; delete b.presence_penalty;
+    b.max_completion_tokens = Math.min(Math.max(want, OPENAI_REASONING_MIN), OPENAI_MAX_OUTPUT);
+    if (b.stream) b.stream_options = { include_usage: true };
+    return b;
+  }
+  /** The same request for GPT-4.1 (what Blix used before), when GPT-5 is refused or silent. */
+  function blixFallbackBody(orig) {
+    const b = Object.assign({}, orig, { model: OPENAI_FALLBACK_MODEL });
+    if (b.max_completion_tokens && !b.max_tokens) { b.max_tokens = b.max_completion_tokens; delete b.max_completion_tokens; }
+    b.max_tokens = Math.min(Math.max(b.max_tokens || 4096, 256), OPENAI_MAX_OUTPUT);
+    if (b.stream) b.stream_options = { include_usage: true };
+    return b;
+  }
+  async function blixFetch(url, init, orig) {
+    const body = prepareBlixBody(Object.assign({}, orig));
+    let res = null;
+    try { res = await nativeFetch(url, Object.assign({}, init, { body: JSON.stringify(body) })); }
+    catch (err) { if (err && err.name === 'AbortError') throw err; res = null; }
+    let empty = false;
+    if (res && res.ok && !body.stream) {
+      const d = await res.clone().json().catch(function () { return null; });
+      const c = d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+      empty = !c || !String(c).trim();
+    }
+    if (res && res.ok && !empty) return billed(res, BLIX_MODEL, body);
+    console.warn('[ai-transport] Blix 360 (' + BLIX_MODEL + ') ' + (res ? (empty ? 'returned an empty reply' : 'HTTP ' + res.status) : 'network error') + ' — answering with ' + OPENAI_FALLBACK_MODEL);
+    const fb = blixFallbackBody(orig);
+    const res2 = await nativeFetch(url, Object.assign({}, init, { body: JSON.stringify(fb) }));
+    return billed(res2, BLIX_MODEL, fb);
+  }
+
   // Streams can come back as a 200 that never carries a single content token.
   // Hold the stream until the first real content delta arrives; if it ends
   // without one, switch to the OpenAI fallback before the caller has seen
@@ -198,6 +295,11 @@
 
   window.fetch = async function (input, init) {
     const url = typeof input === 'string' ? input : (input && input.url) || '';
+    if (isOpenAIChat(url, init)) {
+      let ob;
+      try { ob = JSON.parse(init.body); } catch (e) { return nativeFetch(input, init); }
+      return ob && ob.model === BLIX_MODEL ? blixFetch(url, init, ob) : nativeFetch(input, init);
+    }
     if (!isDeepSeekChat(url, init)) return nativeFetch(input, init);
     let body;
     try { body = JSON.parse(init.body); } catch (e) { return nativeFetch(input, init); }
@@ -229,7 +331,8 @@
       return res;
     }
 
-    if (body.stream) return streamWithFallback(res, body, init);
+    // (Medulla 200 = deepseek-reasoner is charged on its real usage: billed() passes everything else on as it is)
+    if (body.stream) return billed(await streamWithFallback(res, body, init), body.model, body);
 
     const data = await res.clone().json().catch(function () { return null; });
     const choice = data && data.choices && data.choices[0];
@@ -238,7 +341,7 @@
       const fb = await openAIFallback(body, init, 'returned an empty reply').catch(function (e) { if (e && e.name === 'AbortError') throw e; return null; });
       if (fb && fb.ok) return fb;
     }
-    return res;
+    return billed(res, body.model, body);
   };
 
   // ---------------------------------------------------------------------------

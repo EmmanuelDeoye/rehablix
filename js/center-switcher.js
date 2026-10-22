@@ -1,9 +1,9 @@
-// js/center-switcher.js — personal ⇄ center workspace switcher in the navbar.
+// js/center-switcher.js — personal ⇄ group workspace switcher in the navbar.
 //
-// Only the tools that are shared with a center show it: Smart EMR, Project
+// Only the tools that are shared with a group show it: Smart EMR, Project
 // Maker, Audio and Exam Simulator (RehablixCenter.SHARED_TOOLS). It is shown
 // only to people who are an ACTIVE MEMBER of at least one center and who do
-// not own a center themselves (an owner always works in their own data, so
+// not own a group themselves (an owner always works in their own data, so
 // there is nothing to switch). Every other page is always private.
 (function () {
   const SHARED_ROUTES = { emr: 'doc', project: 'project', audio: 'audio', exam: 'exam' };
@@ -20,7 +20,7 @@
     wrap.className = 'center-switch';
     wrap.hidden = true;
     wrap.innerHTML =
-      '<button type="button" class="icon-btn center-switch-btn" id="centerSwitchBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Switch between personal and center workspace" title="Switch workspace">' +
+      '<button type="button" class="icon-btn center-switch-btn" id="centerSwitchBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Switch between personal and group workspace" title="Switch workspace">' +
         '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
           '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' +
         '<span class="center-switch-dot" aria-hidden="true"></span>' +
@@ -62,7 +62,7 @@
     const active = ctx.activeContext;
     const inCenter = active !== 'individual';
     dot.hidden = !inCenter;
-    btn.title = inCenter ? `Working in ${ctx.activeCenterName || 'your center'} — tap to switch` : 'Working in your personal account — tap to switch';
+    btn.title = inCenter ? `Working in ${ctx.activeCenterName || 'your group'} — tap to switch` : 'Working in your personal account — tap to switch';
     menu.innerHTML =
       '<div class="center-switch-head">Work in</div>' +
       options.map(o => `
@@ -71,8 +71,10 @@
           <span>${escapeHtml(o.type === 'individual' ? 'Personal account' : o.label)}</span>
           ${o.id === active ? '<i class="bx bx-check" aria-hidden="true"></i>' : ''}
         </button>`).join('') +
-      '<div class="center-switch-note">Shared with your center: Smart EMR, Project Maker, Audio and Exam Simulator. Everything else stays private.</div>';
-    menu.querySelectorAll('.center-switch-option').forEach(b => b.addEventListener('click', async () => {
+      // (the group being worked in: its details, link, members and activity — js/group-info.js)
+      (inCenter ? `<button type="button" role="menuitem" class="center-switch-option group-info-btn" data-center="${escapeHtml(active)}"><i class="bx bx-info-circle" aria-hidden="true"></i><span>Group info</span></button>` : '') +
+      '<div class="center-switch-note">Shared with your group: Smart EMR, Project Maker, Audio and Exam Simulator. Everything else stays private.</div>';
+    menu.querySelectorAll('.center-switch-option[data-context]').forEach(b => b.addEventListener('click', async () => {
       const id = b.getAttribute('data-context');
       if (id === active) { menu.classList.remove('open'); return; }
       try {

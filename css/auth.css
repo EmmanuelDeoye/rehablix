@@ -1717,6 +1717,55 @@
 
 
 
+/* ------- Token usage monitor (js/token-usage.js; it replaced the profile modal) ------- */
+.tu-content { max-width: 460px; text-align: left; }
+.tu-head { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1.2rem; padding-right: 2rem; }
+.tu-head h2 { margin: 0; font-size: 1.3rem; }
+.tu-head p { margin: 0.15rem 0 0; font-size: 0.85rem; color: var(--text-secondary); }
+.tu-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--accent-soft); display: inline-flex; align-items: center; justify-content: center; font-size: 1.3rem; flex: none; }
+.tu-card { display: flex; flex-direction: column; gap: 0.3rem; padding: 0.9rem 1rem; border-radius: 1rem; background: var(--accent-soft); margin-bottom: 0.75rem; }
+.tu-label { font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-secondary); }
+.tu-card strong { font-size: 1.05rem; color: var(--text-primary); }
+.tu-bar { height: 8px; border-radius: 99px; background: rgba(0, 0, 0, 0.12); overflow: hidden; margin: 0.25rem 0 0.1rem; }
+.tu-bar i { display: block; height: 100%; border-radius: 99px; }
+.tu-note { font-size: 0.82rem; color: var(--text-secondary); }
+.tu-sub { font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-secondary); margin: 1.1rem 0 0.5rem; }
+.tu-models div { display: flex; gap: 0.6rem; padding: 0.2rem 0; font-size: 0.86rem; }
+.tu-models b { flex: 0 0 105px; color: var(--text-primary); }
+.tu-models span { color: var(--text-secondary); }
+.tu-actions { display: flex; gap: 0.6rem; margin-top: 1.2rem; }
+.tu-btn { flex: 1; padding: 0.75rem; border-radius: 2rem; border: none; background: #009688; color: #fff; font-weight: 600; cursor: pointer; font: inherit; }
+.tu-btn.tu-outline { background: transparent; border: 1.5px solid var(--accent); color: var(--accent); }
+
+/* ------- Group information (js/group-info.js) ------- */
+.gi-content { max-width: 520px; text-align: left; }
+.gi-head { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1rem; padding-right: 2rem; }
+.gi-head h2 { margin: 0; font-size: 1.3rem; }
+.gi-head p { margin: 0.15rem 0 0; font-size: 0.85rem; color: var(--text-secondary); }
+.gi-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--accent-soft); display: inline-flex; align-items: center; justify-content: center; font-size: 1.3rem; flex: none; }
+.gi-tabs { display: flex; gap: 0.3rem; padding: 0.25rem; border-radius: 999px; background: var(--accent-soft); margin-bottom: 1rem; }
+.gi-tab { flex: 1; border: none; background: transparent; padding: 0.5rem 0.4rem; border-radius: 999px; font: inherit; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); cursor: pointer; }
+.gi-tab.on { background: var(--accent); color: #fff; }
+#giBody { max-height: 55vh; overflow-y: auto; }
+.gi-rows { display: flex; flex-direction: column; gap: 0.1rem; }
+.gi-row { display: flex; justify-content: space-between; gap: 1rem; padding: 0.55rem 0; border-bottom: 1px solid var(--border-light); font-size: 0.9rem; }
+.gi-row span { color: var(--text-secondary); }
+.gi-row b { text-align: right; color: var(--text-primary); }
+.gi-sub { font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-secondary); margin: 1.1rem 0 0.5rem; }
+.gi-link { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.8rem; border-radius: 0.8rem; background: var(--accent-soft); }
+.gi-link code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9rem; }
+.gi-btn { border: none; border-radius: 999px; padding: 0.4rem 0.9rem; background: var(--accent); color: #fff; font: inherit; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+.gi-note { font-size: 0.85rem; color: var(--text-secondary); margin: 0.4rem 0; }
+.gi-list { display: flex; flex-direction: column; }
+.gi-member, .gi-act { display: flex; align-items: center; gap: 0.7rem; padding: 0.6rem 0; border-bottom: 1px solid var(--border-light); font-size: 0.88rem; }
+.gi-act { flex-direction: column; align-items: flex-start; gap: 0.15rem; }
+.gi-act span { font-size: 0.78rem; color: var(--text-secondary); }
+.gi-avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.gi-who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.gi-who span { font-size: 0.78rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
+.gi-status { font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.55rem; border-radius: 999px; background: rgba(16, 185, 129, 0.15); color: #059669; white-space: nowrap; }
+.gi-status.gi-invited, .gi-status.gi-revoked { background: rgba(245, 158, 11, 0.15); color: #b45309; }
+
 /* ------- Profile & Settings Modals ------- */
 .profile-modal-content,
 .settings-modal-content {

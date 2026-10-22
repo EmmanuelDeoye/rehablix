@@ -485,6 +485,9 @@
         if (this.view.status) this.set({ status: null });
       };
       if (reaction) this.queueStatus(job, reaction);
+      // A reasoning model (Medulla 200, Blix 360) can think in silence for a while: after a few quiet seconds she says so.
+      const thinkTimer = !this.muted && !reaction && ['medulla200', 'blix360'].indexOf(Br.agentModelId()) >= 0
+        ? setTimeout(() => { if (!streamedLength && !queued && !saidForTool) { try { this.queueStatus(job, 'Let me think that through.'); } catch (e) { /* the turn is over */ } } }, 5000) : null;
 
       let outcome = null;
       if (direct) {
@@ -534,6 +537,7 @@
           approvePlan: steps => this.askToStart(steps),
           onPlanProgress: steps => this.set({ plan: { steps: steps.map(s => Object.assign({}, s)), awaiting: false } })
         }, signal, this.found);
+        if (thinkTimer) clearTimeout(thinkTimer);
       }
       clearTimeout(this.stillTimer);
       if (signal && signal.aborted) return;

@@ -50,7 +50,7 @@
     // State
     // =========================================================================
     let currentUser = null;
-    let scopeUid = null; // resolves to the center owner's uid for center members, so shared patient docs are visible
+    let scopeUid = null; // resolves to the group owner's uid for group members, so shared patient docs are visible
     let documentData = null;
     let docId = null;
     let docType = null; // 'summary', 'treatment', 'session', 'report', 'progress', 'discharge', 'nextsession'
@@ -1308,7 +1308,7 @@
                 scopeUid = user.uid;
             }
             if (scopeUid === null) {
-                editor.innerHTML = '<div class="loading-editor"><i class="fas fa-exclamation-circle"></i> Your access to Documentation has been turned off by your center admin.</div>';
+                editor.innerHTML = '<div class="loading-editor"><i class="fas fa-exclamation-circle"></i> Your access to Documentation has been turned off by your group admin.</div>';
                 showToast('Access to Documentation has been turned off', 'error');
                 return;
             }

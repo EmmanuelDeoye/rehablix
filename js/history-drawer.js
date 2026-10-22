@@ -30,7 +30,7 @@
 // tool's whole history), the drawer reads each path 12 records at a time by
 // KEY — newest first, then "Load more" — exactly like Lixa's Files list.
 // map() turns a record into an Item (or null to leave it out). pages() returns
-// null while the tool doesn't know yet whose history to show (the center scope
+// null while the tool doesn't know yet whose history to show (the group scope
 // is still resolving); the drawer keeps its shimmer and asks again, so it never
 // flashes "No history" before the rows arrive.
 //

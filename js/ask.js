@@ -1782,7 +1782,7 @@ Given the user's latest message, return ONLY a compact JSON object (no markdown,
   async function findPatientContext(text) {
     if (!currentUser || !text) return null;
     try {
-      // Center members share their center owner's patients (same scoping
+      // Group members share their group owner's patients (same scoping
       // Smart EMR itself uses) — reading only currentUser.uid's own node
       // would silently miss every center-shared patient.
       let scopeUid = currentUser.uid;

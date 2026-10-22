@@ -1,13 +1,13 @@
 // js/center.js
-// Shared "Center / Organization" logic used by settings.html, admin.html,
-// index.html, and any tool page that wants to (a) respect a center owner's
+// Shared "Group / Organization" logic used by settings.html, admin.html,
+// index.html, and any tool page that wants to (a) respect a group owner's
 // per-member access toggles, (b) log member activity, and (c) let a user
 // belong to several centers (as a consenting member) while also possibly
 // owning their own center — switching between "workspaces" at will.
 //
 // Data model (Firebase Realtime Database):
-//   users/{uid}.accountType         = 'individual' | 'center'   (whether THIS uid owns a center)
-//   users/{uid}.centerId            = uid of the center this user OWNS (owners only)
+//   users/{uid}.accountType         = 'individual' | 'center'   (whether THIS uid owns a group)
+//   users/{uid}.centerId            = uid of the group this user OWNS (owners only)
 //   users/{uid}.activeContext       = 'individual' | centerUid  (which workspace they're currently using)
 //   users/{uid}.memberships/{centerUid} = { centerName, status: 'invited'|'active'|'declined'|'revoked', invitedAt, respondedAt }
 //     — a user can have MANY of these (member of several centers), independent of owning one themselves.
@@ -17,7 +17,7 @@
 //   users/{centerUid}/centers/pendingInvites/{key}  = { email, permissions, invitedAt }  (key = sanitized email, for people without a rehablix account yet)
 //   users/{centerUid}/centers/activity/{pushId}     = { uid, email, name, page, action, detail, timestamp }
 //
-// A membership always starts as 'invited' — nobody is added to a center
+// A membership always starts as 'invited' — nobody is added to a group
 // without explicitly accepting (see respondToInvite / the invite modal in
 // js/invite-modal.js).
 
@@ -33,7 +33,7 @@
   }
 
   // Resolve the current user's FULL center picture: what they own, every
-  // center they're a member of (with status), and which "workspace" is
+  // group they're a member of (with status), and which "workspace" is
   // currently active — plus permission details for that active workspace.
   async function getContext() {
     const user = firebase.auth().currentUser;
@@ -97,11 +97,11 @@
     const options = [{ id: 'individual', label: 'Personal Account', type: 'individual' }];
     if (ctx.ownCenterId) {
       const centerSnap = await db().ref(`users/${ctx.ownCenterId}/centers`).once('value');
-      options.push({ id: ctx.ownCenterId, label: (centerSnap.val() || {}).name || 'My Center', type: 'owner' });
+      options.push({ id: ctx.ownCenterId, label: (centerSnap.val() || {}).name || 'My Group', type: 'owner' });
     }
     for (const cid of ctx.activeMemberships) {
       const centerSnap = await db().ref(`users/${cid}/centers`).once('value');
-      options.push({ id: cid, label: (centerSnap.val() || {}).name || 'Center', type: 'member' });
+      options.push({ id: cid, label: (centerSnap.val() || {}).name || 'Group', type: 'member' });
     }
     return options;
   }
@@ -114,7 +114,7 @@
     await db().ref('users/' + user.uid + '/activeContext').set(contextId);
   }
 
-  // Convert an existing individual account into a center, from settings.html.
+  // Convert an existing individual account into a group, from settings.html.
   // Does not touch any memberships the user already has elsewhere.
   async function convertToCenter(orgName) {
     const user = firebase.auth().currentUser;
@@ -138,7 +138,7 @@
 
   // Invite a member by email. This only ever creates an 'invited' status —
   // the person must explicitly accept (via respondToInvite) before they get
-  // any access or their data is scoped to the center. If they already have
+  // any access or their data is scoped to the group. If they already have
   // a rehablix account, the invite links immediately as 'invited'; otherwise
   // it's stored and auto-linked (still as 'invited') the moment they sign up.
   async function inviteMember(centerUid, email, permissions) {
@@ -147,7 +147,7 @@
     const perms = permissions || TOOL_KEYS.reduce((acc, k) => (acc[k] = true, acc), {});
 
     const centerSnap = await db().ref(`users/${centerUid}/centers`).once('value');
-    const centerName = (centerSnap.val() || {}).name || 'a center';
+    const centerName = (centerSnap.val() || {}).name || 'a group';
 
     const usersSnap = await db().ref('users').orderByChild('email').equalTo(cleanEmail).once('value');
     const usersVal = usersSnap.val();
@@ -158,7 +158,7 @@
 
       if (memberUid === centerUid) throw new Error("You can't invite yourself.");
       if (memberData.memberships && memberData.memberships[centerUid] && memberData.memberships[centerUid].status === 'active') {
-        throw new Error('This person is already a member of your center.');
+        throw new Error('This person is already a member of your group.');
       }
 
       const invitedAt = new Date().toISOString();
@@ -197,7 +197,7 @@
       await db().ref(`users/${centerUid}/centers/members/${uid}`).set({
         email: email.toLowerCase(), name: name || email, status: 'invited', permissions: invite.permissions || {}, addedAt: invitedAt
       });
-      await db().ref(`users/${uid}/memberships/${centerUid}`).set({ centerName: centerName || 'a center', status: 'invited', invitedAt });
+      await db().ref(`users/${uid}/memberships/${centerUid}`).set({ centerName: centerName || 'a group', status: 'invited', invitedAt });
       await db().ref(`users/${centerUid}/centers/pendingInvites/${key}`).remove().catch(() => {});
       await db().ref(`centerInvites/${key}/${centerUid}`).remove().catch(() => {});
     };
@@ -224,7 +224,7 @@
           addedAt: invitedAt
         });
         await db().ref(`users/${uid}/memberships/${centerUid}`).set({
-          centerName: center.name || 'a center',
+          centerName: center.name || 'a group',
           status: 'invited',
           invitedAt
         });
@@ -234,7 +234,7 @@
   }
 
   // The invited user accepts or declines. Updates both sides of the
-  // relationship (the center's member record and the user's own
+  // relationship (the group's member record and the user's own
   // memberships map) so each can be read independently and cheaply.
   async function respondToInvite(centerUid, accept) {
     const user = firebase.auth().currentUser;
@@ -260,12 +260,12 @@
     return ctx.pendingInvites;
   }
 
-  // Toggle a specific tool's access on/off for a member, "at will", by the center owner.
+  // Toggle a specific tool's access on/off for a member, "at will", by the group owner.
   async function setMemberPermission(centerUid, memberUid, toolKey, enabled) {
     await db().ref(`users/${centerUid}/centers/members/${memberUid}/permissions/${toolKey}`).set(!!enabled);
   }
 
-  // Fully revoke / restore a member's access to the center.
+  // Fully revoke / restore a member's access to the group.
   async function setMemberStatus(centerUid, memberUid, status) {
     await db().ref(`users/${centerUid}/centers/members/${memberUid}/status`).set(status);
     await db().ref(`users/${memberUid}/memberships/${centerUid}/status`).set(status);
@@ -325,7 +325,7 @@
       if (!legacyCenterUid) return;
 
       const centerSnap = await db().ref(`users/${legacyCenterUid}/centers`).once('value');
-      const centerName = (centerSnap.val() || {}).name || 'a center';
+      const centerName = (centerSnap.val() || {}).name || 'a group';
 
       await db().ref(`users/${uid}/memberships/${legacyCenterUid}`).set({
         centerName,
@@ -349,12 +349,12 @@
   }
 
   // Which uid's data should this tool page actually read/write?
-  // - Personal workspace, or the workspace of a center you OWN: your own uid.
-  // - The workspace of a center you're an ACTIVE member of: the owner's uid,
+  // - Personal workspace, or the workspace of a group you OWN: your own uid.
+  // - The workspace of a group you're an ACTIVE member of: the owner's uid,
   //   so everyone on the team sees and edits the SAME patients/records.
   // Returns null if access to this specific tool has been revoked/declined —
   // callers should treat that as "no access" and show an appropriate message.
-  // Only these tools are shared with a center; everything else is always
+  // Only these tools are shared with a group; everything else is always
   // private to the signed-in user, whatever workspace is active.
   const SHARED_TOOLS = ['doc', 'project', 'audio', 'exam'];
 
@@ -369,13 +369,13 @@
     return ctx.centerId;
   }
 
-  // Log an activity entry against the CURRENTLY ACTIVE center workspace (if
-  // any), visible to that center's owner. No-op in the personal workspace.
+  // Log an activity entry against the CURRENTLY ACTIVE group workspace (if
+  // any), visible to that group's owner. No-op in the personal workspace.
   async function logActivity(page, action, detail) {
     try {
       const ctx = await getContext();
       if (!ctx.loggedIn || !ctx.isActiveContextCenter) return;
-      if (page && !SHARED_TOOLS.includes(page)) return; // private tools never report to the center
+      if (page && !SHARED_TOOLS.includes(page)) return; // private tools never report to the group
 
       await db().ref(`users/${ctx.centerId}/centers/activity`).push({
         uid: ctx.uid,
@@ -392,8 +392,8 @@
   }
 
   // ---------------------------------------------------------------------
-  // Custom center link (e.g. rehablix.com/rehabverve)
-  // Slugs need a fast lookup ("is this slug taken? which center is it?")
+  // Custom group link (e.g. rehablix.com/rehabverve)
+  // Slugs need a fast lookup ("is this slug taken? which group is it?")
   // that Realtime Database can't do by scanning nested user records, so we
   // keep one small top-level index: centerSlugs/{slug} -> centerUid.
   // The slug's actual value + its last-changed date still live with the
@@ -434,7 +434,7 @@
     return Math.max(0, Math.ceil(remainingDays));
   }
 
-  // Sets/changes a center's custom link. Throws a descriptive Error on
+  // Sets/changes a group's custom link. Throws a descriptive Error on
   // validation failure, taken slug, or an active cooldown.
   async function setCenterSlug(centerUid, rawSlug) {
     const slug = normalizeSlug(rawSlug);
@@ -443,14 +443,14 @@
 
     const centerSnap = await db().ref(`users/${centerUid}/centers`).once('value');
     const center = centerSnap.val();
-    if (!center) throw new Error('Center not found.');
+    if (!center) throw new Error('Group not found.');
 
     const previousSlug = center.slug || null;
     if (previousSlug === slug) return slug; // no-op, nothing changed
 
     const remainingDays = daysUntilSlugEditable(center.slugUpdatedAt);
     if (previousSlug && remainingDays > 0) {
-      throw new Error(`You can change your center link again in ${remainingDays} day${remainingDays === 1 ? '' : 's'}.`);
+      throw new Error(`You can change your group link again in ${remainingDays} day${remainingDays === 1 ? '' : 's'}.`);
     }
 
     const { available } = await checkSlugAvailable(slug, centerUid);
@@ -466,7 +466,7 @@
     return slug;
   }
 
-  // Looks up which center owns a given slug, for join.html.
+  // Looks up which group owns a given slug, for join.html.
   async function getCenterBySlug(rawSlug) {
     const slug = normalizeSlug(rawSlug);
     if (!slug) return null;

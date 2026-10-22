@@ -1033,8 +1033,8 @@ document.addEventListener('DOMContentLoaded', function() {
       const rowClass = user.isBanned ? 'banned-row' : '';
       const isAdmin = user.email === MASTER_ADMIN_EMAIL;
       const accountBadge = user.accountType === 'center'
-        ? `<span class="badge-center" title="${escapeHtml(user.centerName || '')}">🏥 Center${user.memberCount ? ' · ' + user.memberCount + ' member' + (user.memberCount === 1 ? '' : 's') : ''}</span>`
-        : (user.memberOf ? `<span class="badge-member">👥 Center Member${user.memberOfCount > 1 ? ' ×' + user.memberOfCount : ''}</span>` : `<span class="badge-individual">Individual</span>`);
+        ? `<span class="badge-center" title="${escapeHtml(user.centerName || '')}">🏥 Group${user.memberCount ? ' · ' + user.memberCount + ' member' + (user.memberCount === 1 ? '' : 's') : ''}</span>`
+        : (user.memberOf ? `<span class="badge-member">👥 Group Member${user.memberOfCount > 1 ? ' ×' + user.memberOfCount : ''}</span>` : `<span class="badge-individual">Individual</span>`);
 
       html += `
         <tr class="${rowClass}" data-uid="${user.uid}">
