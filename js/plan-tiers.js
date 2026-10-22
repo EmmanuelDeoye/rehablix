@@ -12,12 +12,31 @@
   // EMR UPGRADE (item 9): free lowered 20000 -> 15000 per your request
   // ("tokens are fast spent") — student/pro/max left unchanged since no
   // specific numbers were given for those.
-  const PLAN_TOKEN_BUDGET = {
+  const DEFAULT_TOKEN_BUDGET = {
     free: 15000,
     student: 200000,     // ~13x Free
     pro: 20000000,       // 100x Basic (per spec — effectively unlimited in practice)
     max: null
   };
+  // What every page reads: the built-in budget, or the one set on the admin page
+  // (admin.html > Plans & Pricing, via js/plan-config.js), looked up each time.
+  const PLAN_TOKEN_BUDGET = {};
+  Object.keys(DEFAULT_TOKEN_BUDGET).forEach(plan => Object.defineProperty(PLAN_TOKEN_BUDGET, plan, {
+    enumerable: true,
+    get: () => (window.RehablixPlanConfig ? window.RehablixPlanConfig.tokenBudget(plan, DEFAULT_TOKEN_BUDGET[plan]) : DEFAULT_TOKEN_BUDGET[plan])
+  }));
+  const dailyCap = plan => (window.RehablixPlanConfig ? window.RehablixPlanConfig.dailyCap(plan) : null);
+
+  // ---- The day's cap (set on the admin page; none by default) ----
+  // users/{uid}/dailyQuota = { day: 'YYYY-MM-DD' (the device's own calendar day), tokensUsed }; a new day starts from 0.
+  function today() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function nextMidnight() { const d = new Date(); d.setHours(24, 0, 0, 0); return d.getTime(); }
+  async function dailyUsed(uid) {
+    try {
+      const v = (await firebase.database().ref(`users/${uid}/dailyQuota`).once('value')).val() || {};
+      return v.day === today() ? (Number(v.tokensUsed) || 0) : 0;
+    } catch (e) { return 0; }
+  }
 
   const QUOTA_WINDOW_MS = 4 * 60 * 60 * 1000; // 4 hours
 
@@ -107,15 +126,24 @@
   // consume anything — call consumeQuota() after the response completes.
   async function hasQuota(uid, plan) {
     const budget = PLAN_TOKEN_BUDGET[plan];
-    if (budget === null || budget === undefined) return { allowed: true, unlimited: true };
+    const cap = dailyCap(plan);
+    if ((budget === null || budget === undefined) && !cap) return { allowed: true, unlimited: true };
     if (!uid) return { allowed: true, unlimited: true }; // logged-out users aren't tracked here
+    // the day's cap stops use until midnight, whatever the 4-hour window says ({daily: true} then)
+    const usedToday = cap ? await dailyUsed(uid) : 0;
+    const dayOver = !!cap && usedToday >= cap;
+    if (budget === null || budget === undefined) {
+      return { allowed: !dayOver, budget: cap, used: usedToday, resetAt: nextMidnight(), daily: dayOver };
+    }
     const ref = firebase.database().ref(`users/${uid}/quota`);
     const snap = await ref.once('value');
     const quota = snap.val();
     const now = Date.now();
     if (!quota || !quota.windowStart || now - quota.windowStart >= QUOTA_WINDOW_MS) {
+      if (dayOver) return { allowed: false, budget, used: 0, resetAt: nextMidnight(), daily: true };
       return { allowed: true, budget, used: 0, resetAt: now + QUOTA_WINDOW_MS };
     }
+    if (dayOver) return { allowed: false, budget, used: quota.tokensUsed || 0, resetAt: nextMidnight(), daily: true };
     return {
       allowed: quota.tokensUsed < budget,
       budget,
@@ -127,10 +155,20 @@
   // Post-response: record the (weighted) tokens this turn actually used,
   // resetting the window first if it has expired.
   async function consumeQuota(uid, plan, rawTokens, weight) {
-    const budget = PLAN_TOKEN_BUDGET[plan];
-    if (budget === null || budget === undefined || !uid) return;
-    const ref = firebase.database().ref(`users/${uid}/quota`);
+    if (!uid) return;
     const add = Math.ceil((rawTokens || 0) * (weight || 1));
+    // (counted only for plans with a daily cap)
+    if (dailyCap(plan)) {
+      try {
+        await firebase.database().ref(`users/${uid}/dailyQuota`).transaction(cur => {
+          const day = today();
+          return { day, tokensUsed: (cur && cur.day === day ? (Number(cur.tokensUsed) || 0) : 0) + add };
+        });
+      } catch (e) { /* best effort, like the window */ }
+    }
+    const budget = PLAN_TOKEN_BUDGET[plan];
+    if (budget === null || budget === undefined) return;
+    const ref = firebase.database().ref(`users/${uid}/quota`);
     // Atomic: concurrent calls can't lose usage, and the only writes are
     // "add to this window" or "new window after expiry" (what the draft
     // database rules enforce, so usage can't be reset from DevTools).
@@ -182,7 +220,7 @@
 
   window.RehabPlanTiers = {
     UPLOAD_LIMIT_MB, uploadKind, uploadLimitMb, checkUpload,
-    PLAN_LEVEL, PLAN_LABELS, PLAN_ORDER, PLAN_TOKEN_BUDGET, QUOTA_WINDOW_MS,
+    PLAN_LEVEL, PLAN_LABELS, PLAN_ORDER, PLAN_TOKEN_BUDGET, DEFAULT_TOKEN_BUDGET, QUOTA_WINDOW_MS, dailyCap,
     MODELS, getModel, isModelUnlocked, nextPlan,
     estimateTokens, hasQuota, consumeQuota
   };

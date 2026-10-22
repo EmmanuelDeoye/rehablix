@@ -205,6 +205,7 @@
   const ADDENDUM = `
 
 LIXA AGENT MODE
+- IMPORTANT: here you are not a plain chatbot. With the TOOLS below you CAN open every page and tool, find, open and read the user's patients, files, projects and chats, read what is on the screen and work it (type into boxes, toggle switches, press buttons), create documents and search the web. When the user asks for any of that, call the tool; never answer that you can't, that you have no access, or that they should do it themselves. Say you can't only when no tool in the list can do it.
 - You are Lixa, the face of the Rehablix agent. Warm, upbeat and calm; quietly competent. Plain English; short updates while working, full answers when asked to explain. Acknowledge, act, report. Name the page or tool you are using. One question at a time. Never flatter, never over-apologise; say "I'm not sure" or "that didn't work" plainly.
 - What you say is read aloud, so write it for listening, like talking to a colleague. Match the length to the request: one to three sentences for a quick question or to report what you did; when the user asks you to explain, describe or go into detail, a full spoken explanation, as long as it needs, and finish it. No markdown, symbols, lists, URLs, email addresses, codes, ids or long numbers in "text"; say "it's on your screen" and put such things in "details" instead.
 - Never say an action is done until its tool result says so.
@@ -213,7 +214,7 @@ LIXA AGENT MODE
 - You can work any form or box on the screen yourself: to fill in a form, write instructions into a box (for example a Generate box's instructions), paste text into an editor or press a button such as Generate, call screen_controls, then type_text / replace_text into its boxes and press its buttons. Do it for the user when they ask, instead of telling them to tap.
 - Tools marked WRITE change things. The app itself asks the user to confirm each one before it runs (unless the user has turned that off), so do not ask "shall I?" yourself first — call the tool once you know exactly what the user wants. If the user says no, accept it.
 - To open a page or tool for the user, CALL open_tool. Never just answer with a link or tell the user where to tap.
-- You can only use tools in the list. If none fits, say so plainly and, if it helps, explain how the user can do it themselves from the app map. Deleting saved work is not something you can do here: tell the user where to do it.
+- You can only use tools in the list. Check them all first (screen_controls and press reach almost anything on the screen); only if none fits, say so plainly and, if it helps, explain how the user can do it themselves from the app map. Deleting saved work is not something you can do here: tell the user where to do it.
 - Patients' details are given to you in full: use patients' names naturally, as the user does. Read phone numbers, dates of birth and addresses aloud only when the user asks; otherwise say they are on the screen.
 - A greeting or small talk gets a short, friendly spoken answer and no tool.
 - When the user is ending the conversation ("bye", "I have to go", "you can go now", "that's all"), answer with "goodbye": a short, warm farewell. Agent mode then closes itself.
@@ -231,6 +232,11 @@ HOW TO RESPOND (strict): reply with ONE JSON object and nothing else. No markdow
 Use one tool at a time and wait for its result. Only use ids and refs that appear in the app map or in a tool result.`;
   const PERSONA = 'You are "Lixa", the SI copilot of rehablix (rehablix.com), an SI toolkit for rehabilitation professionals and healthcare students. You give accurate, evidence-based answers about rehabilitation, medical conditions, treatments, clinical reasoning and academic work, and you can work inside the app for the user. You cannot see, touch or measure the patient: never invent a measurement, a patient history or a record. rehablix was built by rehabverve enterprise, founded by Emmanuel Adeoye (only say so if asked). You are an SI assistant (Specialized Intelligence: always call yourself an SI or Specialized Intelligence, never an AI or artificial intelligence) with no sexual orientation, romantic life or relationships of your own; never describe yourself as gay, lesbian, bisexual, transgender or LGBTQ (if asked, say simply that you are an SI here to help with rehabilitation and study).';
 
+  // Told to her once when she turns a request down without trying a tool (Android: AgentOrchestrator.REFUSAL_NOTE).
+  const REFUSAL_NOTE = "you said you can't, but you have not tried a tool, and your tools can do most things in this app. " +
+    "open_tool opens any page or tool; find_items and open_item find and open the user's saved work (patients too); emr_create_patient adds a Smart EMR patient;" +
+    "screen_controls shows every box, button and switch on the screen, then type_text, replace_text and press fill them in, toggle and press them; " +
+    "create_document makes documents; web_search searches the web. Look at TOOLS and call the one that does what the user asked now. Say you can't only if no tool in the list can do it.";
   const FAILED = "Sorry, that didn't work. Nothing was changed.";
   const TOO_SLOW = 'Sorry, that took too long, so I stopped. Nothing was changed.';
   const MAX_CALLS = 12;
@@ -346,7 +352,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
       }
       return true;
     },
-    mine(el) { return !!el.closest('#lixaAgent, #lixaAgentBubble, #lixaAgentNavBtn, #lixaAgentSettingsBtn'); },
+    mine(el) { return !!el.closest('#lixaAgent, #lixaAgentBubble, #lixaAgentNavBtn'); },
     /** The box on top (a modal / dialog / overlay with fixed position), or null. */
     box() {
       const cands = Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"], dialog[open], .modal, [class*="modal"], [class*="dialog"], [class*="overlay"]'))
@@ -683,14 +689,15 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
       (store.lines.length ? '\n\nSAVED ITEMS FOUND EARLIER IN THIS CONVERSATION (also listed on the user\'s screen; open one with open_item):\n' + store.lines.join('\n') : '') +
       '\n\nAPP MAP (only the entries that look relevant to this request; use search_app_map for anything else):\n' + (relevant.length ? relevant.map(AppMap.brief).join('\n') : '(none matched)');
     const convo = [{ role: 'system', content: system }].concat(history, [{ role: 'user', content: said }]);
-    let invalid = 0, claimChecked = false, changed = false, planSteps = null, planGrants = [];
+    let invalid = 0, claimChecked = false, refusalChecked = false, ranAny = false, changed = false, planSteps = null, planGrants = [];
     const startedAt = Date.now();
     for (let calls = 1; calls <= MAX_CALLS; calls++) {
       if (Date.now() - startedAt > 180000) return { reply: TOO_SLOW };
-      let shown = 0;
+      let shown = 0, held = false;                           // (a refusal she will be asked to rethink is not said)
       const raw = await stream(convo, { maxTokens: 900, temperature: 0.2 }, full => {
         const t = streamedReply(full);
-        if (t != null && t.length > shown) { shown = t.length; listener.onReplyText(calls, t); }
+        if (t != null && !held && !refusalChecked && !ranAny && R().Talk.refuses(t)) held = true;
+        if (t != null && !held && t.length > shown) { shown = t.length; listener.onReplyText(calls, t); }
       }, signal);
       const step = parse(raw);
       if (step.invalid) {
@@ -704,6 +711,12 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
         if (!claimChecked && !step.close && !changed && R().Talk.claimsAction(step.reply)) {
           claimChecked = true;
           convo.push({ role: 'assistant', content: raw.slice(0, 600) }, { role: 'user', content: 'SYSTEM NOTE: you said something is made or being made, but no tool has run, so NOTHING was created or changed. If the user wants a document, call create_document now with their details (or ask for what is missing); otherwise call the right tool. Never say something is done or being done unless you call the tool for it.' });
+          continue;
+        }
+        // She turns it down ("I can't open…") without having tried a tool: once, she is reminded what her tools do.
+        if (!refusalChecked && !step.close && !ranAny && R().Talk.refuses(step.reply)) {
+          refusalChecked = true;
+          convo.push({ role: 'assistant', content: raw.slice(0, 600) }, { role: 'user', content: 'SYSTEM NOTE: ' + REFUSAL_NOTE });
           continue;
         }
         return { reply: step.reply, details: step.details, close: !!step.close };
@@ -745,6 +758,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
       const title = step.tool === 'open_tool' && map.entry(args.id) ? map.entry(args.id).title : null;
       listener.onToolStart(step.tool, args, title);
       try { result = await tool.run(args); } catch (e) { result = { ok: false, text: 'The tool failed. Nothing was changed.' }; }
+      ranAny = true;
       if (tool.risk !== 'READ' && result.ok) changed = true;
       if (planSteps) {
         const st = planSteps.find(s => s.tool === step.tool && s.status === 'pending');

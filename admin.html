@@ -404,6 +404,21 @@
     .stat-card-switch { flex: 1 1 100%; margin: 0 !important; padding-top: 0.6rem; border-top: 1px solid var(--border-light); font-size: 0.8rem !important; font-weight: 600; line-height: 1.35; cursor: pointer; }
     .stat-card-switch input { flex: 0 0 auto; }
     .extra-actions { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; margin-top: 1rem; }
+    /* Plans & Pricing (js/admin-plans.js) */
+    .pp-table { width: 100%; border-collapse: collapse; margin-top: 0.8rem; font-size: 0.86rem; }
+    .pp-table th { text-align: left; font-size: 0.76rem; font-weight: 700; color: var(--text-secondary); padding: 0.35rem 0.4rem; text-transform: uppercase; letter-spacing: 0.03em; }
+    .pp-table td { padding: 0.35rem 0.4rem; vertical-align: middle; border-top: 1px solid var(--border-light); }
+    .pp-table input[type="number"], .pp-table input[type="text"] { font: inherit; font-size: 0.88rem; padding: 0.5rem 0.6rem; border-radius: 0.55rem; border: 1px solid var(--border-light); background: var(--bg-page); color: var(--text-primary); width: 100%; min-width: 90px; box-sizing: border-box; }
+    .pp-table input:disabled { opacity: 0.45; }
+    .pp-unl { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; white-space: nowrap; margin-top: 0.25rem; color: var(--text-secondary); }
+    .pp-scroll { overflow-x: auto; }
+    .pp-gateways { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.4rem; max-width: 360px; }
+    .pp-gw { display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.6rem; border: 1px solid var(--border-light); border-radius: 0.6rem; background: var(--bg-page); font-size: 0.88rem; }
+    .pp-gw b { flex: 1; font-weight: 600; }
+    .pp-gw button { border: 1px solid var(--border-light); background: var(--surface); color: var(--text-primary); border-radius: 0.4rem; width: 28px; height: 28px; cursor: pointer; }
+    .pp-gw button:disabled { opacity: 0.35; cursor: default; }
+    .pp-badge { display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.45rem; border-radius: 1rem; font-size: 0.7rem; font-weight: 700; background: var(--accent-soft, rgba(13,148,136,.12)); color: var(--accent); }
+    .pp-preview { margin-top: 0.8rem; padding: 0.7rem 0.9rem; border-radius: 0.7rem; border: 1px dashed var(--accent); font-size: 0.85rem; color: var(--text-primary); }
     .announcement-preview { margin-top: 1rem; padding: 0.8rem 0.9rem; border-radius: 0.8rem; border: 1px solid var(--accent); background: var(--surface); display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.85rem; max-width: 460px; }
     .announcement-preview span { color: var(--text-secondary); }
     .announcement-row { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; padding: 0.7rem 0; border-bottom: 1px solid var(--border-light); flex-wrap: wrap; }
@@ -522,6 +537,10 @@
                     <a href="#" class="sidebar-link" data-view="app">
                         <span class="sidebar-icon">📱</span>
                         <span>App &amp; Versions</span>
+                    </a>
+                    <a href="#" class="sidebar-link" data-view="plans">
+                        <span class="sidebar-icon">💳</span>
+                        <span>Plans &amp; Pricing</span>
                     </a>
                     <a href="#" class="sidebar-link" data-view="settings">
                         <span class="sidebar-icon">⚙️</span>
@@ -863,6 +882,78 @@
                     <div id="appConfigMsg" class="settings-msg"></div>
                 </section>
 
+                <!-- ============ PLANS & PRICING (js/admin-plans.js) ============ -->
+                <section id="viewPlans" class="admin-view" style="display:none;">
+                    <div class="view-header">
+                        <h1>Plans &amp; Pricing</h1>
+                        <p class="view-subtitle">Token limits, Live minutes, prices per country, payment gateways and promos. The web app and the Android app pick up every change at once.</p>
+                    </div>
+
+                    <div class="settings-card glass-card">
+                        <h3>Token limits</h3>
+                        <p class="settings-hint">Tokens every 4 hours, and an optional cap per day (empty = no daily cap; it resets at midnight on the user's device). Leave a box empty to keep the built-in value shown in grey.</p>
+                        <div class="pp-scroll"><table class="pp-table" id="ppLimits"></table></div>
+                    </div>
+
+                    <div class="settings-card glass-card">
+                        <h3>Lixa Live minutes</h3>
+                        <p class="settings-hint">Minutes of Live voice per day and per month for each paid plan (Free has no Live).</p>
+                        <div class="pp-scroll"><table class="pp-table" id="ppLive"></table></div>
+                        <div class="extra-actions">
+                            <button id="ppSaveLimits" class="admin-btn primary">Save limits</button>
+                            <span class="settings-hint" id="ppLimitsUpdated"></span>
+                        </div>
+                        <div id="ppLimitsMsg" class="settings-msg"></div>
+                    </div>
+
+                    <div class="settings-card glass-card">
+                        <h3>Promo</h3>
+                        <p class="settings-hint">A discount on the usual price for a set time. While it runs, the subscription page shows a banner with a countdown, the usual price struck through and the promo price, which is what is charged.</p>
+                        <label class="extra-switch"><input type="checkbox" id="ppPromoOn" /> <span id="ppPromoState">Off</span></label>
+                        <div class="extra-grid">
+                            <label>Name<input type="text" id="ppPromoTitle" maxlength="40" placeholder="e.g. Back to School" /></label>
+                            <label>Discount (%)<input type="number" id="ppPromoPercent" min="1" max="90" step="1" placeholder="e.g. 30" /></label>
+                            <label>Starts<input type="datetime-local" id="ppPromoStart" /></label>
+                            <label>Ends<input type="datetime-local" id="ppPromoEnd" /></label>
+                            <label class="extra-wide">Message (optional)<input type="text" id="ppPromoMessage" maxlength="120" placeholder="e.g. Get ready for the new semester with more SI tokens." /></label>
+                        </div>
+                        <div style="display:flex;gap:1.2rem;flex-wrap:wrap;margin-top:0.4rem;">
+                            <label class="extra-switch"><input type="checkbox" id="ppPromoStudent" checked /> Basic</label>
+                            <label class="extra-switch"><input type="checkbox" id="ppPromoPro" checked /> Pro</label>
+                            <label class="extra-switch"><input type="checkbox" id="ppPromoMax" checked /> Max</label>
+                        </div>
+                        <div class="pp-preview" id="ppPromoPreview"></div>
+                        <div class="extra-actions">
+                            <button id="ppSavePromo" class="admin-btn primary">Save promo</button>
+                            <span class="settings-hint" id="ppPromoUpdated"></span>
+                        </div>
+                        <div id="ppPromoMsg" class="settings-msg"></div>
+                    </div>
+
+                    <div class="settings-card glass-card">
+                        <h3>Prices by country</h3>
+                        <p class="settings-hint">"Slashed" is the crossed-out price; "final" is the price paid. Max left empty = 3 × Pro. Countries without their own prices use "International". Payment methods are shown to users in the order below; untick one to hide it.</p>
+                        <div class="extra-grid">
+                            <label>Country<select id="ppCountry"></select></label>
+                            <label id="ppNewCodeWrap" style="display:none;">New country code (2 letters)<input type="text" id="ppNewCode" maxlength="2" placeholder="e.g. EG" /></label>
+                            <label>Currency code<input type="text" id="ppCurrency" maxlength="3" placeholder="NGN" /></label>
+                            <label>Currency symbol<input type="text" id="ppSymbol" maxlength="5" placeholder="₦" /></label>
+                            <label>Name shown<input type="text" id="ppName" maxlength="30" /></label>
+                            <label>Flag (emoji)<input type="text" id="ppFlag" maxlength="8" /></label>
+                        </div>
+                        <div class="pp-scroll"><table class="pp-table" id="ppPrices"></table></div>
+                        <h4 style="margin:1rem 0 0;font-size:0.9rem;">Payment methods (in order of preference)</h4>
+                        <div class="pp-gateways" id="ppGateways"></div>
+                        <div class="extra-actions">
+                            <button id="ppSaveCountry" class="admin-btn primary">Save this country</button>
+                            <button id="ppResetCountry" class="admin-btn outline">Back to built-in prices</button>
+                            <span class="settings-hint" id="ppCountryState"></span>
+                        </div>
+                        <div id="ppCountryMsg" class="settings-msg"></div>
+                    </div>
+                    <p class="settings-hint">Note: once server-checked payments are switched on, payments are checked against these same prices (the server reads them too).</p>
+                </section>
+
                 <!-- ============ NOTIFICATIONS ============ -->
                 <section id="viewNotifications" class="admin-view" style="display:none;">
                     <div class="view-header">
@@ -1133,6 +1224,8 @@
     <script src="js/config.js" defer></script>
     <script src="js/admin.js" defer></script>
 <script src="js/admin-extra.js" defer></script>
+<script src="js/plan-config.js" defer></script>
+<script src="js/admin-plans.js" defer></script>
 
 </body>
 </html>

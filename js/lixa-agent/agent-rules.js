@@ -341,6 +341,7 @@
     "\\b(open(?!-)|opening|go to|goto|take me to|navigate|launch|bring up|show me (my|all my|the (patient|file|note|project|record|document|chat|page|screen|list)s?\\b)|list (my|all my)|" +
     "(find|search|look up|look for|look through|search for) (my|our|the (patient|file|note|project|record|document|chat)s?\\b)|search (in|through)|" +
     "fill (in|out|it|this)\\b|type (it|this|that|in|into|the|my)\\b|paste|press (the|it|generate|start|ok|next|save|continue)\\b|tap (the|on)\\b|click|(the|this|that) (form|box|field|button)\\b|write (it|this|that) (in|into)\\b|put (it|this|that) (in|into)\\b|(create|generate|draft) (a|an|the|my|some|me|it|this|that)\\b|make (a|an|the|my|some|me a|me an)\\b|write (a|an|me|the|my) (note|report|document|plan|format|summary|letter|deck|presentation|assignment|progress)|" +
+    "toggle|turn (it |this |that |the \\w+ )?(on|off)\\b|(tick|untick|uncheck) (the|this|that|it)\\b|read (me |out |aloud )?(my|the (patient|file|note|record|document|project|chapter|page|screen|result)s?|this|that|it)\\b|scroll|" +
     "delete|remove (it|this|that|my|all|these|those)\\b|export|download|share (it|this|that|my)|send (it|this|that|my)|save (it|this|that|my)|upload|attach|undo|clear the|change the (theme|workspace)|set (the )?(theme|mode)|switch (to|the|my|workspace)|" +
     "dark mode|light mode|my (patients?|files?|projects?|notes?|documents?|history|chats?|decks?|recordings?|results?|reports?|sets?|workspace|account|plan|subscription)|" +
     "this (page|screen|section|chapter|tab|patient|project|file|document)|on (the |my )?screen|the (patient|project) (list|record)|chapter \\w+|section \\w+|" +
@@ -357,6 +358,15 @@
   const THERAPIST = /\b(therapist mode|counsel+(or|ing) mode|be my (therapist|counsel+or|psychologist|psychiatrist|coach|life coach|supervisor|clinical supervisor|mentor)|act as (my |a |an )?(therapist|counsel+or|psychologist|psychiatrist|psychotherapist|clinical supervisor|supervisor|mentor|coach|social worker|senior colleague)|talk to me (as|like) (a|my) (therapist|counsel+or|psychologist)|i need (a therapist|someone to talk to|to talk to someone|to vent))\b/i;
   const PATIENT = /\b(patient mode|act as (a|my|the) patient|be (a|my|the) patient|play (a|the) patient|role ?-?play (as )?(a |the )?patient|pretend (to be|you are|you're) (a|my|the) patient|simulate (a|the) patient|(i want to |let me |let'?s )?practi[cs]e (a |my )?(case|case study|assessment|interview|history taking|treatment|therapy session|intervention|follow[- ]up) (with|on) (you|a patient))\b/i;
   const END = /\b(stop|end|exit|quit|finish|leave|close|cancel)( the| this| our)? (tutor mode|tutoring|tutor|lesson|class|tutorial|game mode|game|quiz|therapist mode|therapy|counsel+ing|session|patient mode|role ?-?play|simulation|case study|case)\b|\b(that'?s enough (for )?(the )?(lesson|quiz|game|questions))\b|\bstep out of (the )?(role|character)\b/i;
+  // What she says when she turns down something in the app ("I can't open your files", "I don't have access to your
+  // patients"). Her tools can do these: talk hands it to the agent, the agent is reminded of its tools once. (Android: AgentTalk.REFUSES)
+  const REFUSES = new RegExp(
+    "\\b((i|lixa)( |['’]m | am )(can['’]?t|cannot|can not|not able to|unable to|won['’]?t be able to|do not have the ability to|don['’]?t have the ability to) " +
+    "(directly |actually |personally |really )?(open|access|see|view|read|look at|find|search|browse|go to|navigate|take you|bring up|pull up|show you|create|make|add|save|edit|change|update|delete|remove|toggle|switch|turn|press|click|tap|type|fill|enter|interact|control|operate|use the app|do that|do this|perform)|" +
+    "(i|lixa) (do not|don['’]?t) have (direct |any )?(access|permission|a way|the means|the tools?|the capability)|" +
+    "i['’]?m (just )?(an?|a text-based|a voice) (si|ai|assistant|language model)[^.]{0,40}\\b(can['’]?t|cannot|not able)|" +
+    "you('ll| will) (need|have) to (open|go to|tap|click|press|do (it|that|this) yourself|navigate)|" +
+    "(is|are) (not )?(something )?(beyond|outside) (my|what i can)|not (something )?i can (do|access|open))", 'i');
   const HAND_OFF = '[[APP]]';
 
   const Talk = {
@@ -373,6 +383,8 @@
     },
     /** She says she made (or is making) something. */
     claimsAction(text) { return CLAIMS.test(String(text || '')); },
+    /** She turns down something in the app that her tools could do. */
+    refuses(text) { return REFUSES.test(String(text || '')); },
     /** How she treats greetings and pleasantries: with the user's first name (blank when unknown). Same text as Android. */
     nameLine(name) {
       return !name || !String(name).trim() ? '' :
@@ -401,7 +413,7 @@ How you speak:
 - When the user describes symptoms or a case, reason like an experienced clinician: give the likely diagnosis and the other possibilities worth considering (a differential), why, and what assessment or test would confirm them. Do not hide behind "I'm not a doctor" or "I can't diagnose"; you cannot examine anyone, so say what you would check.
 - You know the conversation so far; refer back to it naturally.
 
-You can also work inside the Rehablix app, but not in this reply: if the user wants something DONE in the app (open a page or tool, find, open, create, change, delete or export their saved work, anything about their own patients, projects, files or what is on their screen), reply with exactly ${HAND_OFF} and nothing else.
+You can also work inside the Rehablix app, but not in this reply: if the user wants something DONE in the app (open a page or tool, find, open, create, change, delete or export their saved work, anything about their own patients, projects, files or what is on their screen, pressing or toggling something), reply with exactly ${HAND_OFF} and nothing else. Never say you can't do something in the app or have no access to it: hand it off.
 
 The user is on this page of the app: ${page}.` + Talk.nameLine(userName);
       const said = mode ? String(mode.startedWith || '').slice(0, 400) : '';

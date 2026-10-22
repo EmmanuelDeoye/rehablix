@@ -35,263 +35,16 @@
   let userCurrency = 'USD';
   let countrySymbol = '$';
   let paymentGateways = [];
+  let locationKnown = false;   // the user's country has been looked up (its prices can be shown)
 
   const database = firebase.database();
   const auth = firebase.auth();
 
   // ===== Country-Specific Fixed Prices with "slashed original" illusion =====
-  // "original" = crossed-out price shown for discount illusion
-  // "current" = actual price user pays
-  const COUNTRY_PRICING = {
-    // Nigeria (NGN ₦)
-    NG: {
-      currency: 'NGN', symbol: '₦', flag: '🇳🇬', name: 'Nigeria',
-      gateways: ['paystack', 'gpay'],
-      student: { 
-        monthly: { original: 3699, current: 1999 }, 
-        yearly: { original: 36999, current: 18599 } 
-      },
-      pro: { 
-        monthly: { original: 6499, current: 3499 }, 
-        yearly: { original: 64999, current: 34499 } 
-      }
-    },
-    // Ghana (GHS GH₵)
-    GH: {
-      currency: 'GHS', symbol: 'GH₵', flag: '🇬🇭', name: 'Ghana',
-      gateways: ['paystack', 'gpay'],
-      student: { 
-        monthly: { original: 54.99, current: 29.99 }, 
-        yearly: { original: 539.99, current: 289.99 } 
-      },
-      pro: { 
-        monthly: { original: 269.99, current: 149.99 }, 
-        yearly: { original: 2649.99, current: 1479.99 } 
-      }
-    },
-    // Kenya (KES KSh)
-    KE: {
-      currency: 'KES', symbol: 'KSh', flag: '🇰🇪', name: 'Kenya',
-      gateways: ['flutterwave'],
-      student: { 
-        monthly: { original: 749, current: 399 }, 
-        yearly: { original: 7299, current: 3899 } 
-      },
-      pro: { 
-        monthly: { original: 3699, current: 1999 }, 
-        yearly: { original: 35999, current: 19599 } 
-      }
-    },
-    // South Africa (ZAR R)
-    ZA: {
-      currency: 'ZAR', symbol: 'R', flag: '🇿🇦', name: 'South Africa',
-      gateways: ['paystack', 'flutterwave'],
-      student: { 
-        monthly: { original: 89.99, current: 49.99 }, 
-        yearly: { original: 879.99, current: 479.99 } 
-      },
-      pro: { 
-        monthly: { original: 449.99, current: 249.99 }, 
-        yearly: { original: 4399.99, current: 2459.99 } 
-      }
-    },
-    // Tanzania (TZS TSh)
-    TZ: {
-      currency: 'TZS', symbol: 'TSh', flag: '🇹🇿', name: 'Tanzania',
-      gateways: ['flutterwave'],
-      student: { 
-        monthly: { original: 12999, current: 6999 }, 
-        yearly: { original: 127999, current: 68999 } 
-      },
-      pro: { 
-        monthly: { original: 64999, current: 34999 }, 
-        yearly: { original: 639999, current: 345999 } 
-      }
-    },
-    // Uganda (UGX USh)
-    UG: {
-      currency: 'UGX', symbol: 'USh', flag: '🇺🇬', name: 'Uganda',
-      gateways: ['flutterwave'],
-      student: { 
-        monthly: { original: 19999, current: 10999 }, 
-        yearly: { original: 195999, current: 107999 } 
-      },
-      pro: { 
-        monthly: { original: 99999, current: 54999 }, 
-        yearly: { original: 979999, current: 539999 } 
-      }
-    },
-    // Rwanda (RWF RF)
-    RW: {
-      currency: 'RWF', symbol: 'RF', flag: '🇷🇼', name: 'Rwanda',
-      gateways: ['flutterwave'],
-      student: { 
-        monthly: { original: 6499, current: 3499 }, 
-        yearly: { original: 62999, current: 33999 } 
-      },
-      pro: { 
-        monthly: { original: 32499, current: 17499 }, 
-        yearly: { original: 317999, current: 171999 } 
-      }
-    },
-    // Cameroon (XAF FCFA)
-    CM: {
-      currency: 'XAF', symbol: 'FCFA', flag: '🇨🇲', name: 'Cameroon',
-      gateways: ['flutterwave'],
-      student: { 
-        monthly: { original: 3299, current: 1799 }, 
-        yearly: { original: 31999, current: 17499 } 
-      },
-      pro: { 
-        monthly: { original: 16499, current: 8999 }, 
-        yearly: { original: 160999, current: 87999 } 
-      }
-    },
-    // Côte d'Ivoire (XOF CFA)
-    CI: {
-      currency: 'XOF', symbol: 'CFA', flag: '🇨🇮', name: "Côte d'Ivoire",
-      gateways: ['flutterwave'],
-      student: { 
-        monthly: { original: 3299, current: 1799 }, 
-        yearly: { original: 31999, current: 17499 } 
-      },
-      pro: { 
-        monthly: { original: 16499, current: 8999 }, 
-        yearly: { original: 160999, current: 87999 } 
-      }
-    },
-    // Senegal (XOF CFA)
-    SN: {
-      currency: 'XOF', symbol: 'CFA', flag: '🇸🇳', name: 'Senegal',
-      gateways: ['flutterwave'],
-      student: { 
-        monthly: { original: 3299, current: 1799 }, 
-        yearly: { original: 31999, current: 17499 } 
-      },
-      pro: { 
-        monthly: { original: 16499, current: 8999 }, 
-        yearly: { original: 160999, current: 87999 } 
-      }
-    },
-    // India (INR ₹)
-    IN: {
-      currency: 'INR', symbol: '₹', flag: '🇮🇳', name: 'India',
-      gateways: ['paystack','gpay'],
-      student: { 
-        monthly: { original: 549, current: 299 }, 
-        yearly: { original: 5399, current: 2899 } 
-      },
-      pro: { 
-        monthly: { original: 1849, current: 999 }, 
-        yearly: { original: 17999, current: 9799 } 
-      }
-    },
-    // United States (USD $)
-    US: {
-      currency: 'USD', symbol: '$', flag: '🇺🇸', name: 'United States',
-      gateways: ['gpay'],
-      student: { 
-        monthly: { original: 5.99, current: 2.99 }, 
-        yearly: { original: 59.99, current: 28.99 } 
-      },
-      pro: { 
-        monthly: { original: 19.99, current: 9.99 }, 
-        yearly: { original: 199.99, current: 99.99 } 
-      }
-    },
-    // United Kingdom (GBP £)
-    GB: {
-      currency: 'GBP', symbol: '£', flag: '🇬🇧', name: 'United Kingdom',
-      gateways: ['gpay'],
-      student: { 
-        monthly: { original: 4.99, current: 2.49 }, 
-        yearly: { original: 48.99, current: 23.99 } 
-      },
-      pro: { 
-        monthly: { original: 15.99, current: 7.99 }, 
-        yearly: { original: 156.99, current: 78.99 } 
-      }
-    },
-    // Canada (CAD CA$)
-    CA: {
-      currency: 'CAD', symbol: 'CA$', flag: '🇨🇦', name: 'Canada',
-      gateways: ['gpay'],
-      student: { 
-        monthly: { original: 7.99, current: 3.99 }, 
-        yearly: { original: 77.99, current: 38.99 } 
-      },
-      pro: { 
-        monthly: { original: 24.99, current: 12.99 }, 
-        yearly: { original: 249.99, current: 127.99 } 
-      }
-    },
-    // Australia (AUD A$)
-    AU: {
-      currency: 'AUD', symbol: 'A$', flag: '🇦🇺', name: 'Australia',
-      gateways: ['gpay'],
-      student: { 
-        monthly: { original: 8.99, current: 4.49 }, 
-        yearly: { original: 87.99, current: 43.99 } 
-      },
-      pro: { 
-        monthly: { original: 29.99, current: 14.99 }, 
-        yearly: { original: 294.99, current: 147.99 } 
-      }
-    },
-    // Germany (EUR €)
-    DE: {
-      currency: 'EUR', symbol: '€', flag: '🇩🇪', name: 'Germany',
-      gateways: ['gpay'],
-      student: { 
-        monthly: { original: 5.99, current: 2.99 }, 
-        yearly: { original: 57.99, current: 28.99 } 
-      },
-      pro: { 
-        monthly: { original: 18.99, current: 9.49 }, 
-        yearly: { original: 184.99, current: 92.99 } 
-      }
-    },
-    // France (EUR €)
-    FR: {
-      currency: 'EUR', symbol: '€', flag: '🇫🇷', name: 'France',
-      gateways: ['gpay'],
-      student: { 
-        monthly: { original: 5.99, current: 2.99 }, 
-        yearly: { original: 57.99, current: 28.99 } 
-      },
-      pro: { 
-        monthly: { original: 18.99, current: 9.49 }, 
-        yearly: { original: 184.99, current: 92.99 } 
-      }
-    },
-    // Brazil (BRL R$)
-    BR: {
-      currency: 'BRL', symbol: 'R$', flag: '🇧🇷', name: 'Brazil',
-      gateways: ['gpay'],
-      student: { 
-        monthly: { original: 29.99, current: 14.99 }, 
-        yearly: { original: 289.99, current: 144.99 } 
-      },
-      pro: { 
-        monthly: { original: 99.99, current: 49.99 }, 
-        yearly: { original: 979.99, current: 489.99 } 
-      }
-    },
-  };
-
-  // Default/fallback pricing (USD)
-  const DEFAULT_PRICING = {
-    currency: 'USD', symbol: '$', flag: '🌍', name: 'International',
-    gateways: ['gpay'],
-    student: { 
-      monthly: { original: 5.99, current: 2.99 }, 
-      yearly: { original: 59.99, current: 28.99 } 
-    },
-    pro: { 
-      monthly: { original: 19.99, current: 9.99 }, 
-      yearly: { original: 199.99, current: 99.99 } 
-    }
-  };
+  // The built-in table lives in js/plan-config.js (the admin page starts from it); the
+  // prices shown and charged are those with the admin's changes (getCountryPricing).
+  const COUNTRY_PRICING = window.RehablixPlanConfig.defaultCountryPricing();
+  const DEFAULT_PRICING = window.RehablixPlanConfig.defaultPricing();
 
   // Max plan pricing isn't hand-authored per country — it's derived as 3x
   // Pro's price (same currency/gateways), so adding it doesn't require
@@ -334,9 +87,12 @@
     }, duration);
   }
 
+  // The built-in prices with whatever the admin has set (admin.html > Plans & Pricing), Max included.
   function getCountryPricing(countryCode) {
-    return COUNTRY_PRICING[countryCode] || DEFAULT_PRICING;
+    return window.RehablixPlanConfig.pricingFor(countryCode);
   }
+  const PC = window.RehablixPlanConfig;
+  const fmtNum = (p) => (p % 1 !== 0 ? p.toFixed(2) : p.toLocaleString());
 
   function formatPrice(price, symbol) {
     if (price === 0) return `${symbol}0`;
@@ -357,16 +113,18 @@
   // ===== Detect Location =====
   async function detectLocation() {
     try {
-      const response = await fetch('https://ipapi.co/json/');
+      // (at most 6 s: offline or slow, the international prices show instead of a page that keeps loading)
+      const response = await fetch('https://ipapi.co/json/', (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(6000) } : undefined);
       const data = await response.json();
       userCountry = data.country_code || 'US';
       const pricing = getCountryPricing(userCountry);
       userCurrency = pricing.currency;
       countrySymbol = pricing.symbol;
       paymentGateways = pricing.gateways;
-      
+
       if (locationFlag) locationFlag.textContent = pricing.flag;
       if (locationText) locationText.textContent = `Prices in ${pricing.name} (${pricing.currency})`;
+      locationKnown = true;
       if (currencyCode) currencyCode.textContent = pricing.currency;
       if (currencyNotice) currencyNotice.style.display = 'flex';
       
@@ -389,135 +147,136 @@
   }
 
   // ===== Update Plan Prices with Slashed Original Price & Discount Badge =====
+  // During a promo the admin declared (appConfig/promo) the usual price is struck through and the promo price
+  // shown (and charged); otherwise as before. The token lines follow the limits set on the admin page.
+  function paintPrice(plan, pricing) {
+    const priceEl = getEl(plan + 'Price');
+    if (!priceEl) return;
+    const card = priceEl.closest('.plan-price');
+    const shown = PC.shownPrice(pricing, plan, isYearly);
+    if (card) {
+      card.querySelectorAll('.slashed-price, .discount-badge, .promo-tag').forEach(el => el.remove());
+      if (shown.promo) {
+        const tag = document.createElement('span');
+        tag.className = 'promo-tag';
+        tag.textContent = `${fmtNum(shown.promo.percent)}% OFF · ${shown.promo.title}`;
+        card.insertBefore(tag, card.firstChild);
+      }
+      if (shown.slashed != null) {
+        // Add slashed original price above current price
+        const slashSpan = document.createElement('span');
+        slashSpan.className = 'slashed-price';
+        slashSpan.textContent = formatPrice(shown.slashed, pricing.symbol);
+        slashSpan.style.cssText = `
+          text-decoration: line-through;
+          color: #dc2626;
+          font-size: 1.5rem;
+          font-weight: 500;
+          opacity: 0.7;
+          display: block;
+          margin-bottom: -0.2rem;
+        `;
+        card.insertBefore(slashSpan, priceEl);
+        if (shown.slashed > shown.pay) {
+          // Add discount badge
+          const badge = document.createElement('span');
+          badge.className = 'discount-badge';
+          badge.textContent = `-${Math.round((1 - shown.pay / shown.slashed) * 100)}%`;
+          badge.style.cssText = `
+            background: #10b981;
+            color: white;
+            padding: 0.15rem 0.5rem;
+            border-radius: 1rem;
+            font-size: 0.65rem;
+            font-weight: 700;
+            margin-left: 0.4rem;
+            vertical-align: middle;
+            animation: badgePop 0.3s ease;
+          `;
+          priceEl.parentNode.appendChild(badge);
+        }
+      }
+    }
+    // Update current price
+    priceEl.textContent = fmtNum(shown.pay);
+  }
+
+  /** The first feature line of each paid card: its token allowance as now set (plus the daily cap, if any). */
+  function paintTokenLines() {
+    const tiers = window.RehabPlanTiers;
+    if (!tiers) return;
+    ['student', 'pro', 'max'].forEach(plan => {
+      const card = document.querySelector('.plan-card[data-plan="' + plan + '"]');
+      const first = card && card.querySelector('.plan-features li');
+      if (!first) return;
+      const budget = tiers.PLAN_TOKEN_BUDGET[plan];
+      const lower = tiers.PLAN_ORDER[tiers.PLAN_ORDER.indexOf(plan) - 1];
+      const lowerBudget = lower ? tiers.PLAN_TOKEN_BUDGET[lower] : null;
+      const times = budget != null && lowerBudget > 0 && budget >= lowerBudget * 2 ? ` (${Math.floor(budget / lowerBudget)}x ${tiers.PLAN_LABELS[lower]})` : '';
+      first.innerHTML = budget == null
+        ? '<i class="fas fa-check"></i> <strong>Unlimited</strong> Lixa tokens — no reset window'
+        : `<i class="fas fa-check"></i> <strong>${budget.toLocaleString()}</strong> Lixa tokens every 4 hours${times}`;
+      card.querySelectorAll('.daily-cap-line').forEach(el => el.remove());
+      const cap = PC.dailyCap(plan);
+      if (cap) {
+        const li = document.createElement('li');
+        li.className = 'daily-cap-line';
+        li.innerHTML = `<i class="fas fa-check"></i> Up to ${cap.toLocaleString()} tokens a day`;
+        first.insertAdjacentElement('afterend', li);
+      }
+    });
+  }
+
+  /** The promo across the top of the plans while it runs, with how long it has left. */
+  function paintPromoBanner() {
+    const old = getEl('promoBanner');
+    const promo = ['student', 'pro', 'max'].map(p => PC.promoFor(p)).find(Boolean);
+    if (!promo) { if (old) old.remove(); return; }
+    const left = Math.max(0, promo.endsAt - Date.now());
+    const d = Math.floor(left / 86400000), h = Math.floor(left / 3600000) % 24, m = Math.floor(left / 60000) % 60;
+    const ends = !isFinite(promo.endsAt) ? '' : d > 0 ? `Ends in ${d}d ${h}h` : h > 0 ? `Ends in ${h}h ${m}m` : `Ends in ${Math.max(1, m)}m`;
+    const el = old || document.createElement('div');
+    el.id = 'promoBanner';
+    el.className = 'promo-banner';
+    const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    el.innerHTML = `<span class="promo-banner-icon">🎉</span><div class="promo-banner-text"><strong>${esc(promo.title)} · ${fmtNum(promo.percent)}% off</strong>` +
+      (promo.message ? `<span>${esc(promo.message)}</span>` : '') + `</div>` + (ends ? `<span class="promo-banner-ends">${ends}</span>` : '');
+    if (!old && plansGrid) plansGrid.insertAdjacentElement('beforebegin', el);
+  }
+
   function updatePlanPrices(pricing) {
     const symbol = pricing.symbol;
-    
-    const freeCurrencyEl = getEl('freeCurrency');
-    const studentCurrencyEl = getEl('studentCurrency');
-    const proCurrencyEl = getEl('proCurrency');
-    const studentPriceEl = getEl('studentPrice');
-    const proPriceEl = getEl('proPrice');
-    
-    // Update currency symbols
-    if (freeCurrencyEl) freeCurrencyEl.textContent = symbol;
-    if (studentCurrencyEl) studentCurrencyEl.textContent = symbol;
-    if (proCurrencyEl) proCurrencyEl.textContent = symbol;
-    
-    // Get prices for current billing period
-    const studentPricing = isYearly ? pricing.student.yearly : pricing.student.monthly;
-    const proPricing = isYearly ? pricing.pro.yearly : pricing.pro.monthly;
-    
-    // Update Student price card
-    if (studentPriceEl) {
-      const studentCard = studentPriceEl.closest('.plan-price');
-      
-      // Remove existing slashed p&& rice and discount badge
-      const existingSlash = studentCard?.querySelector('.slashed-price');
-      if (existingSlash) existingSlash.remove();
-      const existingBadge = studentCard?.querySelector('.discount-badge');
-      if (existingBadge) existingBadge.remove();
-      
-      if (studentCard) {
-        // Add slashed original price above current price
-        const slashSpan = document.createElement('span');
-        slashSpan.className = 'slashed-price';
-        slashSpan.textContent = formatPrice(studentPricing.original, symbol);
-        slashSpan.style.cssText = `
-          text-decoration: line-through;
-          color: #dc2626;
-          font-size: 1.5rem;
-          font-weight: 500;
-          opacity: 0.7;
-          display: block;
-          margin-bottom: -0.2rem;
-        `;
-        studentCard.insertBefore(slashSpan, studentPriceEl);
-        
-        // Add discount badge
-        const discountPercent = Math.round((1 - studentPricing.current / studentPricing.original) * 100);
-        const badge = document.createElement('span');
-        badge.className = 'discount-badge';
-        badge.textContent = `-${discountPercent}%`;
-        badge.style.cssText = `
-          background: #10b981;
-          color: white;
-          padding: 0.15rem 0.5rem;
-          border-radius: 1rem;
-          font-size: 0.65rem;
-          font-weight: 700;
-          margin-left: 0.4rem;
-          vertical-align: middle;
-          animation: badgePop 0.3s ease;
-        `;
-        studentPriceEl.parentNode.appendChild(badge);
-      }
-      
-      // Update current price
-      studentPriceEl.textContent = studentPricing.current % 1 !== 0 ? studentPricing.current.toFixed(2) : studentPricing.current.toLocaleString();
-    }
-    
-    // Update Pro price card
-    if (proPriceEl) {
-      const proCard = proPriceEl.closest('.plan-price');
-      
-      // Remove existing slashed price and discount badge
-      const existingSlash = proCard?.querySelector('.slashed-price');
-      if (existingSlash) existingSlash.remove();
-      const existingBadge = proCard?.querySelector('.discount-badge');
-      if (existingBadge) existingBadge.remove();
-      
-      if (proCard) {
-        // Add slashed original price above current price
-        const slashSpan = document.createElement('span');
-        slashSpan.className = 'slashed-price';
-        slashSpan.textContent = formatPrice(proPricing.original, symbol);
-        slashSpan.style.cssText = `
-          text-decoration: line-through;
-          color: #dc2626;
-          font-size: 1.5rem;
-          font-weight: 500;
-          opacity: 0.7;
-          display: block;
-          margin-bottom: -0.2rem;
-        `;
-        proCard.insertBefore(slashSpan, proPriceEl);
-        
-        // Add discount badge
-        const discountPercent = Math.round((1 - proPricing.current / proPricing.original) * 100);
-        const badge = document.createElement('span');
-        badge.className = 'discount-badge';
-        badge.textContent = `-${discountPercent}%`;
-        badge.style.cssText = `
-          background: #10b981;
-          color: white;
-          padding: 0.15rem 0.5rem;
-          border-radius: 1rem;
-          font-size: 0.65rem;
-          font-weight: 700;
-          margin-left: 0.4rem;
-          vertical-align: middle;
-          animation: badgePop 0.3s ease;
-        `;
-        proPriceEl.parentNode.appendChild(badge);
-      }
-      
-      // Update current price
-      proPriceEl.textContent = proPricing.current % 1 !== 0 ? proPricing.current.toFixed(2) : proPricing.current.toLocaleString();
-    }
 
-    // Update Max price card (no slashed/discount styling — top tier)
-    const maxCurrencyEl = getEl('maxCurrency');
-    const maxPriceEl = getEl('maxPrice');
-    if (maxCurrencyEl) maxCurrencyEl.textContent = symbol;
-    if (maxPriceEl && pricing.max) {
-      const maxPricing = isYearly ? pricing.max.yearly : pricing.max.monthly;
-      maxPriceEl.textContent = maxPricing.current % 1 !== 0 ? maxPricing.current.toFixed(2) : maxPricing.current.toLocaleString();
-    }
+    const freeCurrencyEl = getEl('freeCurrency');
+    if (freeCurrencyEl) freeCurrencyEl.textContent = symbol;
+    ['student', 'pro', 'max'].forEach(plan => {
+      const cur = getEl(plan + 'Currency');
+      if (cur) cur.textContent = symbol;
+      paintPrice(plan, pricing);
+    });
+    paintTokenLines();
+    paintPromoBanner();
 
     // Update period labels
     document.querySelectorAll('.period').forEach(el => {
       el.textContent = isYearly ? '/year' : '/month';
     });
+  }
+
+  // ===== Loading animation (until the country and the latest plans and prices are known) =====
+  function showPlansLoading(on) {
+    if (!plansGrid) return;
+    plansGrid.classList.toggle('plans-loading', on);
+    let loader = getEl('plansLoader');
+    if (on && !loader) {
+      loader = document.createElement('div');
+      loader.id = 'plansLoader';
+      loader.className = 'plans-loader';
+      loader.setAttribute('role', 'status');
+      loader.innerHTML = '<div class="plans-loader-head"><span class="plans-loader-spin"></span>Loading the latest plans and prices…</div>' +
+        '<div class="plans-loader-cards">' + '<div class="plans-loader-card"><i></i><b></b><b></b><em></em><s></s><s></s><s></s><s></s><u></u></div>'.repeat(3) + '</div>';
+      plansGrid.insertAdjacentElement('beforebegin', loader);
+    } else if (!on && loader) loader.remove();
   }
 
   // ===== Billing Toggle =====
@@ -598,7 +357,10 @@
     if (!paymentModal) return;
     
     const pricing = getCountryPricing(userCountry);
-    const priceData = isYearly ? pricing[plan].yearly : pricing[plan].monthly;
+    // (what is charged: a running promo's price; the struck-through price is the usual one then)
+    const shown = PC.shownPrice(pricing, plan, isYearly);
+    const base = isYearly ? pricing[plan].yearly : pricing[plan].monthly;
+    const priceData = { original: shown.slashed != null ? shown.slashed : base.original, current: shown.pay };
     const discountPercent = Math.round((1 - priceData.current / priceData.original) * 100);
     
     const planBadges = { student: '🎓 Basic Plan', pro: '💎 Pro Plan', max: '♾️ Max Plan' };
@@ -607,9 +369,11 @@
     if (paymentAmount) paymentAmount.textContent = priceData.current % 1 !== 0 ? priceData.current.toFixed(2) : priceData.current.toLocaleString();
     if (paymentPeriod) paymentPeriod.textContent = isYearly ? '/year' : '/month';
     if (paymentBilling) {
-      paymentBilling.textContent = isYearly 
-        ? `Billed yearly (save ${discountPercent}%)` 
-        : 'Billed monthly';
+      paymentBilling.textContent = shown.promo
+        ? `${shown.promo.title}: ${fmtNum(shown.promo.percent)}% off · ${isYearly ? 'billed yearly' : 'billed monthly'}`
+        : isYearly
+          ? `Billed yearly (save ${discountPercent}%)`
+          : 'Billed monthly';
     }
     
     // Add slashed original price in payment modal
@@ -689,8 +453,9 @@
     if (!selectedPlan || !currentUser) return;
     
     const pricing = getCountryPricing(userCountry);
-    const priceData = isYearly ? pricing[selectedPlan].yearly : pricing[selectedPlan].monthly;
-    
+    // (the price at the moment of paying: a promo's price while it runs)
+    const priceData = { current: PC.shownPrice(pricing, selectedPlan, isYearly).pay };
+
     switch (gateway) {
       case 'paystack':
         initPaystack(priceData.current, pricing);
@@ -1206,9 +971,26 @@
 
   // ===== Initialize =====
   async function initialize() {
-    const pricing = await detectLocation();
-    updatePlanPrices(pricing);
-    
+    // A loading animation until the country and the latest plans and prices (admin page) are known.
+    showPlansLoading(true);
+    const [pricing] = await Promise.all([detectLocation(), PC.whenReady()]);
+    showPlansLoading(false);
+    updatePlanPrices(getCountryPricing(userCountry) || pricing);
+
+    // The admin changes prices, limits or a promo: the page shows it at once (and the promo countdown ticks).
+    const repaint = () => {
+      if (!locationKnown && !PC.isReady()) return;
+      const p = getCountryPricing(userCountry);
+      userCurrency = p.currency; countrySymbol = p.symbol; paymentGateways = p.gateways;
+      if (locationFlag) locationFlag.textContent = p.flag;
+      if (locationKnown && locationText) locationText.textContent = `Prices in ${p.name} (${p.currency})`;
+      if (currencyCode) currencyCode.textContent = p.currency;
+      updatePlanPrices(p);
+    };
+    cleanupFns.push(PC.onChange(repaint));
+    const tick = setInterval(repaint, 30000);
+    cleanupFns.push(() => clearInterval(tick));
+
     // Load initial plan
     if (window.rehabPlans) {
       currentPlan = window.rehabPlans.getCurrentPlan() || 'free';

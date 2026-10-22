@@ -496,6 +496,8 @@
           const full = await Br.stream(messages, { maxTokens: TALK_MAX_TOKENS, temperature: talk ? 0.6 : 0.5 }, f => {
             const shown = filter.visible(f);
             if (filter.handOff) throw new HandOff();
+            // She turns down something in the app ("I can't open…"): her tools can, so the agent takes it (before it is said).
+            if (!talk && Rr.Talk.refuses(shown)) throw new HandOff();
             if (talk && talk.kind === 'PATIENT' && !ending && filter.voice && !this.voice.role) this.voice.role = filter.voice;
             pushText(shown);
           }, signal);

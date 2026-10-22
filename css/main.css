@@ -2132,10 +2132,13 @@ body[data-route]:not([data-route="lixa"]):not([data-route="workspace"]) #themeTo
 /* The tools open as a sheet over a dimmed page: round coloured icons, three to a
    row, like WhatsApp's attach sheet. It rises from the bottom on phones and sits
    in the middle on wide screens. */
-.tool-switcher-panel { position: fixed; inset: 0; z-index: 1300; display: flex; align-items: flex-end; justify-content: center; padding: 12px; background: rgba(15, 23, 42, 0); transition: background 0.2s ease; }
-.tool-switcher-panel.open { background: rgba(15, 23, 42, 0.45); }
+/* Glass: the page behind is blurred, and the sheet itself is frosted, see-through glass. */
+.tool-switcher-panel { position: fixed; inset: 0; z-index: 1300; display: flex; align-items: flex-end; justify-content: center; padding: 12px; background: rgba(15, 23, 42, 0); -webkit-backdrop-filter: blur(0px); backdrop-filter: blur(0px); transition: background 0.2s ease, backdrop-filter 0.2s ease, -webkit-backdrop-filter 0.2s ease; }
+.tool-switcher-panel.open { background: rgba(15, 23, 42, 0.28); -webkit-backdrop-filter: blur(10px) saturate(120%); backdrop-filter: blur(10px) saturate(120%); }
 .tool-switcher-panel[hidden] { display: none; }
-.tool-switcher-sheet { position: relative; width: min(420px, 100%); max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); display: flex; flex-direction: column; overflow: hidden; border-radius: 1.4rem; background: var(--surface); border: 1px solid var(--border-light); box-shadow: 0 -8px 40px rgba(15, 40, 45, 0.22); transform: translateY(24px); opacity: 0; transition: transform 0.22s ease, opacity 0.22s ease; padding-bottom: env(safe-area-inset-bottom, 0px); }
+.tool-switcher-sheet { position: relative; width: min(420px, 100%); max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); display: flex; flex-direction: column; overflow: hidden; border-radius: 1.4rem; background: linear-gradient(160deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.5)); -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%); border: 1px solid rgba(255, 255, 255, 0.6); box-shadow: 0 -8px 40px rgba(15, 40, 45, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.7); transform: translateY(24px); opacity: 0; transition: transform 0.22s ease, opacity 0.22s ease; padding-bottom: env(safe-area-inset-bottom, 0px); }
+[data-theme="dark"] .tool-switcher-sheet { background: linear-gradient(160deg, rgba(30, 41, 59, 0.72), rgba(15, 23, 42, 0.55)); border-color: rgba(255, 255, 255, 0.12); box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .tool-switcher-sheet { background: var(--surface); } }
 .tool-switcher-panel.open .tool-switcher-sheet { transform: none; opacity: 1; }
 @media (min-width: 768px) { .tool-switcher-panel { align-items: center; } }
 .tool-switcher-head { display: flex; align-items: center; justify-content: space-between; padding: 0.9rem 0.9rem 0.2rem 1.2rem; font-weight: 700; font-size: 1rem; color: var(--text-primary); }

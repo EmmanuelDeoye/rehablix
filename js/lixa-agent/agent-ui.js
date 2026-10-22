@@ -14,7 +14,10 @@
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const B = () => window.LixaAgentBrain;
 
-  let root = null, bubble = null, navBtn = null, settingsNavBtn = null, session = null, avatar = null, bubbleAvatar = null, map = null;
+  // (the second press on Close must come within CLOSE_AGAIN_MS of the first)
+  const CLOSE_AGAIN_MS = 2000;
+  let closeTapAt = 0, toastTimer = null;
+  let root = null, bubble = null, navBtn = null, session = null, avatar = null, bubbleAvatar = null, map = null;
   let showing = false, active = false, panel = null;      // panel: 'settings' | 'details' | 'captions' | null
   let wakeLock = null;                                      // the screen kept on while agent mode is open (Keep screen on)
   let warnNoConfirm = false;                                // the warning before "Ask before changes" is turned off
@@ -61,10 +64,14 @@
     root.setAttribute('aria-label', 'Lixa Agent');
     root.innerHTML = `
       <div class="lxa-top">
-        <button type="button" class="lxa-round" data-act="min" aria-label="Put Lixa Agent in the background" title="Keep her running in the background"><i class="fas fa-chevron-down"></i></button>
+        <button type="button" class="lxa-round lxa-set-btn" data-act="settings" aria-label="Lixa's settings" title="Lixa's settings"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 7.5H13M19 7.5H20M4 16.5H5M11 16.5H20"/><circle cx="16" cy="7.5" r="2.6"/><circle cx="8" cy="16.5" r="2.6"/></svg></button>
         <div class="lxa-chip lxa-page"><i class="fas fa-comment-dots"></i><span></span></div>
-        <button type="button" class="lxa-round" data-act="close" aria-label="Close Lixa Agent" title="Close"><i class="fas fa-times"></i></button>
+        <div class="lxa-top-right">
+          <button type="button" class="lxa-round" data-act="min" aria-label="Put Lixa Agent in the background" title="Keep her running in the background"><i class="fas fa-chevron-down"></i></button>
+          <button type="button" class="lxa-round" data-act="close" aria-label="Close Lixa Agent (press twice)" title="Close (press twice)"><i class="fas fa-times"></i></button>
+        </div>
       </div>
+      <div class="lxa-toast" role="status" aria-live="polite" hidden></div>
       <!-- Three columns on a desktop (the controls left, Lixa in the middle, cards and panels right);
            on a phone the columns melt into one (display: contents) in the usual order. -->
       <div class="lxa-left">
@@ -76,7 +83,6 @@
           <span class="lxa-miclive" role="status" hidden><span class="lxa-dot"></span>Mic live</span>
         </div>
         <div class="lxa-mode" hidden><i class="fas"></i><span class="lxa-mode-label"></span><span class="lxa-mode-score"></span><button type="button" data-act="endmode">End</button></div>
-        <!-- (Lixa's settings are in the top navbar while this screen shows) -->
         <div class="lxa-controls">
           <button type="button" class="lxa-ctl" data-act="captions" aria-label="Show captions" title="Captions"><i class="fas fa-closed-captioning"></i></button>
           <button type="button" class="lxa-ctl" data-act="type" aria-label="Type instead" title="Type"><i class="fas fa-keyboard"></i></button>
@@ -145,11 +151,11 @@
       const input = root.querySelector('.lxa-type input');
       if (session && input.value.trim()) { session.typed(input.value); input.value = ''; }
     });
-    // Settings, details and captions close on any tap outside them (the settings button is in the navbar).
+    // Settings, details and captions close on any tap outside them (and their buttons).
     document.addEventListener('pointerdown', e => {
       if (!panel || !root || root.hidden) return;
       const open = root.querySelector('.lxa-' + panel);
-      const btn = panel === 'settings' ? settingsNavBtn : root.querySelector('[data-act="' + panel + '"]');
+      const btn = root.querySelector('[data-act="' + panel + '"]');
       if (open && !open.contains(e.target) && !(btn && btn.contains(e.target))) { panel = null; render(); }
     }, true);
 
@@ -178,7 +184,17 @@
     if (live && live.on) live.sound.unlock();
     switch (act) {
       case 'min': minimize(); break;
-      case 'close': close(); break;
+      case 'close': {
+        // two presses in a row (within 2 s) close her; the first only says so
+        const now = Date.now();
+        if (now - closeTapAt <= CLOSE_AGAIN_MS) { closeTapAt = 0; hideToast(); close(); }
+        else { closeTapAt = now; agentToast('Press again to close', CLOSE_AGAIN_MS); }
+        break;
+      }
+      case 'settings':
+        panel = panel === 'settings' ? null : 'settings';
+        if (panel === 'settings' && live) live.refreshUsage();
+        render(); break;
       case 'standard': if (live) live.end(true); break;
       case 'live': if (live && !live.on) live.start(); break;
       case 'livestandard': live.prompt = null; render(); session.listen(); break;
@@ -358,7 +374,9 @@
       mic.disabled = !window.LixaAgentSession.canListen;
     }
     root.querySelector('[data-act="skip"]').disabled = v.state !== 'Speaking';
-    if (settingsNavBtn) settingsNavBtn.classList.toggle('on', panel === 'settings');
+    const setBtn = root.querySelector('[data-act="settings"]');
+    setBtn.classList.toggle('on', panel === 'settings');
+    setBtn.setAttribute('aria-label', panel === 'settings' ? "Close Lixa's settings" : "Lixa's settings");
     const cc = root.querySelector('[data-act="captions"]');
     cc.classList.toggle('on', panel === 'captions');
     cc.setAttribute('aria-label', panel === 'captions' ? 'Hide captions' : 'Show captions');
@@ -447,9 +465,17 @@
   function syncNavButton() {
     if (!navBtn) return;
     navBtn.hidden = showing || (route() === 'lixa' && lixaChatEmpty() && !active);
-    // her settings take the agent icon's place in the navbar while the agent screen shows
-    if (settingsNavBtn) settingsNavBtn.hidden = !showing;
   }
+
+  /** A short note at the top of the agent screen (the app's own toasts sit under it). */
+  function agentToast(text, ms) {
+    const t = root && root.querySelector('.lxa-toast');
+    if (!t) return;
+    t.textContent = text; t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(hideToast, ms || 2000);
+  }
+  function hideToast() { clearTimeout(toastTimer); const t = root && root.querySelector('.lxa-toast'); if (t) t.hidden = true; }
 
   /** Keep screen on: the screen stays on while agent mode is open (the browser lets go while the page is hidden). */
   async function syncWakeLock() {
@@ -473,22 +499,6 @@
     const theme = document.getElementById('themeToggle');
     right.insertBefore(navBtn, theme || null);
     navBtn.addEventListener('click', toggle);
-    // Lixa's settings, in the same place, while the agent screen shows
-    settingsNavBtn = document.createElement('button');
-    settingsNavBtn.type = 'button';
-    settingsNavBtn.id = 'lixaAgentSettingsBtn';
-    settingsNavBtn.className = 'icon-btn lxa-nav-btn lxa-nav-settings';
-    settingsNavBtn.setAttribute('aria-label', "Lixa's settings");
-    settingsNavBtn.title = "Lixa's settings";
-    settingsNavBtn.innerHTML = '<i class="fas fa-sliders-h" aria-hidden="true"></i>';
-    settingsNavBtn.hidden = true;
-    right.insertBefore(settingsNavBtn, theme || null);
-    settingsNavBtn.addEventListener('click', () => {
-      if (!session || !showing) return;
-      panel = panel === 'settings' ? null : 'settings';
-      if (panel === 'settings' && session.live) session.live.refreshUsage();
-      render();
-    });
     syncNavButton();
     // the new-chat screen comes and goes with the chat's messages
     const watch = () => {

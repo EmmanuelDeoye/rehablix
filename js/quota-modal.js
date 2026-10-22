@@ -55,7 +55,7 @@
     if (modalEl) modalEl.classList.remove('show');
   }
 
-  function show({ exhausted, remainingRatio, resetAt }) {
+  function show({ exhausted, remainingRatio, resetAt, daily }) {
     const el = ensureModal();
     const icon = el.querySelector('#qwIcon');
     const title = el.querySelector('#qwTitle');
@@ -65,9 +65,12 @@
     if (exhausted) {
       icon.textContent = '🚫';
       title.textContent = 'Token budget exhausted';
-      msg.textContent = resetMins
-        ? `You've used your full token budget for this window. It resets in about ${resetMins} minute(s), or upgrade for more room right now.`
-        : `You've used your full token budget for this window. Upgrade for more room right now.`;
+      // (the day's cap set on the admin page resets at midnight)
+      msg.textContent = daily
+        ? `You've used today's token allowance. It resets at midnight, or upgrade for more room right now.`
+        : resetMins
+          ? `You've used your full token budget for this window. It resets in about ${resetMins} minute(s), or upgrade for more room right now.`
+          : `You've used your full token budget for this window. Upgrade for more room right now.`;
       bar.style.width = '100%';
       bar.style.background = '#dc2626';
     } else {
@@ -99,7 +102,7 @@
       const key = `${uid}:${exhausted ? 'exhausted' : 'low'}:${result.resetAt}`;
       if (key !== lastShownKey) {
         lastShownKey = key;
-        show({ exhausted, remainingRatio, resetAt: result.resetAt });
+        show({ exhausted, remainingRatio, resetAt: result.resetAt, daily: !!result.daily });
       }
     }
     return result;

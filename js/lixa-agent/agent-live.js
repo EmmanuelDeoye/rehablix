@@ -439,7 +439,9 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
   const Usage = {
     limitsFor(plan, overrides) {
       const base = LIMITS[plan]; if (!base) return null;
-      const o = (overrides && overrides[plan]) || {};
+      // (the admin page's minutes, appConfig/plans/live, come first)
+      const set = window.RehablixPlanConfig && window.RehablixPlanConfig.liveLimits(plan);
+      const o = set || (overrides && overrides[plan]) || {};
       const num = (v, d) => { const n = Number(v); return isFinite(n) && n >= 0 ? Math.floor(n) : d; };
       return { day: num(o.day, base.day), month: num(o.month, base.month) };
     },

@@ -33,6 +33,18 @@
   border: 1px solid var(--border-light); background: var(--surface); color: var(--text-primary);
   box-shadow: var(--shadow-sm); cursor: pointer; font-size: 1rem;
 }
+.lxa-top-right { display: flex; gap: 8px; flex: none; }
+.lxa-set-btn { display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); }
+.lxa-set-btn.on { color: var(--accent); background: var(--accent-soft); border: 1.5px solid var(--accent); }
+/* "Press again to close" */
+.lxa > .lxa-toast {
+  position: absolute; top: 66px; left: 50%; transform: translateX(-50%); z-index: 5;
+  width: auto; max-width: calc(100% - 32px); padding: 8px 16px; border-radius: 999px;
+  background: var(--text-primary); color: var(--bg-page); font-size: 0.85rem; font-weight: 600;
+  box-shadow: var(--shadow-md, 0 6px 18px rgba(0,0,0,.18)); pointer-events: none;
+  animation: lxa-toast-in .18s ease-out;
+}
+@keyframes lxa-toast-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .lxa-chip {
   display: inline-flex; align-items: center; gap: 8px; min-width: 0;
   padding: 9px 16px; border-radius: 999px;
@@ -123,8 +135,6 @@
 /* what only the user can act on (her voice waiting, a problem): always in view */
 .lxa-alert { order: 5; margin-top: 6px; text-align: center; font-size: 0.82rem; color: var(--text-secondary); }
 /* her settings button in the navbar */
-.lxa-nav-settings i { font-size: 1.05rem; }
-.lxa-nav-settings.on { color: var(--accent); background: var(--accent-soft); border-radius: 50%; }
 
 .lxa-cards { display: flex; flex-direction: column; gap: 8px; max-height: 42vh; max-height: 42dvh; overflow: auto; flex: none; }
 .lxa-cards:empty { display: none; }
