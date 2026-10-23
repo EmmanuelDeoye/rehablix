@@ -27,6 +27,7 @@
       { name: 'Motion & Gait', url: 'index.html#/motion', icon: '🦵' },
       { name: 'Report & Presentation', url: 'index.html#/presentation', icon: '📑' },
       { name: 'Deck Studio', url: 'index.html#/deck', icon: '🎞️' },
+      { name: 'Whiteboard', url: 'index.html#/whiteboard', icon: '🖍️' },
       { name: 'Assignment Maker', url: 'index.html#/assignment', icon: '📝' },
       { name: 'Project Maker', url: 'index.html#/project', icon: '📚' },
       { name: 'Study Buddy', url: 'index.html#/study', icon: '🧠' },

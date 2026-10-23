@@ -57,6 +57,15 @@
       "keywords": ["deck", "slides", "powerpoint", "pptx", "presentation slides", "slide deck", "design"]
     },
     {
+      "id": "whiteboard", "title": "Whiteboard", "logo": "chalkboard", "route": "#/whiteboard", "open": true, "needsLogin": false,
+      "purpose": "Lixa explains a rehab topic visually, step by step: diagrams (knee, shoulder, spine, brain, gait cycle and more), labels, arrows, handwritten notes. The user can draw on it, change it, save, reopen and export it.",
+      "inputs": ["a topic", "who it is for", "number of steps"],
+      "actions": ["draw an explanation", "play the steps", "draw, write and add diagrams", "ask Lixa to change it", "add an AI picture (Pro and Max)", "export PNG or PDF"],
+      "related": ["lixa", "study", "deck"],
+      "howTo": ["Open Workspace, then Whiteboard.", "Type what Lixa should explain and tap Draw it.", "Use the arrows or play to go through the steps; pick a tool to draw or write.", "Type a change in the box above the board, or export with PNG or PDF."],
+      "keywords": ["whiteboard", "white board", "draw", "diagram", "visual", "explain visually", "illustrate", "sketch", "teach", "step by step"]
+    },
+    {
       "id": "presentation", "title": "Presentation Maker", "logo": "file-alt", "route": "#/presentation", "open": true, "needsLogin": true,
       "purpose": "Writes case presentations, clinical reports and documentation from notes.",
       "inputs": ["case notes or findings", "the kind of document"],

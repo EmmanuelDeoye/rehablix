@@ -132,7 +132,7 @@
     delete out._attachmentText;
     if (toolId === 'presentation') out.content = joinText(out.content, att);
     else if (toolId === 'format' || toolId === 'study') out.notes = joinText(out.notes, att);
-    else if (toolId === 'deck') out.source = joinText(out.source, att);
+    else if (toolId === 'deck' || toolId === 'whiteboard') out.source = joinText(out.source, att);
     else out.additionalInstructions = joinText(out.additionalInstructions, 'Reference material attached by the user (use it as the source):\n' + att);
     return out;
   }
@@ -301,6 +301,7 @@
     { type: 'standardized', label: 'Standardized Tools', path: 'standardizedTools', icon: '⚖️', titleOf: (item) => item.toolName },
     { type: 'presentation', label: 'Presentations/Reports', path: 'caseHistory', icon: '📑', titleOf: (item) => item.fileName || item.documentType },
     { type: 'deck', label: 'Slide decks', path: 'decks', icon: '🎞️', titleOf: (item) => item.title },
+    { type: 'whiteboard', label: 'Whiteboards', path: 'whiteboards', icon: '🖍️', titleOf: (item) => item.title },
     { type: 'audio', label: 'Audio', path: 'audio', icon: '🎧', titleOf: (item) => item.title },
     { type: 'assignment', label: 'Assignments', path: 'assignments', icon: '📝', titleOf: (item) => item.topic },
     { type: 'study', label: 'Study Sets', path: 'study/sets', icon: '🧠', titleOf: (item) => item.title },
@@ -1351,7 +1352,9 @@
         // Naming a tool to refuse it, or asking for advice about one, is a chat
         // message (an attached audio file is still a transcription request).
         const audioAttached = detected.toolId === 'audio' && attachedFiles && attachedFiles.some(a => a.type && a.type.startsWith('audio/'));
-        if (!audioAttached && (isNegatedRequest(text, detected, TOOLS[detected.toolId]) || wantsAdviceNotAFile(text))) return false;
+        // ("explain X on a whiteboard / visually" asks for the board itself, not for advice)
+        const visualAsk = detected.toolId === 'whiteboard' && detected.patternMatched;
+        if (!audioAttached && (isNegatedRequest(text, detected, TOOLS[detected.toolId]) || (wantsAdviceNotAFile(text) && !visualAsk))) return false;
         return await startTool(detected.toolId, text, text, attachedFiles, { confirmed: false });
       }
 
@@ -1660,6 +1663,7 @@
         standardized: `index.html?openId=${id}#/standardized`,
         presentation: `index.html?type=case&id=${id}#/result`,
         deck: `index.html?deck=${id}#/deck`,
+        whiteboard: `index.html?board=${id}#/whiteboard`,
         audio: `index.html?id=${id}#/audioview`,
         assignment: `index.html?type=answer&id=${id}#/result`,
         // A study record in Files is a SET id, not a subject id — the tool

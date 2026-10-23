@@ -812,6 +812,18 @@
         // (the status in the details row says the same as the badge)
         const metaStatus = document.getElementById('patientHeroStatus');
         if (metaStatus) { metaStatus.textContent = statusBadge.textContent; metaStatus.className = statusBadge.className; }
+        // a draft becomes an active patient in one tap (no need to go through Edit)
+        let activateBtn = document.getElementById('activatePatientBtn');
+        if (!activateBtn) {
+            activateBtn = document.createElement('button');
+            activateBtn.id = 'activatePatientBtn';
+            activateBtn.className = 'btn btn-primary';
+            activateBtn.style.cssText = 'font-size:0.7rem;padding:0.2rem 0.8rem;';
+            activateBtn.innerHTML = '<i class="bx bx-check-circle"></i> Make active';
+            statusBadge.insertAdjacentElement('afterend', activateBtn);
+            activateBtn.addEventListener('click', activateDraftPatient);
+        }
+        activateBtn.hidden = currentPatientData.status !== 'draft';
         loadPatientIntake();
         loadLinkedRecords();
         renderProblemList();
@@ -1126,7 +1138,10 @@
             return `
             <div class="problem-item" data-key="${escapeHtml(key)}">
                 <div class="problem-item-header" role="button" tabindex="0" aria-expanded="false">
-                    <div class="problem-item-title"><i class="bx bx-chevron-right problem-chevron" aria-hidden="true"></i> ${escapeHtml(p.title)} ${reviewBadge(p)}</div>
+                    <div class="problem-item-main">
+                        <div class="problem-item-title"><i class="bx bx-chevron-right problem-chevron" aria-hidden="true"></i> <span>${escapeHtml(p.title)}</span></div>
+                        ${reviewBadge(p) ? `<div class="review-badge-row">${reviewBadge(p)}</div>` : ''}
+                    </div>
                     <div style="display:flex;gap:0.3rem;">
                         <button class="card-edit-btn problem-edit" data-index="${i}" title="Edit" aria-label="Edit problem"><i class="bx bx-edit" aria-hidden="true"></i></button>
                         <button class="icon-btn-sm problem-delete" data-index="${i}" title="Remove" aria-label="Remove problem"><i class="bx bx-trash" aria-hidden="true"></i></button>
@@ -1330,7 +1345,8 @@
                 <a href="index.html?id=${encodeURIComponent(currentPatientId)}&type=summary&index=${summary._index}#/docresult" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;display:block;" aria-label="Open ${escapeHtml(summary.title || 'Summary Report')} in editor">
                     <div class="summary-card-header">
                         <div>
-                            <div class="summary-card-title">${escapeHtml(summary.title) || 'Summary Report'} ${reviewBadge(summary)}</div>
+                            <div class="summary-card-title">${escapeHtml(summary.title) || 'Summary Report'}</div>
+                            ${reviewBadge(summary) ? `<div class="review-badge-row">${reviewBadge(summary)}</div>` : ''}
                             <div class="summary-card-meta">${escapeHtml(summary.date) || ''}</div>
                         </div>
                         <div><i class="bx bx-link-external" aria-hidden="true"></i></div>
@@ -2808,6 +2824,26 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
             }
         } catch (error) {
             showToast('Error creating patient', 'error');
+        }
+    }
+
+    /** The open draft patient becomes active (one tap from the patient's header). */
+    async function activateDraftPatient() {
+        const patientId = currentPatientId;
+        if (!currentUser || !patientId || !currentPatientData || currentPatientData.status !== 'draft') return;
+        const btn = document.getElementById('activatePatientBtn');
+        if (btn) btn.disabled = true;
+        try {
+            await database.ref(`history/${scopeUid}/patients/${patientId}`).update({ status: 'active', active: true });
+            if (Store()) Store().audit(scopeUid, patientId, 'edit', 'Draft made active');
+            if (window.RehablixCenter) window.RehablixCenter.logActivity('doc', 'Made patient active', currentPatientData.name).catch(() => {});
+            showToast('Patient is now active', 'success');
+            await openPatient(patientId);
+            loadDashboardData();
+        } catch (error) {
+            showToast('Could not make the patient active', 'error');
+        } finally {
+            if (btn) btn.disabled = false;
         }
     }
 

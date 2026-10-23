@@ -1,7 +1,7 @@
 // js/token-usage.js — the token usage monitor (profile menu > Token usage; paid plans only). It replaced the
 // "My Profile" modal, whose details are on the Settings page. It shows what this 4-hour window has used of the plan's
 // budget and when it resets, today's use against the daily cap (when the admin has set one: js/plan-config.js),
-// Lixa Live minutes, and how each model counts. Android: ui/auth/ShellOverlays.kt TokenUsageModal, the same.
+// and Lixa Live minutes, as percentages. Android: ui/auth/ShellOverlays.kt TokenUsageModal, the same.
 (function () {
   // Lixa Live minutes per plan when the admin has set none (js/lixa-agent/agent-live.js LIMITS)
   const LIVE = { student: { day: 10, month: 100 }, pro: { day: 30, month: 300 }, max: { day: 60, month: 600 } };
@@ -11,7 +11,8 @@
   function plan() { return (window.rehabPlans && window.rehabPlans.getCurrentPlan && window.rehabPlans.getCurrentPlan()) || 'free'; }
   function user() { try { return firebase.auth().currentUser; } catch (e) { return null; } }
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const num = n => Number(n || 0).toLocaleString();
+  // (percentages only: the raw token figures are not shown to users)
+  const pct = r => Math.round(Math.max(0, Math.min(1, Number(r) || 0)) * 100) + '%';
   function clock(ms) {
     const d = new Date(ms), now = new Date();
     const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -75,13 +76,13 @@
       const used = fresh ? 0 : Number(quota.tokensUsed) || 0;
       const resets = fresh ? null : quota.windowStart + WINDOW_MS;
       const paused = cap && usedToday >= cap;
-      html += card('This 4-hour window', num(used) + ' of ' + num(budget) + ' tokens',
-        num(Math.max(0, budget - used)) + ' left · ' + (paused ? "paused by today's cap until midnight" : resets ? 'resets at ' + clock(resets) : 'a new window starts with your next request'),
+      html += card('This 4-hour window', pct(used / budget) + ' used',
+        pct(Math.max(0, budget - used) / budget) + ' left · ' + (paused ? "paused by today's cap until midnight" : resets ? 'resets at ' + clock(resets) : 'a new window starts with your next request'),
         Math.min(1, used / budget));
     }
     if (cap) {
       const midnight = new Date(); midnight.setHours(24, 0, 0, 0);
-      html += card('Today', num(usedToday) + ' of ' + num(cap) + ' tokens', num(Math.max(0, cap - usedToday)) + ' left · resets at ' + clock(midnight.getTime()), Math.min(1, usedToday / cap));
+      html += card('Today', pct(usedToday / cap) + ' used', pct(Math.max(0, cap - usedToday) / cap) + ' left · resets at ' + clock(midnight.getTime()), Math.min(1, usedToday / cap));
     }
     const lim = (window.RehablixPlanConfig && window.RehablixPlanConfig.liveLimits(p)) || LIVE[p];
     if (lim) {
@@ -91,9 +92,6 @@
       const dayLim = Number(lim.day != null ? lim.day : (LIVE[p] || {}).day) || 0, monthLim = Number(lim.month != null ? lim.month : (LIVE[p] || {}).month) || 0;
       html += card('Lixa Live minutes', dMin + ' of ' + dayLim + ' min today', mMin + ' of ' + monthLim + ' this month · ' + Math.max(0, Math.min(dayLim - dMin, monthLim - mMin)) + ' min left', dayLim ? Math.min(1, dMin / dayLim) : null);
     }
-    html += '<h3 class="tu-sub">How each model counts</h3><div class="tu-models">' +
-      [['Basal 100', 'half of its words'], ['Corpus 101', 'its words'], ['Medulla 200', '2 × the tokens it really uses, its thinking included'], ['Blix 360', '2 × the tokens it really uses, its thinking included']]
-        .map(r => '<div><b>' + r[0] + '</b><span>' + r[1] + '</span></div>').join('') + '</div>';
     body.innerHTML = html;
   }
 

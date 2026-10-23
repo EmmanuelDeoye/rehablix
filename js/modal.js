@@ -257,6 +257,11 @@ function createAuthModal() {
             <button class="dropdown-item" id="profileMenuItem" style="display:none;">
               <span>📊</span> Token usage
             </button>
+            <div class="dropdown-group" id="groupMenuBlock" hidden>
+              <span class="dropdown-group-label">My group</span>
+              <button class="dropdown-item" id="groupInfoMenuItem"><span>ℹ️</span> Group info</button>
+              <button class="dropdown-item" id="groupSettingsMenuItem"><span>🏥</span> Group settings</button>
+            </div>
             <button class="dropdown-item" id="settingsMenuItem">
               <span>⚙️</span> Settings
             </button>

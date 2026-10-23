@@ -258,6 +258,50 @@
    * What she says goes to the cloud voice with every registered patient's name and identifiers, phone numbers,
    * emails and dates of birth taken out and replaced by plain words (the same rule as the Android app).
    */
+  // Names she says wrongly (2026-10-23): what the user teaches ("Adeoye is pronounced ah-day-oh-yeh", "say Tolu as
+  // toh-loo", or "it's pronounced …" right after she said a name) is used by her voice from then on. Written words are
+  // never changed: only what goes to the voice. (Android: AgentSpeechRules.kt SayAs, the same)
+  const SayAs = (function () {
+    const WORD = "([A-Za-z][A-Za-z'’-]{1,30})", SOUND = "([A-Za-z][A-Za-z'’ -]{0,40}?)", TAIL = "\\s*(?:[.,!?]|$|\\bplease\\b|\\bokay\\b)";
+    const EXPLICIT = [
+      new RegExp("\\b" + WORD + " (?:is|'s) (?:pronounced|said) (?:as |like )?[\"“]?" + SOUND + "[\"”]?" + TAIL, 'i'),
+      new RegExp("\\bpronounce " + WORD + " (?:as|like) [\"“]?" + SOUND + "[\"”]?" + TAIL, 'i'),
+      new RegExp("\\bsay " + WORD + " (?:as|like) [\"“]?" + SOUND + "[\"”]?" + TAIL, 'i')
+    ];
+    const BARE = new RegExp("\\b(?:it'?s|it is|that'?s|that is|you say it|say it) (?:pronounced |said )?(?:as |like )[\"“]?" + SOUND + "[\"”]?" + TAIL + "|\\b(?:it'?s|it is|that'?s|that is) (?:pronounced|said) [\"“]?" + SOUND + "[\"”]?" + TAIL, 'i');
+    const NOT_NAMES = ['it', 'that', 'this', 'name', 'word', 'lixa', 'rehablix', 'i', 'you', 'the', 'smart', 'emr', 'project', 'maker', 'deck', 'studio', 'okay', 'yes', 'no', 'sorry', 'hello', 'hi'];
+    const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    function clean(w, s) {
+      const word = String(w || '').trim().replace(/^['’]|['’]$/g, '');
+      const sound = String(s || '').trim().replace(/[.,!?]+$/, '').trim();
+      if (word.length < 2 || !sound || word.toLowerCase() === sound.toLowerCase() || NOT_NAMES.indexOf(word.toLowerCase()) >= 0) return null;
+      return [word, sound];
+    }
+    function lastName(reply) {
+      const t = String(reply || ''); let last = null; const re = /\b[A-Z][a-z'’]{2,}\b/g; let m;
+      while ((m = re.exec(t))) {
+        const before = t.slice(0, m.index).trimEnd();
+        if (before && !/[.!?]$/.test(before) && NOT_NAMES.indexOf(m[0].toLowerCase()) < 0) last = m[0];
+      }
+      return last;
+    }
+    return {
+      MAX: 60, lastName,
+      /** [word, how to say it] taught in said; a bare "it's pronounced …" is about the last name in her lastReply. */
+      learn(said, lastReply) {
+        for (const r of EXPLICIT) { const m = r.exec(said || ''); if (m) return clean(m[1], m[2]); }
+        const m = BARE.exec(said || ''); if (!m) return null;
+        const sound = m[1] || m[2]; const name = lastName(lastReply);
+        return sound && name ? clean(name, sound) : null;
+      },
+      apply(text, taught) { let out = String(text || ''); Object.keys(taught || {}).forEach(w => { out = out.replace(new RegExp('\\b' + esc(w) + '\\b', 'gi'), taught[w]); }); return out; },
+      instructions(taught) {
+        const k = Object.keys(taught || {});
+        return k.length ? '\n\nPRONUNCIATION the user taught you (always say these names this way): ' + k.map(w => w + ' = "' + taught[w] + '"').join('; ') + '.' : '';
+      }
+    };
+  })();
+
   function speakable(text, identifiers) {
     const D = root.RehablixDeidentify;
     let s = D ? D.scrubText(text, identifiers || []) : String(text || '');
@@ -400,7 +444,7 @@
     /** How she treats greetings and pleasantries: with the user's first name (blank when unknown). Same text as Android. */
     nameLine(name) {
       return !name || !String(name).trim() ? '' :
-        `\n\nThe user's first name is ${name}. Whenever they greet you, thank you, say please, sorry, well done, goodbye or any other pleasantry, include their first name naturally in your reply (for example "Good morning, ${name}!" or "You're welcome, ${name}."). Do not put their name in every other answer.`;
+        `\n\nThe user's first name is ${name}. Use their first name only when they greet you at the start of a conversation or say goodbye, naturally and at most once (for example "Good morning, ${name}!" or "Bye for now, ${name}!"). Never put their name in any other reply (not for thanks, please, sorry or answers): most replies have no name at all.`;
     },
     /** {start: mode} | {end: true} | null. A mode is {kind, startedWith}. */
     change(said, current) {
@@ -454,7 +498,7 @@ THERAPIST MODE is on. The user started it by saying: "${said}". Be the professio
 - SAFETY: if they mention thoughts of suicide or self-harm, harming someone, abuse, or a medical emergency, respond with care and calm, and clearly encourage them to contact emergency services now (112 in Nigeria and many other countries) or a crisis line, and a trusted person nearby. Stay with them in the conversation.`;
       if (mode && mode.kind === 'PATIENT') p += `
 
-PATIENT MODE (case-study practice) is on. The user started it by saying: "${said}". Use the condition, age, setting and stage of care they asked for; if they did not say, choose a common, realistic rehabilitation case and keep every detail consistent.
+PATIENT MODE (case-study practice) is on. The user started it by saying: "${said}". Use the condition, age, setting and stage of care they asked for. If they did not say which area of practice (for example orthopaedic, neurological, cardiopulmonary, paediatric, geriatric, or mental health / psychiatric) AND whether you should play the patient or a caregiver / family member, your FIRST reply is one short, friendly question asking that, offering to surprise them; start the case only once they answer. When you surprise them, choose a varied, realistic case from any area: never default to a shoulder problem, and never repeat the case you played last. Keep every detail consistent. As a caregiver, speak as that person: about the patient, with their own worries and what they have seen at home (the voice tag below then fits the caregiver).
 - You ARE the patient. Speak in the first person, as a real patient would: everyday words, feelings and worries, realistic memory and limits, and speech that fits the condition (for example word-finding pauses with aphasia, short slow answers with fatigue, guarding with pain). Do not volunteer the diagnosis or the answers: reveal information only when the user asks the right questions or does the right assessment. When they perform a test or an intervention, say what you feel and what they would observe, as the patient.
 - Let them practise the whole journey: interview, assessment, goal setting, intervention, education and follow-up visits (a follow-up can be "two weeks later" if they say so).
 - Stay in character. Step out ONLY when the user says "pause", "feedback", "how did I do" or ends the mode: then give structured feedback (what went well, what was missed, safety points, and what to do next time, with a credible reference by name).
@@ -549,6 +593,6 @@ PATIENT MODE (case-study practice) is on. The user started it by saying: "${said
 
   root.LixaAgentRules = {
     fixName, Reactions, Interruptions, Farewell, OpenPage, ClearScreen, Unfinished, askAgainLine, StatusLines,
-    SpeechText, SentenceSplitter, speakable, Talk, TalkFilter, WANTS_MORE, GREETING, Moods, PatientBodies, SpokenScore, Visemes
+    SpeechText, SentenceSplitter, speakable, SayAs, Talk, TalkFilter, WANTS_MORE, GREETING, Moods, PatientBodies, SpokenScore, Visemes
   };
 })(typeof window !== 'undefined' ? window : globalThis);

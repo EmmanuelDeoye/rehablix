@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.rehablix.app",
+      "sha256_cert_fingerprints": [
+        "4B:D2:76:6D:5F:E2:B4:C5:1F:1B:72:E0:D9:93:C7:E1:62:03:E6:1B:D9:CF:D0:1E:9D:24:DB:DE:A0:ED:9C:58"
+      ]
+    }
+  }
+]

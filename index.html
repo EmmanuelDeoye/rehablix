@@ -115,6 +115,9 @@
   <!-- Project Maker (route "project", js/views/project-view.js) — migrated off the old standalone project.html. -->
   <link rel="stylesheet" href="css/project.css">
 <link rel="stylesheet" href="css/deck.css">
+  <!-- Whiteboard (route "whiteboard", js/views/whiteboard-view.js); the board itself is shared with Android -->
+  <link rel="stylesheet" href="css/whiteboard-engine.css">
+  <link rel="stylesheet" href="css/whiteboard.css">
   <!-- Lixa Agent mode (voice mascot over every page): js/lixa-agent/*.js -->
   <link rel="stylesheet" href="css/lixa-agent.css">
 
@@ -310,6 +313,10 @@
 <script src="js/deck/deck-engine.js?v=4" defer></script>
 <script src="js/deck/deck-service.js?v=4" defer></script>
 <script src="js/lixa-generators/deck-gen.js?v=4" defer></script>
+  <!-- Whiteboard: visual step-by-step explanations (engine draws locally; shared with Android) -->
+  <script src="js/whiteboard/whiteboard-engine.js" defer></script>
+  <script src="js/whiteboard/whiteboard-service.js" defer></script>
+  <script src="js/lixa-generators/whiteboard-gen.js" defer></script>
   <script src="js/lixa-generators/study-gen.js" defer></script>
   <script src="js/lixa-generators/assign-gen.js" defer></script>
   <script src="js/lixa-knowledge.js" defer></script>
@@ -366,6 +373,8 @@
   <!-- Every routed view's HTML, as plain strings — must load before
        router.js, which reads window.RehablixTemplates synchronously. -->
   <script src="js/view-templates.js" defer></script>
+  <!-- (adds its own template to window.RehablixTemplates, so it loads after view-templates.js) -->
+  <script src="js/views/whiteboard-view.js" defer></script>
   <script src="js/router.js" defer></script>
 </body>
 </html>

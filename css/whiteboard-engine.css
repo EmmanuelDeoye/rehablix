@@ -1,0 +1,48 @@
+/* css/whiteboard-engine.css — the board itself (js/whiteboard/whiteboard-engine.js). Shared: the Android app ships a
+   byte-for-byte copy in app/src/main/assets/whiteboard/. Colours come from the app's variables, with fallbacks. */
+.wb { display: flex; flex-direction: column; gap: 0.55rem; width: 100%; color: var(--text-primary, #1f2933); font-family: inherit; }
+.wb-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; padding: 0.35rem; background: var(--surface, #fff); border: 1px solid var(--border-light, #e3e6ea); border-radius: 0.9rem; box-shadow: var(--shadow-sm, none); }
+.wb-tool, .wb-nav { display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem; min-width: 2.4rem; height: 2.4rem; padding: 0 0.45rem; border: 1px solid transparent; border-radius: 0.65rem; background: transparent; color: var(--text-primary, #1f2933); cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 600; transition: background .15s, border-color .15s, color .15s; }
+.wb-tool:hover, .wb-nav:hover:not(:disabled) { background: var(--accent-soft, #00968814); }
+.wb-tool.on, .wb-nav.on { background: var(--accent-soft, #00968814); border-color: var(--accent, #009688); color: var(--accent, #009688); }
+.wb-tool:focus-visible, .wb-nav:focus-visible { outline: 2px solid var(--accent, #009688); outline-offset: 2px; }
+.wb-nav:disabled { opacity: 0.35; cursor: default; }
+.wb-sep { width: 1px; height: 1.6rem; background: var(--border-light, #e3e6ea); margin: 0 0.15rem; }
+.wb-color { position: relative; }
+.wb-color i { position: absolute; right: 0.3rem; bottom: 0.3rem; width: 0.6rem; height: 0.6rem; border-radius: 50%; border: 1.5px solid var(--surface, #fff); }
+.wb-ai { color: #7c3aed; }
+.wb-ai span { font-size: 0.78rem; }
+.wb-ai.busy { opacity: 0.55; pointer-events: none; }
+.wb-pop { background: var(--surface, #fff); border: 1px solid var(--border-light, #e3e6ea); border-radius: 0.9rem; padding: 0.6rem; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14); }
+.wb-pop-title { font-size: 0.75rem; font-weight: 700; color: var(--text-secondary, #6b7280); text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 0.45rem 0.15rem; }
+.wb-lib { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 0.4rem; max-height: 300px; overflow: auto; }
+.wb-libitem { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; padding: 0.4rem; border: 1px solid var(--border-light, #e3e6ea); border-radius: 0.7rem; background: #fff; cursor: pointer; color: #374151; font: inherit; font-size: 0.68rem; line-height: 1.2; text-align: center; }
+.wb-libitem:hover { border-color: var(--accent, #009688); }
+.wb-libitem svg { width: 100%; height: 64px; }
+.wb-colors { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+.wb-swatch { width: 2rem; height: 2rem; border-radius: 50%; border: 3px solid transparent; cursor: pointer; }
+.wb-swatch.on { border-color: var(--text-primary, #1f2933); }
+.wb-stage { position: relative; width: 100%; border-radius: 1rem; overflow: hidden; border: 1px solid var(--border-light, #e3e6ea); background: #fff; box-shadow: var(--shadow-sm, none); touch-action: none; }
+.wb-svg { display: block; width: 100%; height: auto; max-height: 72vh; aspect-ratio: 1000 / 640; margin: 0 auto; user-select: none; -webkit-user-select: none; }
+.wb-stage.wb-drawing .wb-svg { cursor: crosshair; }
+.wb-item { cursor: pointer; }
+.wb-stage.wb-drawing .wb-item { cursor: crosshair; }
+.wb-edit { position: absolute; z-index: 2; min-height: 2.6rem; max-height: 40%; padding: 0.45rem 0.6rem; font: 600 1.05rem 'Caveat', 'Patrick Hand', 'Comic Neue', 'Dancing Script', cursive; color: #1f2937; background: rgba(255, 255, 255, 0.97); border: 2px solid var(--accent, #009688); border-radius: 0.6rem; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.15); outline: none; resize: none; }
+.wb-steps { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
+.wb-stepinfo { flex: 1; min-width: 10rem; display: flex; align-items: center; gap: 0.5rem; }
+.wb-count { flex-shrink: 0; font-size: 0.75rem; font-weight: 700; color: var(--accent, #009688); background: var(--accent-soft, #00968814); padding: 0.25rem 0.55rem; border-radius: 1rem; }
+.wb-steptitle { flex: 1; min-width: 0; font: inherit; font-size: 0.95rem; font-weight: 600; color: var(--text-primary, #1f2933); background: transparent; border: 1px solid transparent; border-radius: 0.5rem; padding: 0.3rem 0.4rem; }
+.wb-steptitle:hover, .wb-steptitle:focus { border-color: var(--border-light, #e3e6ea); outline: none; }
+.wb-say { width: 100%; box-sizing: border-box; font: inherit; font-size: 0.9rem; line-height: 1.45; color: var(--text-primary, #1f2933); background: var(--surface, #fff); border: 1px solid var(--border-light, #e3e6ea); border-radius: 0.8rem; padding: 0.6rem 0.75rem; resize: vertical; }
+.wb-say:focus { outline: none; border-color: var(--accent, #009688); }
+
+/* a step coming in: lines draw themselves, everything else fades up */
+.wb-fresh { animation: wb-in .55s ease-out both; }
+.wb-fresh .wb-stroke { stroke-dasharray: 1; stroke-dashoffset: 1; animation: wb-draw .9s ease-out .1s forwards; }
+@keyframes wb-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes wb-draw { to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { .wb-fresh, .wb-fresh .wb-stroke { animation: none; stroke-dashoffset: 0; } }
+@media (max-width: 560px) {
+  .wb-tool, .wb-nav { min-width: 2.15rem; height: 2.15rem; padding: 0 0.3rem; }
+  .wb-ai span { display: none; }
+}

@@ -16,7 +16,7 @@
 
   // (the second press on Close must come within CLOSE_AGAIN_MS of the first)
   const CLOSE_AGAIN_MS = 2000;
-  let closeTapAt = 0, toastTimer = null;
+  let closeTapAt = 0, toastTimer = null, captionSeen = '';
   let root = null, bubble = null, navBtn = null, session = null, avatar = null, bubbleAvatar = null, map = null;
   let showing = false, active = false, panel = null;      // panel: 'settings' | 'details' | 'captions' | null
   let wakeLock = null;                                      // the screen kept on while agent mode is open (Keep screen on)
@@ -379,6 +379,10 @@
     setBtn.setAttribute('aria-label', panel === 'settings' ? "Close Lixa's settings" : "Lixa's settings");
     const cc = root.querySelector('[data-act="captions"]');
     cc.classList.toggle('on', panel === 'captions');
+    // a caption (what she heard) that came while the captions were put away: a green dot until they are opened
+    const heardNow = String(v.heard || '').trim();
+    if (panel === 'captions') captionSeen = heardNow;
+    cc.classList.toggle('has-new', panel !== 'captions' && !!heardNow && heardNow !== '…' && heardNow !== captionSeen);
     cc.setAttribute('aria-label', panel === 'captions' ? 'Hide captions' : 'Show captions');
     root.querySelector('[data-act="details"]').classList.toggle('on', panel === 'details');
     if (!window.LixaAgentSession.canListen) root.querySelector('.lxa-type').hidden = false;
@@ -424,6 +428,11 @@
     syncWakeLock();
   }
   function toggle() { if (showing) minimize(); else open(); }
+  // pages the user works on by hand (account settings, plans): going there puts her in the bubble
+  const HANDS_ON_ROUTES = ['settings', 'subscription'];
+  document.addEventListener('rehablix:routechange', e => {
+    if (showing && e.detail && HANDS_ON_ROUTES.indexOf(e.detail.route) >= 0) minimize();
+  });
 
   // ------------------------------------------------------------------ the bubble (drag anywhere; a tap brings her back)
   function placeBubble() {

@@ -116,6 +116,32 @@
   }
 
   window.RehablixGroupInfo = { open };
+
+  // ---- the profile menu: a group owner gets their group's info and settings there ----
+  async function syncOwnerMenu() {
+    const block = document.getElementById('groupMenuBlock');
+    if (!block) return;
+    let gid = null;
+    try { const ctx = window.RehablixCenter && firebase.auth().currentUser ? await window.RehablixCenter.getContext() : null; gid = ctx && ctx.ownCenterId; } catch (e) { gid = null; }
+    block.hidden = !gid;
+    block.dataset.group = gid || '';
+  }
+  document.addEventListener('click', e => {
+    const info = e.target.closest && e.target.closest('#groupInfoMenuItem');
+    const settings = e.target.closest && e.target.closest('#groupSettingsMenuItem');
+    if (!info && !settings) return;
+    const gid = document.getElementById('groupMenuBlock').dataset.group;
+    const menu = document.getElementById('dropdownMenu'); if (menu) menu.classList.remove('show');
+    if (info && gid) open(gid);
+    if (settings) {
+      // (Settings opens its Group / Organization card: js/sets.js reads this)
+      try { sessionStorage.setItem('rehab-open-group', '1'); } catch (x) { /* storage blocked */ }
+      if (location.hash.indexOf('#/settings') === 0) document.dispatchEvent(new CustomEvent('rehablix:open-group-settings')); else location.hash = '#/settings';
+    }
+  });
+  function boot() { try { firebase.auth().onAuthStateChanged(() => syncOwnerMenu()); } catch (e) { /* no Firebase here */ } }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+  document.addEventListener('rehablix:center-changed', syncOwnerMenu);
   // any button with class "group-info-btn" and data-center="<groupUid>" opens it
   document.addEventListener('click', e => {
     const b = e.target.closest && e.target.closest('.group-info-btn');

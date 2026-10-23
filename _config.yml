@@ -1,0 +1,3 @@
+# GitHub Pages skips folders that start with a dot; this one must be served
+# (Android App Links: rehablix.com/.well-known/assetlinks.json).
+include: [".well-known"]

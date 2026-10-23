@@ -1537,6 +1537,18 @@
   gap: 0.4rem;
 }
 
+/* the title, with its review badge on its own line under it (never squeezing the words into a column) */
+.problem-item-main {
+  flex: 1;
+  min-width: 0;
+}
+.review-badge-row {
+  margin-top: 0.3rem;
+}
+.problem-item-main .review-badge-row {
+  padding-left: 1.4rem;
+}
+
 .problem-chevron {
   transition: transform 0.2s ease;
   flex-shrink: 0;

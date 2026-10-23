@@ -40,16 +40,20 @@
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   let keyValue = null, keyCheckedAt = 0;
+  // 2026-10-23: a read that does not come back in time (the database is often still connecting just after the page
+  // opens) or fails is NOT 'no key': it is a connection problem ('RETRY'), tried again next time. Before, it counted as
+  // 'no key' for 3 minutes, so Lixa often would not speak right after she was opened.
   async function voiceKey() {
     if (keyValue) return keyValue;
     if (keyCheckedAt && Date.now() - keyCheckedAt < 180000) return null;
+    let snap;
+    try { snap = await Promise.race([firebase.database().ref('tokens/voice').once('value'), sleep(10000).then(() => null)]); }
+    catch (e) { return 'RETRY'; }
+    if (!snap) return 'RETRY';
     keyCheckedAt = Date.now();
-    try {
-      const snap = await Promise.race([firebase.database().ref('tokens/voice').once('value'), sleep(4000).then(() => null)]);
-      const v = snap && snap.val();
-      keyValue = (typeof v === 'string' ? v : v && v.api_key) || null;
-      if (keyValue) keyValue = String(keyValue).trim() || null;
-    } catch (e) { keyValue = null; }
+    const v = snap.val();
+    keyValue = (typeof v === 'string' ? v : v && v.api_key) || null;
+    if (keyValue) keyValue = String(keyValue).trim() || null;
     return keyValue;
   }
 
@@ -131,6 +135,7 @@
 
     async request(text, voice) {
       const key = await voiceKey();
+      if (key === 'RETRY') return { status: 0 };          // (still connecting: the usual wait-and-retry)
       if (!key) return { noKey: true };
       const audioConfig = { audioEncoding: 'MP3', sampleRateHertz: 24000, speakingRate: this.rateFor(voice) };
       if (voice.indexOf('Chirp3') < 0) { audioConfig.pitch = 0; audioConfig.effectsProfileId = ['handset-class-device']; }

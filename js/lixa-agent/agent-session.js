@@ -27,12 +27,42 @@
   const pref = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } };
   const setPref = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } };
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // The names the user taught her to say (Rules.SayAs), kept on this device.
+  const SAY_AS_KEY = 'rehab-agent-say-as';
+  // A sentence heard while she rests ends after this much quiet.
+  const REST_END_MS = 1000;
+
+  /**
+   * The sentence that woke her (restSentence), written down by OpenAI's transcription in English with her vocabulary
+   * (through the server's aiTranscribe when the keys are kept there). '' if it can't be.
+   */
+  async function transcribeSentence(blob, type) {
+    if (!blob || blob.size < 1500) return '';
+    const headers = {};
+    if (!window.REHABLIX_SERVER_AI) {
+      const key = await firebase.database().ref('tokens/open_ai').once('value').then(s => (s.val() || {}).api_key).catch(() => null);
+      if (!key) return '';
+      headers.Authorization = 'Bearer ' + key;
+    }
+    const fd = new FormData();
+    fd.append('file', blob, 'speech.' + (/mp4/.test(type) ? 'm4a' : 'webm'));
+    fd.append('model', 'gpt-4o-transcribe');
+    fd.append('language', 'en');
+    fd.append('prompt', 'Lixa, Rehablix, Smart EMR, Project Maker, Deck Studio, tutor mode, occupational therapy, physiotherapy, rehabilitation.');
+    const url = 'https://api.openai.com/v1/audio/transcriptions';
+    let res = await fetch(url, { method: 'POST', headers, body: fd });
+    if (!res.ok) { fd.set('model', 'whisper-1'); res = await fetch(url, { method: 'POST', headers, body: fd }); }
+    if (!res.ok) return '';
+    const j = await res.json().catch(() => ({}));
+    return j.text || '';
+  }
 
   class HandOff extends Error {}
 
   class AgentSession {
     constructor(host) {
-      this.host = host;                      // {route(), open(href), minimize(), close(), pageTitle(), pageDetail(), onChange()}
+      this.host = host;
+      try { this.sayAs = JSON.parse(pref(SAY_AS_KEY, '{}')) || {}; } catch (e) { this.sayAs = {}; }                      // {route(), open(href), minimize(), close(), pageTitle(), pageDetail(), onChange()}
       this.view = {
         state: 'Idle', heard: '', note: null, status: null, waiting: null, mouth: 0, shape: 0.5, asking: false, waving: false,
         talkMode: null, talkScore: null, details: null, found: [], confirm: null, upgrade: false, reply: '', listening: false,
@@ -58,7 +88,7 @@
       this.lastSoundAt = 0; this.patientIds = null; this.released = false;
       this.found = { found: {}, n: 0, lines: [] };      // saved items found in this conversation (refs r1, r2, …)
       this.voice = new window.LixaAgentVoice({
-        prepare: t => R().speakable(t, this.patientIds || []),
+        prepare: t => R().SayAs.apply(R().speakable(t, this.patientIds || []), this.sayAs),
         onWaiting: w => this.set({ waiting: w }),
         onProblem: msg => this.set({ note: msg })
       });
@@ -234,8 +264,13 @@
         const an = ctx.createAnalyser(); an.fftSize = 1024; src.connect(an);
         const buf = new Float32Array(an.fftSize);
         this.restStream = stream; this.restSrc = src;
+        // 2026-10-23: the microphone is also RECORDED while she rests, so the sentence that wakes her is kept whole
+        // (starting the recogniser when speech began lost its start: "…give some lessons to me" heard as "me", and short
+        // words like "yes"). That sentence is written down by the transcription service; the recogniser starts after it.
+        const recording = this.startRestRecorder(stream);
         let floor = -55, frames = 0;
         const recent = [];
+        let speaking = false, voiced = 0, quiet = 0, lastLoud = 0;
         this.restTimer = setInterval(() => {
           an.getFloatTimeDomainData(buf);
           let sum = 0;
@@ -245,9 +280,23 @@
           if (++frames <= 7) { floor += 0.5 * (db - floor); return; }
           const loud = db > floor + 9 && db > -50;
           if (!loud) floor += (db < floor ? 0.3 : 0.02) * (db - floor);
+          else lastLoud = Date.now();
           recent.push(loud); if (recent.length > 8) recent.shift();
           // a voice: loud for about 150 ms of the last 240 ms (a click or a knock is shorter)
-          if (recent.filter(Boolean).length >= 5) this.wake();
+          const voice = recent.filter(Boolean).length >= 5;
+          if (!recording) { if (voice) this.wake(); return; }
+          if (!speaking) {
+            if (voice) { speaking = true; voiced = 0; quiet = 0; this.set({ heard: '…' }); }
+            // (a long quiet stretch is not kept: the recording starts afresh, never in the middle of a sound)
+            else if (Date.now() - this.restRec.startedAt > 8000 && Date.now() - lastLoud > 600) this.restRec = this.startRestRecorder(stream, true) || this.restRec;
+            return;
+          }
+          if (loud) { voiced++; quiet = 0; } else quiet++;
+          // the sentence is over after about a second of quiet (or after 30 seconds of talking)
+          if (quiet * 30 >= REST_END_MS || Date.now() - this.restRec.startedAt > 30000) {
+            if (voiced * 30 >= 200) this.restSentence();
+            else { speaking = false; this.set({ heard: '' }); }        // (a cough, a knock: she keeps resting)
+          }
         }, 30);
       }, () => {
         // (the microphone can't be read this way: the recogniser as before)
@@ -260,8 +309,47 @@
       this.stopRest();
       this.restartRecogSoon(150);
     }
+    /** Records the resting microphone (null where the browser can't). [again]: the previous recording is dropped. */
+    startRestRecorder(stream, again) {
+      if (typeof MediaRecorder === 'undefined') return null;
+      if (again && this.restRec) { try { this.restRec.rec.onstop = null; this.restRec.rec.stop(); } catch (e) { /* ignore */ } }
+      try {
+        const type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+        const rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+        const r = { rec, chunks: [], startedAt: Date.now(), type: rec.mimeType || type || 'audio/webm' };
+        rec.ondataavailable = e => { if (e.data && e.data.size) r.chunks.push(e.data); };
+        rec.start(250);
+        this.restRec = r;
+        return r;
+      } catch (e) { return null; }
+    }
+    /** The sentence that woke her: written down, then taken like anything the recogniser hears; it listens again after. */
+    restSentence() {
+      const r = this.restRec;
+      this.restRec = null;
+      clearInterval(this.restTimer); this.restTimer = null;
+      if (!r) { this.wake(); return; }
+      r.rec.onstop = async () => {
+        const blob = new Blob(r.chunks, { type: r.type });
+        this.stopRest();
+        let text = '';
+        try { text = await transcribeSentence(blob, r.type); } catch (e) { text = ''; }
+        if (this.released) return;
+        text = R().fixName(String(text || '').trim());
+        if (text && this.ears === 'listen' && !this.view.confirm) {
+          clearTimeout(this.holdTimer);
+          this.said = (this.said + ' ' + text).trim();
+          this.set({ heard: this.said, note: null });
+          const wait = HOLD_MS + (R().Unfinished.looks(this.said) ? HOLD_UNFINISHED_MS : 0) + (this.view.talkMode ? TALK_EXTRA_WAIT_MS : 0);
+          this.holdTimer = setTimeout(() => { const t = this.said; this.said = ''; if (t) this.ask(t); }, wait);
+        } else if (!text) this.set({ heard: '' });
+        this.restartRecogSoon(150);          // (more may follow: the recogniser listens now, started before it is said)
+      };
+      try { r.rec.stop(); } catch (e) { this.wake(); }
+    }
     stopRest() {
       this.resting = false; this.restToken = null;
+      if (this.restRec) { try { this.restRec.rec.onstop = null; this.restRec.rec.stop(); } catch (e) { /* ignore */ } this.restRec = null; }
       clearInterval(this.restTimer); this.restTimer = null;
       if (this.restSrc) { try { this.restSrc.disconnect(); } catch (e) { /* ignore */ } this.restSrc = null; }
       if (this.restStream) { this.restStream.getTracks().forEach(t => { try { t.stop(); } catch (e) { /* ignore */ } }); this.restStream = null; }
@@ -458,9 +546,22 @@
       return note;
     }
 
+    /** Remembers a pronunciation taught in said (Rules.SayAs), on this device. */
+    learnSayAs(said, lastReply) {
+      const t = R().SayAs.learn(said, lastReply);
+      if (!t) return;
+      Object.keys(this.sayAs).forEach(k => { if (k.toLowerCase() === t[0].toLowerCase()) delete this.sayAs[k]; });
+      this.sayAs[t[0]] = t[1];
+      const keys = Object.keys(this.sayAs);
+      while (keys.length > R().SayAs.MAX) delete this.sayAs[keys.shift()];
+      setPref(SAY_AS_KEY, JSON.stringify(this.sayAs));
+    }
+
     async answer(said, cutOff, again, signal) {
       signal = signal || (this.job && this.job.signal);
       this.currentSaid = said;
+      // "Adeoye is pronounced …": her voice says it that way from now on (about a name in her last answer if unsaid)
+      this.learnSayAs(said, this.view.reply);
       this.set({ status: 'Thinking…', reply: '', note: null, mouth: 0 });
       this.setState('Thinking');
       if (!again) this.spoken = new Set();
@@ -475,7 +576,8 @@
       const reaction = this.muted || direct || again ? null : Rr.Reactions.pick(said);
       const job = this.startSpeaking();
       this.turnRequest = request; this.turnLogged = false;
-      const keepShort = this.shortAnswers && !talk;
+      // (a request to read something aloud is read in full, whatever the "short answers" setting)
+      const keepShort = this.shortAnswers && !talk && !/\b(read|recite|go through|dictate)\b/i.test(said);
       const limit = keepShort ? SHORT_SENTENCES : Infinity;
       let streamCall = -1, streamedLength = 0, splitter = new Rr.SentenceSplitter(), queued = 0, saidForTool = false;
       const pushText = (shown) => {

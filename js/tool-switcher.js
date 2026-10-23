@@ -13,6 +13,7 @@
     { route: 'motion', label: 'Motion & Gait', icon: 'fa-walking', color: '#F59E0B' },
     { route: 'audio', label: 'Audio Transcription', icon: 'fa-microphone', color: '#F97316' },
     { route: 'deck', label: 'Deck Studio', icon: 'fa-file-powerpoint', color: '#DB2777' },
+    { route: 'whiteboard', label: 'Whiteboard', icon: 'fa-chalkboard', color: '#0EA5E9' },
     { route: 'presentation', label: 'Presentation Maker', icon: 'fa-file-alt', color: '#7C3AED' },
     { route: 'format', label: 'Assessment Format', icon: 'fa-clipboard-list', color: '#0284C7' },
     { route: 'standardized', label: 'Standardized Tools', icon: 'fa-balance-scale', color: '#059669' },

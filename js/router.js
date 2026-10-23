@@ -59,6 +59,8 @@
     // Deck Studio — the AI presentation designer (js/views/deck-view.js +
     // js/deck/deck-engine.js). Replaces the old standalone ppt-export.html.
     deck: { template: 'deck', title: 'Deck Studio | rehablix' },
+    // Whiteboard — visual, step-by-step explanations (js/views/whiteboard-view.js + js/whiteboard/*).
+    whiteboard: { template: 'whiteboard', title: 'Whiteboard | rehablix' },
     project: { template: 'project', title: 'rehablix · Project Maker' }
   };
 
@@ -228,7 +230,7 @@
   // with a leftover query string (e.g. the ?id=… of the result the user just
   // left, still in the URL after a plain `location.hash = …` change) would
   // only leak stale parameters into later navigations, so drop it.
-  const QUERY_ROUTES = new Set(['lixa', 'result', 'docresult', 'formatview', 'audioview', 'audio', 'standardized', 'study', 'exam', 'motion']);
+  const QUERY_ROUTES = new Set(['lixa', 'result', 'docresult', 'formatview', 'audioview', 'audio', 'standardized', 'study', 'exam', 'motion', 'whiteboard']);
 
   // Render whatever the address bar currently says.
   function sync() {

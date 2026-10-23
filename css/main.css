@@ -822,6 +822,24 @@ main { flex: 1; }
   font-size: 1.1rem;
 }
 
+/* group owners: "My group" box in the profile menu (js/group-info.js) */
+.dropdown-group {
+  margin: 0.4rem 0.6rem;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.dropdown-group[hidden] { display: none; }
+.dropdown-group-label {
+  display: block;
+  padding: 0.5rem 0.9rem 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
 .dropdown-divider {
   height: 1px;
   background: var(--border-light);

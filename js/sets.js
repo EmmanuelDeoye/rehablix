@@ -420,6 +420,15 @@
     centerToggle.setAttribute('aria-expanded', String(open));
   }
   if (centerToggle) centerToggle.addEventListener('click', () => setCenterOpen(centerCard.classList.contains('collapsed')));
+  // "Group settings" in the profile menu (js/group-info.js) opens this card and scrolls to it.
+  function openGroupFromMenu() {
+    try { if (sessionStorage.getItem('rehab-open-group') !== '1') return; sessionStorage.removeItem('rehab-open-group'); } catch (e) { return; }
+    setCenterOpen(true);
+    setTimeout(() => { if (centerCard) centerCard.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 350);
+  }
+  document.addEventListener('rehablix:open-group-settings', openGroupFromMenu);
+  cleanupFns.push(() => document.removeEventListener('rehablix:open-group-settings', openGroupFromMenu));
+  openGroupFromMenu();
 
   async function loadCenterCard(uid, userData) {
     const body = document.getElementById('centerCardBody');
