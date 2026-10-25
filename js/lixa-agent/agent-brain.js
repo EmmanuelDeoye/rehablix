@@ -564,96 +564,77 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
   }
 
   /**
-   * The whiteboard (js/whiteboard/*): the same board the Whiteboard page and the Lixa chat card show. A new board is
-   * made with create_document {"tool": "whiteboard"}. (As Android's AgentWhiteboard.)
+   * The whiteboard lesson (js/whiteboard/*): the same lesson the Whiteboard page and the Lixa chat card show. A new one
+   * is made with create_document {"tool": "whiteboard"}. While it plays, the lesson speaks for itself (in her voice):
+   * she keeps her own replies short. (As Android's AgentWhiteboard.)
    */
   function whiteboardTools(host) {
     const S = () => window.RehablixWhiteboardService;
-    const view = () => window.RehablixWhiteboardView;
-    const stepText = (b, i) => 'Step ' + (i + 1) + ' of ' + b.steps.length + ': "' + b.steps[i].title + '". ' + (b.steps[i].say || '');
+    const player = () => window.RehablixWhiteboardView && window.RehablixWhiteboardView.player();
+    const scenesText = l => l.scenes.map((s, i) => (i + 1) + '. ' + s.title).join('; ');
     // (the whiteboard is for paid plans)
     const notPaid = () => (S() && S().isPaid() === false ? { ok: false, text: S().PAID_TEXT + ' Tell the user, and that they can upgrade under Plans.' } : null);
-    async function showOnPage(id, board) {
-      if (host.route() !== 'whiteboard') { host.open('index.html?board=' + encodeURIComponent(id) + '#/whiteboard'); await new Promise(r => setTimeout(r, 900)); }
-      else S().setCurrent(id, board, 'agent');
+    async function showOnPage(id, lesson) {
+      if (host.route() !== 'whiteboard') { host.open(S().link(id, true)); await new Promise(r => setTimeout(r, 900)); }
+      else { S().setCurrent(id, lesson, 'agent'); const p = player(); if (p) p.play(0); }
       host.minimize();
     }
+    const SPEAKS = ' The lesson is playing with its own narration in your voice: do not repeat it; reply in one short sentence at most.';
     return {
       whiteboard_open: {
-        risk: 'READ', describe: 'whiteboard_open {"which": "current" | "<words from its title>"} — opens a whiteboard on the user\'s screen (the one in use now, or a saved one) and says what its steps are.',
+        risk: 'READ', describe: 'whiteboard_open {"which": "current" | "<words from its title>"} — opens a whiteboard lesson on the user\'s screen (the one in use now, or a saved one) and plays it: Lixa draws and explains it, scene by scene.',
         async run(a) {
           if (!S()) return { ok: false, text: 'The whiteboard is not available.' };
-          if (!host.loggedIn()) return { ok: false, text: 'Saved whiteboards need the user to log in.' };
+          if (!host.loggedIn()) return { ok: false, text: 'Saved lessons need the user to log in.' };
           if (notPaid()) return notPaid();
           const want = String(a.which || 'current').toLowerCase().trim();
           let id = null;
           if (want && want !== 'current' && want !== 'last') {
             const words = want.split(/\s+/).filter(w => w.length > 2);
             const hit = (await S().list(40)).map(b => ({ b, score: words.filter(w => b.title.toLowerCase().indexOf(w) >= 0).length })).filter(x => x.score).sort((x, y) => y.score - x.score)[0];
-            if (!hit) return { ok: false, text: 'No saved whiteboard matches "' + a.which + '".' };
+            if (!hit) return { ok: false, text: 'No saved whiteboard lesson matches "' + a.which + '".' };
             id = hit.b.id;
           }
-          const r = id ? await S().load(id) : await S().currentBoard();
-          if (!r) return { ok: false, text: 'There is no whiteboard yet. Make one with create_document {"tool": "whiteboard"}.' };
-          await showOnPage(r.id, r.board);
-          return { ok: true, text: 'Opened the whiteboard "' + r.board.title + '" (' + r.board.steps.length + ' steps): ' + r.board.steps.map((s, i) => (i + 1) + '. ' + s.title).join('; ') + '. Use whiteboard_step to go through it.', screen: 'Whiteboard' };
+          const r = id ? await S().load(id) : await S().currentLesson();
+          if (!r) return { ok: false, text: 'There is no whiteboard lesson yet. Make one with create_document {"tool": "whiteboard"}.' };
+          await showOnPage(r.id, r.lesson);
+          return { ok: true, text: 'Opened and playing the lesson "' + r.lesson.title + '" (' + r.lesson.scenes.length + ' scenes: ' + scenesText(r.lesson) + ').' + SPEAKS, screen: 'Whiteboard' };
         }
       },
       whiteboard_step: {
-        risk: 'READ', describe: 'whiteboard_step {"go": "next" | "previous" | "first" | "last" | "<step number>"} — moves the whiteboard on screen to that step (it draws itself) and gives you what that step explains, so you can teach it aloud.',
+        risk: 'READ', describe: 'whiteboard_step {"go": "next" | "previous" | "first" | "last" | "again" | "pause" | "play" | "<scene number>"} — moves the whiteboard lesson on screen to a scene and plays it, plays the scene again, or pauses / carries on.',
         async run(a) {
           if (notPaid()) return notPaid();
-          const v = view(), ed = v && v.editor();
-          if (!ed || host.route() !== 'whiteboard') return { ok: false, text: 'No whiteboard is open. Use whiteboard_open first.' };
-          if (ed.living()) return { ok: false, text: 'The whiteboard is playing a lesson right now (Lixa is drawing and explaining it). Let it finish, or tell the user they can stop it.' };
-          const b = ed.board(), cur = ed.step(), g = String(a.go || 'next').toLowerCase();
-          const n = /^\d+$/.test(g) ? parseInt(g, 10) - 1 : g.startsWith('prev') || g === 'back' ? cur - 1 : g === 'first' ? 0 : g === 'last' ? b.steps.length - 1 : cur + 1;
-          if (n < 0 || n >= b.steps.length) return { ok: false, text: 'There is no step ' + (n + 1) + ': the board has ' + b.steps.length + ' steps (now on step ' + (cur + 1) + ').' };
-          ed.go(n);
+          const p = player();
+          if (!p || host.route() !== 'whiteboard') return { ok: false, text: 'No whiteboard lesson is open. Use whiteboard_open first.' };
+          const l = p.lesson(), cur = p.scene(), g = String(a.go || 'next').toLowerCase().trim();
+          if (g === 'pause' || g === 'stop') { p.pause(); return { ok: true, text: 'Paused.' }; }
+          if (g === 'play' || g === 'resume' || g === 'continue') { if (p.living()) p.resume(); else p.play(); host.minimize(); return { ok: true, text: 'Playing.' + SPEAKS }; }
+          const n = /^\d+$/.test(g) ? parseInt(g, 10) - 1 : g.startsWith('prev') || g === 'back' ? cur - 1 : g === 'first' ? 0 : g === 'last' ? l.scenes.length - 1 : g === 'again' || g === 'replay' ? cur : cur + 1;
+          if (n < 0 || n >= l.scenes.length) return { ok: false, text: 'There is no scene ' + (n + 1) + ': the lesson has ' + l.scenes.length + ' scenes (now on scene ' + (cur + 1) + ').' };
+          p.go(n);
           host.minimize();
-          return { ok: true, text: stepText(b, n) };
+          return { ok: true, text: 'Playing scene ' + (n + 1) + ' of ' + l.scenes.length + ': "' + l.scenes[n].title + '".' + SPEAKS };
         }
       },
       whiteboard_change: {
-        risk: 'WRITE', describe: 'whiteboard_change {"instruction": "<the change in the user\'s words: add a step, label a part, annotate, expand, simplify, redraw…>"} — WRITE: changes the whiteboard in use now and saves it (the user\'s own drawing is kept).',
-        confirmText: a => 'Change the whiteboard: "' + String(a.instruction || '').slice(0, 120) + '"?',
+        risk: 'READ', describe: 'whiteboard_change {"instruction": "<the user\'s question or wish, in their words: explain a part again, more simply, give an example, go deeper, add a scene about…>"} — adds a scene to the whiteboard lesson on screen that answers it, and plays it now.',
         check: a => (!a.instruction ? 'instruction is needed' : null),
-        long: true,
         async run(a) {
-          if (!S() || !host.loggedIn()) return { ok: false, text: 'The user needs to log in to change saved whiteboards.' };
+          if (!S() || !host.loggedIn()) return { ok: false, text: 'The user needs to log in.' };
           if (notPaid()) return notPaid();
-          const v = view(), ed = v && v.editor();
-          const r = ed && v.boardId() ? { id: v.boardId(), board: ed.board() } : await S().currentBoard();
-          if (!r) return { ok: false, text: 'There is no whiteboard to change. Make one with create_document {"tool": "whiteboard"}.' };
-          let next;
-          try { next = await S().revise(r.board, String(a.instruction).slice(0, 1000)); }
-          catch (e) { return { ok: false, text: 'It could not be changed: ' + ((e && e.message) || 'unknown error') + '. Nothing was saved.' }; }
-          const id = await S().save(next, r.id);
-          await showOnPage(id, next);
-          return { ok: true, text: 'Changed and saved. It now has ' + next.steps.length + ' steps: ' + next.steps.map((s, i) => (i + 1) + '. ' + s.title).join('; ') + '.' };
-        }
-      },
-      whiteboard_picture: {
-        risk: 'WRITE', describe: 'whiteboard_picture {"what": "<what the picture shows, no patient details>"} — WRITE: adds an AI picture to the whiteboard in use now (Pro and Max plans, when the user has switched AI pictures on; a few a day; each uses many tokens).',
-        confirmText: a => 'Make an AI picture of "' + String(a.what || '').slice(0, 100) + '"? It uses ' + Math.round(((S() && S().PICTURE_TOKENS) || 25000) / 1000) + 'k tokens.',
-        check: a => (!a.what ? 'what is needed' : null),
-        long: true,
-        async run(a) {
-          if (!S()) return { ok: false, text: 'The whiteboard is not available.' };
-          if (notPaid()) return notPaid();
-          const v = view(), ed = v && v.editor();
-          const r = ed && v.boardId() ? { id: v.boardId(), board: ed.board() } : await S().currentBoard();
-          if (!r) return { ok: false, text: 'There is no whiteboard yet. Make one first.' };
-          let pic;
-          try { pic = await S().makePicture(String(a.what)); } catch (e) { return { ok: false, text: (e && e.message) || 'The picture could not be made.' }; }
-          if (ed && v.boardId() === r.id) ed.addPicture(pic);
-          else {
-            const b = r.board, last = b.steps[b.steps.length - 1];
-            last.items.push({ id: 'p' + Date.now().toString(36), type: 'image', src: pic.src, x: 670, y: 30, w: 300, h: 300, text: pic.text });
-            const id = await S().save(b, r.id);
-            await showOnPage(id, window.RehablixWhiteboard.normalize(b));
+          const p = player();
+          if (!p || host.route() !== 'whiteboard') {
+            const r = await S().currentLesson();
+            if (!r) return { ok: false, text: 'There is no whiteboard lesson to add to. Make one with create_document {"tool": "whiteboard"}.' };
+            await showOnPage(r.id, r.lesson);
+            for (let i = 0; i < 30 && !player(); i++) await new Promise(res => setTimeout(res, 150));
           }
-          return { ok: true, text: 'The AI picture is on the whiteboard.' };
+          const q = player();
+          if (!q) return { ok: false, text: 'The whiteboard did not open.' };
+          q.ask(String(a.instruction).slice(0, 600));
+          host.minimize();
+          return { ok: true, text: 'Lixa is drawing a new scene that answers it, right now.' + SPEAKS };
         }
       },
     };

@@ -1,20 +1,29 @@
-// js/whiteboard/whiteboard-service.js — everything around the whiteboard engine that needs the app: the AI calls
-// (the model the user chose, on the same token budget as every other tool), saving boards, AI pictures, export, and
-// "the board open now" that Lixa chat, Lixa Agent and the Whiteboard page share.
+// js/whiteboard/whiteboard-service.js — what the whiteboard lesson (js/whiteboard/whiteboard-engine.js) needs from the
+// app: the AI calls (the model the user chose, on the same token budget as every other tool), Lixa's voice, AI
+// pictures, saving, export, and "the lesson open now" that the Whiteboard page, the Lixa chat and Lixa Agent share.
 // Android: whiteboard/WhiteboardService.kt, the same.
 //
-// AI usage: one call writes a board (or changes one). Drawing, editing, steps and export are local and free.
-// AI pictures (Pro and Max, switched on by the user, a few a day) are made by the server function aiImage and cost
-// PICTURE_TOKENS from the token budget each.
+// AI usage: one call plans a lesson; one call writes each scene (only when it is about to play); one call answers
+// each question asked about it. AI pictures (Pro and Max, switched on by the user, a few a day) come from the server
+// function aiImage and cost PICTURE_TOKENS from the token budget each.
 (function () {
   const PICTURE_TOKENS = 25000;                          // what one AI picture takes from the token budget
   const PICTURE_DAILY = { pro: 5, max: 15 };              // (the server function enforces the same numbers)
   const PICTURE_PREF = 'rehab-wb-ai-picture';
   const LAST_KEY = 'rehab-wb-last';
+  const PAID_TEXT = 'The whiteboard, where Lixa draws and explains anything you ask live, step by step, is for the Basic, Pro and Max plans.';
 
   function user() { try { return firebase.auth().currentUser; } catch (e) { return null; } }
   function plan() { return (window.rehabPlans && window.rehabPlans.getCurrentPlan && window.rehabPlans.getCurrentPlan()) || 'free'; }
   function scrub(t) { const D = window.RehablixDeidentify; return D && D.scrubText ? D.scrubText(String(t || ''), []) : String(t || ''); }
+
+  /** Basic, Pro and Max. null while the plan is not known yet. */
+  function isPaid() {
+    const p = window.rehabPlans && window.rehabPlans.getCurrentPlan && window.rehabPlans.getCurrentPlan();
+    if (!p) return user() ? null : false;
+    const lv = (window.RehabPlanTiers && window.RehabPlanTiers.PLAN_LEVEL) || { free: 0, student: 1, pro: 2, max: 3 };
+    return (lv[p] || 0) >= 1;
+  }
 
   function standaloneAdapter() {
     const core = window.RehablixAIQuotaCore, u = user(), p = plan();
@@ -25,71 +34,28 @@
     };
   }
 
-  async function callModel(messages, config, maxTokens, signal) {
-    const res = await fetch(config.endpoint + '/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token },
-      body: JSON.stringify({ model: config.model, messages, max_tokens: Math.min(maxTokens, config.maxTokens || maxTokens), temperature: 0.5, response_format: { type: 'json_object' } }),
-      signal,
-    });
-    if (!res.ok) throw new Error('The SI service returned an error (' + res.status + '). Please try again.');
-    const data = await res.json();
-    return ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '').trim();
-  }
-
-  /** input: { topic, content, level, steps, instructions }. One AI call (a second only if the first reply is unusable). */
-  async function generate(input, adapter, signal) {
-    const WB = window.RehablixWhiteboard;
-    const a = adapter || standaloneAdapter();
-    await a.check();
-    const config = await a.resolve();
-    if (!config) throw new Error('SI service is not configured.');
-    const p = WB.buildPrompt(Object.assign({}, input, { topic: scrub(input.topic), content: scrub(input.content), instructions: scrub(input.instructions) }));
-    const messages = [{ role: 'system', content: p.system }, { role: 'user', content: p.user }];
-    let lastErr = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const raw = await callModel(messages, config, p.maxTokens, signal);
-      a.report(p.system + p.user + raw, config.weight);
-      try { return WB.parseBoard(raw); } catch (e) { lastErr = e; }
-    }
-    throw new Error((lastErr && lastErr.message) || 'The SI response could not be drawn. Please try again.');
-  }
-
-  // ---- the live lesson (paid plans): the AI writes it line by line and the board draws and speaks each part as it comes
-  /** Basic, Pro and Max (the whiteboard is for paid plans). null while the plan is not known yet. */
-  function isPaid() {
-    const p = window.rehabPlans && window.rehabPlans.getCurrentPlan && window.rehabPlans.getCurrentPlan();
-    if (!p) return firebase.auth().currentUser ? null : false;
-    const lv = (window.RehabPlanTiers && window.RehabPlanTiers.PLAN_LEVEL) || { free: 0, student: 1, pro: 2, max: 3 };
-    return (lv[p] || 0) >= 1;
-  }
-  const PAID_TEXT = 'The live whiteboard, where Lixa draws and explains a topic step by step, is for the Basic, Pro and Max plans.';
-
   /**
-   * Streams a lesson into [ctl] (the board's live controller: meta, step, item, end, fail). One AI call, on the token
-   * budget as usual. Resolves when the stream ends; the board itself saves when it has been drawn.
+   * One AI call for the lesson: req {system, user, maxTokens, json, stream}; [onText] gets each piece of a streamed
+   * reply. Returns the whole reply. Patient identifiers are taken out first.
    */
-  async function liveGenerate(input, ctl, adapter, signal) {
-    const WB = window.RehablixWhiteboard;
+  async function ai(req, onText, adapter) {
     const a = adapter || standaloneAdapter();
     await a.check();
     const config = await a.resolve();
     if (!config) throw new Error('SI service is not configured.');
-    const p = WB.buildLivePrompt(Object.assign({}, input, { topic: scrub(input.topic), content: scrub(input.content), instructions: scrub(input.instructions) }));
-    const parser = WB.liveParser(ev => {
-      if (ev.type === 'meta') ctl.meta(ev);
-      else if (ev.type === 'step') ctl.step(ev.step);
-      else if (ev.type === 'item') ctl.item(ev.item);
-    });
+    const system = scrub(req.system), userText = scrub(req.user);
+    const body = { model: config.model, messages: [{ role: 'system', content: system }, { role: 'user', content: userText }], max_tokens: Math.min(req.maxTokens || 3000, config.maxTokens || req.maxTokens || 3000), temperature: 0.75 };
+    if (req.json && config.model !== 'deepseek-reasoner') body.response_format = { type: 'json_object' };
+    if (req.stream) body.stream = true;
     let text = '';
     try {
-      const res = await fetch(config.endpoint + '/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token },
-        body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: p.system }, { role: 'user', content: p.user }], max_tokens: Math.min(p.maxTokens, Math.max(config.maxTokens || p.maxTokens, 4800)), temperature: 0.5, stream: true }),
-        signal,
-      });
-      if (!res.ok || !res.body) throw new Error('The SI service returned an error (' + res.status + '). Please try again.');
+      const res = await fetch(config.endpoint + '/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token }, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error('The SI service returned an error (' + res.status + '). Please try again.');
+      if (!req.stream) {
+        const d = await res.json();
+        text = ((d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '').trim();
+        return text;
+      }
       const reader = res.body.getReader(), dec = new TextDecoder();
       let buf = '';
       for (;;) {
@@ -102,71 +68,80 @@
           if (!t.startsWith('data:')) return;
           const data = t.slice(5).trim();
           if (data === '[DONE]') return;
-          try { const j = JSON.parse(data); const d = j.choices && j.choices[0] && j.choices[0].delta; if (d && d.content) { text += d.content; parser.push(d.content); } } catch (e) { /* a partial line */ }
+          try { const j = JSON.parse(data), dl = j.choices && j.choices[0] && j.choices[0].delta; if (dl && dl.content) { text += dl.content; if (onText) onText(dl.content); } } catch (e) { /* a partial line */ }
         });
       }
-    } catch (e) {
-      if (e && e.name === 'AbortError') { parser.end(); ctl.end(); return; }
-      parser.end();
-      ctl.fail((e && e.message) || 'The lesson could not be written.');
-      throw e;
+      return text;
     } finally {
-      if (text) a.report(p.system + p.user + text, config.weight);
+      if (text) a.report(system + userText + text, config.weight);
     }
-    if (!parser.end()) { ctl.fail('The SI reply could not be drawn. Please try again.'); throw new Error('The SI reply could not be drawn. Please try again.'); }
-    ctl.end();
   }
 
-  /** Lixa's voice for the board: her own voice and accent (as chosen in Lixa Agent). Call from a tap (browsers allow sound after one). */
-  function liveVoice() {
+  /** The engine's view of the app (see mount() in whiteboard-engine.js). */
+  function host(extra) {
+    return Object.assign({
+      ai: (req, onText) => ai(req, onText),
+      voice: voice(),
+      picture: pictureStatusSync() ? (prompt => makePicture(prompt).catch(() => null)) : null,
+    }, extra || {});
+  }
+
+  /** A new lesson, planned: opts { request, length, level }. */
+  function planLesson(opts, adapter) {
+    return window.RehablixWhiteboard.plan({ ai: (req, onText) => ai(req, onText, adapter) }, opts);
+  }
+
+  // ---- Lixa's voice, sentence by sentence (her own voice and accent, as chosen in Lixa Agent)
+  let cloud = null, problem = null;
+  function cloudVoice() {
     const V = window.LixaAgentVoice;
     if (!V) return null;
-    const v = new V({ prepare: t => scrub(t) });
-    try {
-      const accent = localStorage.getItem('rehab-agent-accent');
-      if (V.ACCENTS.indexOf(accent) >= 0) v.accent = accent;
-      const her = localStorage.getItem('rehab-agent-live-voice');
-      if (her && /^[A-Z][a-z]+$/.test(her)) v.herVoice = her;
-    } catch (e) { /* storage blocked: her default voice */ }
-    v.unlock();
+    if (!cloud) {
+      cloud = new V({ prepare: t => scrub(t), onProblem: () => { if (problem) problem(); } });
+      try {
+        const accent = localStorage.getItem('rehab-agent-accent');
+        if (V.ACCENTS.indexOf(accent) >= 0) cloud.accent = accent;
+        const her = localStorage.getItem('rehab-agent-live-voice');
+        if (her && /^[A-Z][a-z]+$/.test(her)) cloud.herVoice = her;
+      } catch (e) { /* storage blocked: her default voice */ }
+    }
+    return cloud;
+  }
+  function voice() {
+    if (!window.LixaAgentVoice) return null;
     return {
-      say(text) {
-        const sentences = String(text || '').match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g) || [];
-        const job = v.speak(() => {});
-        sentences.map(s => s.trim()).filter(Boolean).forEach(s => job.add(s));
-        job.close();
-        return job.done;
+      /** Call from a tap: browsers allow sound only after one. */
+      unlock() { const v = cloudVoice(); if (v) v.unlock(); },
+      open() {
+        const v = cloudVoice();
+        let onSentence = () => {}, last = -1;
+        const sess = { failed: false };
+        problem = () => { sess.failed = true; };        // (no voice key, or no connection for too long: the board goes on at reading pace)
+        const job = v.speak(ev => { if (ev.speaking && ev.sentence !== last) { last = ev.sentence; onSentence(ev.sentence); } });
+        sess.add = s => job.add(s);
+        sess.close = () => job.close();
+        sess.onSentence = f => { onSentence = f; };
+        sess.done = job.done;
+        sess.stop = () => v.stop();
+        sess.pause = () => v.pause();
+        sess.resume = () => v.resume();
+        return sess;
       },
-      stop() { v.stop(); }, pause() { v.pause(); }, resume() { v.resume(); },
     };
   }
 
-  /** A change to a board in plain words ("add a step on…", "label the ACL"). The user's own drawing is kept. */
-  async function revise(board, instruction, adapter, signal) {
-    const WB = window.RehablixWhiteboard;
-    const a = adapter || standaloneAdapter();
-    await a.check();
-    const config = await a.resolve();
-    if (!config) throw new Error('SI service is not configured.');
-    const p = WB.buildRevisePrompt(board, scrub(instruction));
-    const messages = [{ role: 'system', content: p.system }, { role: 'user', content: p.user }];
-    const raw = await callModel(messages, config, p.maxTokens, signal);
-    a.report(p.system + p.user + raw, config.weight);
-    return WB.keepHandwork(board, WB.parseBoard(raw));
-  }
-
-  // Boards are private to the signed-in user: history/{uid}/whiteboards/{id} =
-  // { title, subject, stepCount, board (JSON string), createdAt, updatedAt }
+  // Lessons are private to the signed-in user: history/{uid}/whiteboards/{id} =
+  // { title, subject, sceneCount, board (the lesson, a JSON string), createdAt, updatedAt }
   function ref(uid, id) { return firebase.database().ref('history/' + uid + '/whiteboards' + (id ? '/' + id : '')); }
 
-  async function save(board, id) {
+  async function save(lesson, id) {
     const u = user(); if (!u) return null;
-    const b = window.RehablixWhiteboard.normalize(board);
-    const rec = { title: b.title, subject: b.subject || '', stepCount: b.steps.length, board: JSON.stringify(b), updatedAt: Date.now() };
+    const l = window.RehablixWhiteboard.leanLesson(window.RehablixWhiteboard.normalizeLesson(lesson));
+    const rec = { title: l.title, subject: l.subject || '', sceneCount: l.scenes.length, board: JSON.stringify(l), updatedAt: Date.now() };
     let key = id;
     if (id) await ref(u.uid, id).update(rec);
     else { rec.createdAt = rec.updatedAt; key = (await ref(u.uid).push(rec)).key; }
-    setCurrent(key, b);
+    setCurrent(key, l);
     return key;
   }
 
@@ -174,37 +149,39 @@
     const u = user(); if (!u || !id) return null;
     const rec = (await ref(u.uid, id).once('value')).val();
     if (!rec || !rec.board) return null;
-    try { return { id, board: window.RehablixWhiteboard.normalize(JSON.parse(rec.board)), updatedAt: rec.updatedAt }; } catch (e) { return null; }
+    try { return { id, lesson: window.RehablixWhiteboard.normalizeLesson(JSON.parse(rec.board)), updatedAt: rec.updatedAt }; } catch (e) { return null; }
   }
 
   async function list(limit) {
     const u = user(); if (!u) return [];
-    const snap = await ref(u.uid).orderByChild('updatedAt').limitToLast(limit || 20).once('value');
+    const snap = await ref(u.uid).orderByChild('updatedAt').limitToLast(limit || 30).once('value');
     const out = [];
-    snap.forEach(c => { const v = c.val() || {}; out.push({ id: c.key, title: v.title || 'Whiteboard', subject: v.subject || '', stepCount: v.stepCount || 0, updatedAt: v.updatedAt || v.createdAt || 0 }); });
+    snap.forEach(c => { const v = c.val() || {}; out.push({ id: c.key, title: v.title || 'Whiteboard lesson', subject: v.subject || '', sceneCount: v.sceneCount || v.stepCount || 0, updatedAt: v.updatedAt || v.createdAt || 0 }); });
     return out.reverse();
   }
 
   async function remove(id) { const u = user(); if (u && id) await ref(u.uid, id).remove(); if (current.id === id) setCurrent(null, null); }
 
-  // ---- the board open now (shared by the Whiteboard page, Lixa chat and Lixa Agent)
-  const current = { id: null, board: null };
+  // ---- the lesson open now (shared by the Whiteboard page, the Lixa chat and Lixa Agent)
+  const current = { id: null, lesson: null };
   try { current.id = localStorage.getItem(LAST_KEY) || null; } catch (e) { /* storage blocked */ }
-  /** [source] "agent" when Lixa changed or opened it (the Whiteboard page then shows the new version). */
-  function setCurrent(id, board, source) {
-    current.id = id || null; current.board = board || null;
+  /** [source] "agent" when Lixa made, changed or opened it (the Whiteboard page then shows it). */
+  function setCurrent(id, lesson, source) {
+    current.id = id || null; current.lesson = lesson || null;
     try { if (id) localStorage.setItem(LAST_KEY, id); else localStorage.removeItem(LAST_KEY); } catch (e) { /* storage blocked */ }
     document.dispatchEvent(new CustomEvent('rehablix:whiteboard', { detail: { id: current.id, source: source || '' } }));
   }
-  async function currentBoard() {
-    if (current.board && current.id) return { id: current.id, board: current.board };
+  async function currentLesson() {
+    if (current.lesson && current.id) return { id: current.id, lesson: current.lesson };
     if (!current.id) { const l = await list(1); if (!l.length) return null; current.id = l[0].id; }
     const r = await load(current.id);
-    if (r) current.board = r.board;
+    if (r) current.lesson = r.lesson;
     return r;
   }
-  function open(id) {
-    const href = 'index.html' + (id ? '?board=' + encodeURIComponent(id) : '') + '#/whiteboard';
+  /** The Whiteboard page with lesson [id] ("local": the one in use, not saved); [play]: it starts playing. */
+  function link(id, play) { return 'index.html?board=' + encodeURIComponent(id || 'local') + (play ? '&play=1' : '') + '#/whiteboard'; }
+  function open(id, play) {
+    const href = link(id, play);
     if (window.RehablixRouter && window.RehablixRouter.go) window.RehablixRouter.go(href); else window.location.href = href;
   }
 
@@ -213,6 +190,8 @@
   function pictureLimit(p) { return PICTURE_DAILY[p || plan()] || 0; }
   function pictureOn() { try { return localStorage.getItem(PICTURE_PREF) === '1'; } catch (e) { return false; } }
   function setPictureOn(on) { try { localStorage.setItem(PICTURE_PREF, on ? '1' : '0'); } catch (e) { /* storage blocked */ } }
+  /** AI pictures can be made now (the plan has them and they are switched on): the lesson may ask for them. */
+  function pictureStatusSync() { return pictureLimit() > 0 && pictureOn(); }
   async function picturesUsed() {
     const u = user(); if (!u) return 0;
     try { return Number((await firebase.database().ref('users/' + u.uid + '/whiteboardPictures/' + today()).once('value')).val()) || 0; } catch (e) { return 0; }
@@ -222,8 +201,7 @@
     const limit = pictureLimit();
     return { allowed: limit > 0, on: limit > 0 && pictureOn(), used: limit > 0 ? await picturesUsed() : 0, limit };
   }
-
-  /** One AI picture of [what] (a short description) → { src (data URL), w, h, text }. Throws with a message the user can read. */
+  /** One AI picture of [what] -> { src (data URL), w, h, text }. Throws with a message the user can read. */
   async function makePicture(what) {
     const u = user();
     if (!u) throw new Error('Log in to make AI pictures.');
@@ -234,7 +212,7 @@
     const desc = scrub(what).slice(0, 600);
     if (!desc.trim()) throw new Error('Say what the picture should show.');
     await window.RehablixAIQuotaCore.checkQuotaOrThrow(u.uid, plan());
-    const prompt = 'A clear, accurate educational illustration for rehabilitation teaching, clean flat medical-illustration style on a plain white background, no text or letters: ' + desc;
+    const prompt = 'A clear, accurate educational illustration, clean flat style on a plain white background, no text or letters: ' + desc;
     const S = window.RehablixServerAI;
     if (!S || !S.on) throw new Error('AI pictures are not available right now.');
     const res = await S.post('aiImage', { prompt });
@@ -246,37 +224,33 @@
   }
 
   // ---- export (local, free)
-  function fileName(board, ext) { return String((board && board.title) || 'Whiteboard').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) + '.' + ext; }
-  function saveUrl(url, name) {
-    const a = document.createElement('a');
-    a.href = url; a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-  }
-  async function exportPNG(board, upto) {
-    saveUrl(await window.RehablixWhiteboard.toPNG(board, upto, 2), fileName(board, 'png'));
-  }
-  /** One page per step (each showing the board up to that step), with the step's title and explanation. */
-  async function exportPDF(board) {
+  function fileName(lesson, ext) { return String((lesson && lesson.title) || 'Whiteboard lesson').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) + '.' + ext; }
+  function saveUrl(url, name) { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+  async function exportPNG(lesson, k) { saveUrl(await window.RehablixWhiteboard.toPNG(lesson, k, 2), fileName(lesson, 'png')); }
+  /** One page per scene that has been written: the board as drawn, and what Lixa said. */
+  async function exportPDF(lesson) {
     const WB = window.RehablixWhiteboard;
     if (!window.html2pdf) throw new Error('The PDF maker is still loading. Try again in a moment.');
-    const b = WB.normalize(board);
+    const l = WB.normalizeLesson(lesson);
+    const ready = l.scenes.map((s, i) => ({ s, i })).filter(x => x.s.beats.length);
+    if (!ready.length) throw new Error('No scene has been drawn yet. Play the lesson first.');
     const wrap = document.createElement('div');
-    for (let i = 0; i < b.steps.length; i++) {
-      const png = await WB.toPNG(b, i, 1.6);
+    for (let n = 0; n < ready.length; n++) {
+      const { s, i } = ready[n];
+      const png = await WB.toPNG(l, i, 1.6);
       const page = document.createElement('div');
-      page.className = 'wb-pdf-page';
-      page.style.cssText = 'width:270mm;padding:4mm 0;font-family:Arial,sans-serif;color:#1f2937;' + (i ? 'page-break-before:always;' : '');
-      page.innerHTML = '<div style="font-size:13pt;font-weight:700;color:#0f766e;margin-bottom:2mm"></div><img style="width:100%;border:1px solid #e5e7eb;border-radius:6px"><div style="font-size:10.5pt;margin-top:3mm;line-height:1.45"></div>';
-      page.children[0].textContent = b.title + ' — Step ' + (i + 1) + ' of ' + b.steps.length + ': ' + b.steps[i].title;
+      page.style.cssText = 'width:270mm;padding:4mm 0;font-family:Arial,sans-serif;color:#1f2937;' + (n ? 'page-break-before:always;' : '');
+      page.innerHTML = '<div style="font-size:13pt;font-weight:700;color:#0f766e;margin-bottom:2mm"></div><img style="width:100%;border:1px solid #e5e7eb;border-radius:6px"><div style="font-size:10pt;margin-top:3mm;line-height:1.45"></div>';
+      page.children[0].textContent = l.title + ' — ' + (i + 1) + '. ' + s.title;
       page.children[1].src = png;
-      page.children[2].textContent = b.steps[i].say || '';
+      page.children[2].textContent = s.beats.map(b => b.say).join(' ');
       wrap.appendChild(page);
     }
-    await window.html2pdf().set({ margin: 8, filename: fileName(b, 'pdf'), image: { type: 'jpeg', quality: 0.92 }, html2canvas: { scale: 1.5 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }, pagebreak: { mode: 'css' } }).from(wrap).save();
+    await window.html2pdf().set({ margin: 8, filename: fileName(l, 'pdf'), image: { type: 'jpeg', quality: 0.92 }, html2canvas: { scale: 1.5 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }, pagebreak: { mode: 'css' } }).from(wrap).save();
   }
 
   window.RehablixWhiteboardService = {
-    PICTURE_TOKENS, PICTURE_DAILY, PAID_TEXT, isPaid, liveGenerate, liveVoice, generate, revise, save, load, list, remove, current, setCurrent, currentBoard, open,
+    PICTURE_TOKENS, PICTURE_DAILY, PAID_TEXT, isPaid, ai, host, planLesson, voice, save, load, list, remove, current, setCurrent, currentLesson, link, open,
     pictureStatus, pictureOn, setPictureOn, makePicture, exportPNG, exportPDF, standaloneAdapter,
   };
 })();
