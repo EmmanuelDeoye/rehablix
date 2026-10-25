@@ -23,6 +23,8 @@
     '</div>' +
     '<h2 class="wbp-sub">Your boards</h2><div class="wbp-list" id="wbpList"><p class="wbp-note">Loading…</p></div>' +
     '</section>' +
+    '<section class="wbp-paid"><header class="wbp-hero"><h1>White<span class="hero-accent">board</span></h1></header><div class="wbp-card"><p class="wbp-paidtext" id="wbpPaidText"></p>' +
+    '<div class="wbp-actions"><a class="wbp-btn wbp-primary" href="index.html#/subscription">See plans</a></div></div></section>' +
     '<section class="wbp-loading" aria-live="polite"><div class="wbp-spinner"></div><p id="wbpStatus">Lixa is planning the board…</p></section>' +
     '<section class="wbp-board">' +
     '<div class="wbp-top">' +
@@ -37,7 +39,14 @@
     '</section>' +
     '</div></main>';
 
-  let editor = null, id = null, saveTimer = null, unsaved = false, busy = false, cleanup = [];
+  let editor = null, id = null, saveTimer = null, unsaved = false, busy = false, cleanup = [], liveAbort = null;
+
+  /** The whiteboard is for paid plans (Basic, Pro, Max). */
+  function showPaid() {
+    if (editor) { editor.destroy(); editor = null; }
+    if ($('wbpPaidText')) $('wbpPaidText').textContent = S().PAID_TEXT;
+    stage('paid');
+  }
 
   function $(x) { return document.getElementById(x); }
   function stage(s) { const r = $('wbpRoot'); if (r) r.dataset.stage = s; }
@@ -88,8 +97,21 @@
     const host = $('wbpEditor'); if (!host || !board) return;
     const step = editor ? editor.step() : null;
     if (editor) editor.destroy();
+    const paid = S().isPaid() === true;
     editor = WB().mount(host, board, {
-      onChange: b => { $('wbpTitle').value = b.title; scheduleSave(); },
+      onChange: b => {
+        if (!$('wbpTitle')) return;
+        $('wbpTitle').value = b.title;
+        if (b.steps.some(s => s.items.length)) scheduleSave();          // (a lesson that drew nothing is not saved)
+      },
+      onStep: () => { if ($('wbpTitle') && editor && !document.activeElement.isSameNode($('wbpTitle'))) $('wbpTitle').value = editor.board().title; },
+      // Play: Lixa draws the board live and explains each step in her voice; a later step is drawn with the pen
+      liveVoice: paid ? () => S().liveVoice() : null,
+      liveDraw: paid,
+      onLiveEnd: (finished, failed) => {
+        if (!finished && liveAbort) liveAbort.abort();                   // (stopped: the AI stops writing too)
+        if (failed) toast(failed, 'error');
+      },
       aiPicture: S().pictureOn() ? async () => {
         const what = await askPicture(); if (!what) return null;
         try { const p = await S().makePicture(what); pictureBar(); toast('AI picture added.', 'success'); return p; }
@@ -132,23 +154,24 @@
     openBoard(r.board, r.id);
   }
 
+  /** The live lesson: the AI writes it and the board draws and explains each part as it arrives. */
   async function draw() {
     if (busy) return;
+    const paid = S().isPaid();
+    if (paid === false) { showPaid(); return; }
+    if (paid === null) { showError('Checking your plan… try again in a moment.'); return; }
     const topic = $('wbpTopic').value.trim();
     if (topic.length < 3) { showError('Say what Lixa should explain.'); return; }
     showError(''); busy = true;
-    stage('loading');
-    const stages = ['Lixa is planning the board…', 'Choosing diagrams and labels…', 'Drawing it step by step…'];
-    let n = 0; $('wbpStatus').textContent = stages[0];
-    const t = setInterval(() => { n = Math.min(stages.length - 1, n + 1); $('wbpStatus').textContent = stages[n]; }, 3500);
+    const voice = S().liveVoice();                                      // (in the tap: the browser allows her voice now)
+    openBoard({ title: topic.slice(0, 100), steps: [{ title: '…', items: [] }] }, null);
+    const ctl = editor.live({ stream: true, voice });
+    liveAbort = new AbortController();
     try {
-      const board = await S().generate({ topic, level: $('wbpLevel').value, steps: $('wbpSteps').value });
-      const newId = firebase.auth().currentUser ? await S().save(board).catch(() => null) : null;
-      openBoard(board, newId);
-      if (editor) editor.go(0);
+      await S().liveGenerate({ topic, level: $('wbpLevel').value, steps: $('wbpSteps').value }, ctl, null, liveAbort.signal);
     } catch (e) {
-      stage('home'); showError(e.message || 'The board could not be drawn.');
-    } finally { clearInterval(t); busy = false; }
+      if (!(e && e.name === 'AbortError')) toast((e && e.message) || 'The lesson could not be written.', 'error');
+    } finally { busy = false; liveAbort = null; }
   }
 
   async function change() {
@@ -194,24 +217,36 @@
     cleanup.push(() => document.removeEventListener('rehablix:whiteboard', onBoard));
 
     const params = new URLSearchParams(window.location.search);
-    const want = params.get('board');
+    const want = params.get('board'), autoPlay = params.get('play') === '1';
+    // (from the Lixa chat's card: the board plays at once, drawn and explained)
+    const played = () => { if (autoPlay && editor && S().isPaid() === true) editor.play(); };
     const start = () => {
       if (want && window.RehablixRouter && window.RehablixRouter.clearQuery) window.RehablixRouter.clearQuery();
+      if (S().isPaid() === false) { showPaid(); return; }
       if (want === 'local') {
         // a board made in the Lixa chat without an account: not saved, it lives for this visit only
-        if (S().current.board) openBoard(S().current.board, S().current.id);
+        if (S().current.board) { openBoard(S().current.board, S().current.id); played(); }
         else { renderList(); showError('That board was not saved. Log in to keep your boards.'); }
-      } else if (want) openSaved(want);
+      } else if (want) openSaved(want).then(played);
       else renderList();
     };
     // (the signed-in user may not be known yet on a fresh load)
     let started = false;
     const unsub = firebase.auth().onAuthStateChanged(() => { if (!started) { started = true; start(); } else if ($('wbpRoot') && $('wbpRoot').dataset.stage === 'home') renderList(); });
     cleanup.push(unsub);
+    // the plan arrives a moment after the account: a free plan sees the plans card
+    const onPlan = () => {
+      const p = S().isPaid();
+      if (p === false && $('wbpRoot') && $('wbpRoot').dataset.stage !== 'paid') showPaid();
+      else if (p === true && $('wbpRoot') && $('wbpRoot').dataset.stage === 'paid') { stage('home'); renderList(); }
+    };
+    document.addEventListener('planUpdated', onPlan);
+    cleanup.push(() => document.removeEventListener('planUpdated', onPlan));
   }
 
   function unmount() {
     clearTimeout(saveTimer);
+    if (liveAbort) { liveAbort.abort(); liveAbort = null; }
     if (editor) {
       // (a change still waiting to be saved is saved now)
       if (unsaved && firebase.auth().currentUser) S().save(editor.board(), id).catch(() => {});

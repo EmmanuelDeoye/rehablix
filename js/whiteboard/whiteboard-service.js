@@ -55,6 +55,92 @@
     throw new Error((lastErr && lastErr.message) || 'The SI response could not be drawn. Please try again.');
   }
 
+  // ---- the live lesson (paid plans): the AI writes it line by line and the board draws and speaks each part as it comes
+  /** Basic, Pro and Max (the whiteboard is for paid plans). null while the plan is not known yet. */
+  function isPaid() {
+    const p = window.rehabPlans && window.rehabPlans.getCurrentPlan && window.rehabPlans.getCurrentPlan();
+    if (!p) return firebase.auth().currentUser ? null : false;
+    const lv = (window.RehabPlanTiers && window.RehabPlanTiers.PLAN_LEVEL) || { free: 0, student: 1, pro: 2, max: 3 };
+    return (lv[p] || 0) >= 1;
+  }
+  const PAID_TEXT = 'The live whiteboard, where Lixa draws and explains a topic step by step, is for the Basic, Pro and Max plans.';
+
+  /**
+   * Streams a lesson into [ctl] (the board's live controller: meta, step, item, end, fail). One AI call, on the token
+   * budget as usual. Resolves when the stream ends; the board itself saves when it has been drawn.
+   */
+  async function liveGenerate(input, ctl, adapter, signal) {
+    const WB = window.RehablixWhiteboard;
+    const a = adapter || standaloneAdapter();
+    await a.check();
+    const config = await a.resolve();
+    if (!config) throw new Error('SI service is not configured.');
+    const p = WB.buildLivePrompt(Object.assign({}, input, { topic: scrub(input.topic), content: scrub(input.content), instructions: scrub(input.instructions) }));
+    const parser = WB.liveParser(ev => {
+      if (ev.type === 'meta') ctl.meta(ev);
+      else if (ev.type === 'step') ctl.step(ev.step);
+      else if (ev.type === 'item') ctl.item(ev.item);
+    });
+    let text = '';
+    try {
+      const res = await fetch(config.endpoint + '/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token },
+        body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: p.system }, { role: 'user', content: p.user }], max_tokens: Math.min(p.maxTokens, Math.max(config.maxTokens || p.maxTokens, 4800)), temperature: 0.5, stream: true }),
+        signal,
+      });
+      if (!res.ok || !res.body) throw new Error('The SI service returned an error (' + res.status + '). Please try again.');
+      const reader = res.body.getReader(), dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const r = await reader.read();
+        if (r.done) break;
+        buf += dec.decode(r.value, { stream: true });
+        const lines = buf.split('\n'); buf = lines.pop() || '';
+        lines.forEach(l => {
+          const t = l.trim();
+          if (!t.startsWith('data:')) return;
+          const data = t.slice(5).trim();
+          if (data === '[DONE]') return;
+          try { const j = JSON.parse(data); const d = j.choices && j.choices[0] && j.choices[0].delta; if (d && d.content) { text += d.content; parser.push(d.content); } } catch (e) { /* a partial line */ }
+        });
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') { parser.end(); ctl.end(); return; }
+      parser.end();
+      ctl.fail((e && e.message) || 'The lesson could not be written.');
+      throw e;
+    } finally {
+      if (text) a.report(p.system + p.user + text, config.weight);
+    }
+    if (!parser.end()) { ctl.fail('The SI reply could not be drawn. Please try again.'); throw new Error('The SI reply could not be drawn. Please try again.'); }
+    ctl.end();
+  }
+
+  /** Lixa's voice for the board: her own voice and accent (as chosen in Lixa Agent). Call from a tap (browsers allow sound after one). */
+  function liveVoice() {
+    const V = window.LixaAgentVoice;
+    if (!V) return null;
+    const v = new V({ prepare: t => scrub(t) });
+    try {
+      const accent = localStorage.getItem('rehab-agent-accent');
+      if (V.ACCENTS.indexOf(accent) >= 0) v.accent = accent;
+      const her = localStorage.getItem('rehab-agent-live-voice');
+      if (her && /^[A-Z][a-z]+$/.test(her)) v.herVoice = her;
+    } catch (e) { /* storage blocked: her default voice */ }
+    v.unlock();
+    return {
+      say(text) {
+        const sentences = String(text || '').match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g) || [];
+        const job = v.speak(() => {});
+        sentences.map(s => s.trim()).filter(Boolean).forEach(s => job.add(s));
+        job.close();
+        return job.done;
+      },
+      stop() { v.stop(); }, pause() { v.pause(); }, resume() { v.resume(); },
+    };
+  }
+
   /** A change to a board in plain words ("add a step on…", "label the ACL"). The user's own drawing is kept. */
   async function revise(board, instruction, adapter, signal) {
     const WB = window.RehablixWhiteboard;
@@ -190,7 +276,7 @@
   }
 
   window.RehablixWhiteboardService = {
-    PICTURE_TOKENS, PICTURE_DAILY, generate, revise, save, load, list, remove, current, setCurrent, currentBoard, open,
+    PICTURE_TOKENS, PICTURE_DAILY, PAID_TEXT, isPaid, liveGenerate, liveVoice, generate, revise, save, load, list, remove, current, setCurrent, currentBoard, open,
     pictureStatus, pictureOn, setPictureOn, makePicture, exportPNG, exportPDF, standaloneAdapter,
   };
 })();

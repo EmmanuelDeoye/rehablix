@@ -571,6 +571,8 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
     const S = () => window.RehablixWhiteboardService;
     const view = () => window.RehablixWhiteboardView;
     const stepText = (b, i) => 'Step ' + (i + 1) + ' of ' + b.steps.length + ': "' + b.steps[i].title + '". ' + (b.steps[i].say || '');
+    // (the whiteboard is for paid plans)
+    const notPaid = () => (S() && S().isPaid() === false ? { ok: false, text: S().PAID_TEXT + ' Tell the user, and that they can upgrade under Plans.' } : null);
     async function showOnPage(id, board) {
       if (host.route() !== 'whiteboard') { host.open('index.html?board=' + encodeURIComponent(id) + '#/whiteboard'); await new Promise(r => setTimeout(r, 900)); }
       else S().setCurrent(id, board, 'agent');
@@ -582,6 +584,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
         async run(a) {
           if (!S()) return { ok: false, text: 'The whiteboard is not available.' };
           if (!host.loggedIn()) return { ok: false, text: 'Saved whiteboards need the user to log in.' };
+          if (notPaid()) return notPaid();
           const want = String(a.which || 'current').toLowerCase().trim();
           let id = null;
           if (want && want !== 'current' && want !== 'last') {
@@ -599,8 +602,10 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
       whiteboard_step: {
         risk: 'READ', describe: 'whiteboard_step {"go": "next" | "previous" | "first" | "last" | "<step number>"} — moves the whiteboard on screen to that step (it draws itself) and gives you what that step explains, so you can teach it aloud.',
         async run(a) {
+          if (notPaid()) return notPaid();
           const v = view(), ed = v && v.editor();
           if (!ed || host.route() !== 'whiteboard') return { ok: false, text: 'No whiteboard is open. Use whiteboard_open first.' };
+          if (ed.living()) return { ok: false, text: 'The whiteboard is playing a lesson right now (Lixa is drawing and explaining it). Let it finish, or tell the user they can stop it.' };
           const b = ed.board(), cur = ed.step(), g = String(a.go || 'next').toLowerCase();
           const n = /^\d+$/.test(g) ? parseInt(g, 10) - 1 : g.startsWith('prev') || g === 'back' ? cur - 1 : g === 'first' ? 0 : g === 'last' ? b.steps.length - 1 : cur + 1;
           if (n < 0 || n >= b.steps.length) return { ok: false, text: 'There is no step ' + (n + 1) + ': the board has ' + b.steps.length + ' steps (now on step ' + (cur + 1) + ').' };
@@ -616,6 +621,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
         long: true,
         async run(a) {
           if (!S() || !host.loggedIn()) return { ok: false, text: 'The user needs to log in to change saved whiteboards.' };
+          if (notPaid()) return notPaid();
           const v = view(), ed = v && v.editor();
           const r = ed && v.boardId() ? { id: v.boardId(), board: ed.board() } : await S().currentBoard();
           if (!r) return { ok: false, text: 'There is no whiteboard to change. Make one with create_document {"tool": "whiteboard"}.' };
@@ -634,6 +640,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
         long: true,
         async run(a) {
           if (!S()) return { ok: false, text: 'The whiteboard is not available.' };
+          if (notPaid()) return notPaid();
           const v = view(), ed = v && v.editor();
           const r = ed && v.boardId() ? { id: v.boardId(), board: ed.board() } : await S().currentBoard();
           if (!r) return { ok: false, text: 'There is no whiteboard yet. Make one first.' };

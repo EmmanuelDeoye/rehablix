@@ -61,7 +61,7 @@
     {
       id: 'blix360', label: 'Blix 360', rank: 1,
       // GPT-5: thinks before it answers and sees images (GPT-4.1 answers if GPT-5 cannot be reached: js/ai-transport.js).
-      // Charged at 2x what each call really uses, its thinking included (ai-transport.js ACTUAL_BILLING).
+      // Charged at 2x what each call really costs: thinking included, repeated (cached) prompt text at a tenth (ai-transport.js ACTUAL_BILLING).
       provider: 'openai', apiModel: 'gpt-5', endpoint: 'https://api.openai.com/v1',
       maxTokens: 20000, weight: 2, minPlan: 'pro',
       temperature: 0.75, top_p: 0.95,
@@ -155,16 +155,23 @@
   }
 
   // Post-response: record the (weighted) tokens this turn actually used,
-  // resetting the window first if it has expired.
+  // resetting the window first if it has expired. A negative amount is what an
+  // estimate overcharged (the thinking models: js/ai-transport.js topUp): it is
+  // kept as a credit and taken off the next charges, because the database only
+  // lets usage grow inside a window.
+  const credit = {};
   async function consumeQuota(uid, plan, rawTokens, weight) {
     if (!uid) return;
-    const add = Math.ceil((rawTokens || 0) * (weight || 1));
+    let add = Math.ceil((rawTokens || 0) * (weight || 1));
+    if (add < 0) { credit[uid] = (credit[uid] || 0) - add; return; }
+    if (add > 0 && credit[uid]) { const use = Math.min(credit[uid], add); credit[uid] -= use; add -= use; }
+    if (!add) return;
     // (counted only for plans with a daily cap)
     if (dailyCap(plan)) {
       try {
         await firebase.database().ref(`users/${uid}/dailyQuota`).transaction(cur => {
           const day = today();
-          return { day, tokensUsed: (cur && cur.day === day ? (Number(cur.tokensUsed) || 0) : 0) + add };
+          return { day, tokensUsed: Math.max(0, (cur && cur.day === day ? (Number(cur.tokensUsed) || 0) : 0) + add) };
         });
       } catch (e) { /* best effort, like the window */ }
     }
@@ -177,9 +184,9 @@
     await ref.transaction(quota => {
       const now = Date.now();
       if (!quota || !quota.windowStart || now - quota.windowStart >= QUOTA_WINDOW_MS) {
-        return { windowStart: now, tokensUsed: add };
+        return { windowStart: now, tokensUsed: Math.max(0, add) };
       }
-      return { windowStart: quota.windowStart, tokensUsed: (quota.tokensUsed || 0) + add };
+      return { windowStart: quota.windowStart, tokensUsed: Math.max(0, (quota.tokensUsed || 0) + add) };
     });
   }
 

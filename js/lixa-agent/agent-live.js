@@ -255,7 +255,7 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
 
   const Gemini = {
     id: 'gemini',
-    /** events: {ready, audio(base64), interrupted, input(t), output(t), turnComplete, tools(calls), cancel(ids), goAway(ms), closed(beforeReady, refused)} */
+    /** events: {ready, audio(base64), interrupted, input(t), output(t), turnComplete, tools(calls), cancel(ids), goAway(ms), closed(beforeReady, refused, reason)} */
     open(setup, events) {
       let ready = false, ended = false, byUs = false;
       const link = { resumeHandle: null };
@@ -285,13 +285,13 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
           }
         });
       };
-      const end = (code) => {
+      const end = (code, reason) => {
         if (ended) return; ended = true;
         if (byUs) return;
         // 1007: a request the service will not take; 1008: the key or the model refused
-        events.closed(!ready, code === 1007 || code === 1008);
+        events.closed(!ready, code === 1007 || code === 1008, reason ? reason + ' (' + code + ')' : (code && code !== 1000 && code !== 1005 ? 'code ' + code : ''));
       };
-      ws.onclose = e => end(e.code);
+      ws.onclose = e => end(e.code, e.reason);
       ws.onerror = () => { /* (onclose follows with the code) */ };
       const send = s => { if (ready && !byUs && ws.readyState === 1) ws.send(s); };
       link.sendAudio = bytes => send(Wire.audio(bytes));
@@ -463,14 +463,25 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
     }
   };
 
+  /** What the service said, without anything that could carry a key, kept short. */
+  function cleanReason(r) { return String(r || '').replace(/(key|access_token|token)=[^&\s'"]+/gi, '$1=…').replace(/\s+/g, ' ').trim().slice(0, 140); }
+  /** A notice with the service's own reason added: "Live couldn't connect (the service said: …), so I'm in Standard." */
+  function saidNote(notice, reason) {
+    const r = cleanReason(reason).replace(/\.+$/, '');
+    if (!r) return notice;
+    const cut = notice.indexOf(", so I'm");
+    return cut < 0 ? notice + ' (' + r + ')' : notice.slice(0, cut) + ' (the service said: ' + r + ')' + notice.slice(cut);
+  }
+
   // With the keys kept on the server (window.REHABLIX_SERVER_AI, js/server-ai.js), the Gemini key is never
   // read here: the server gives a short-lived, single-use token for each connection (functions liveToken).
   async function serverLiveConfig(limitsOnly) {
     try {
       const S = window.RehablixServerAI;
-      const r = await Promise.race([S.post('liveToken', { limitsOnly: !!limitsOnly }), sleep(8000).then(() => null)]);
+      // (the first answer can be slow on a weak connection or a cold server)
+      const r = await Promise.race([S.post('liveToken', { limitsOnly: !!limitsOnly }), sleep(15000).then(() => null)]);
       if (!r) return { offline: true };
-      if (!r.ok) return { key: null };
+      if (!r.ok) { const j = await r.json().catch(() => ({})); return { key: null, reason: j && j.error && j.error.message }; }
       const v = await r.json();
       return { key: v.token || null, ephemeral: true, model: v.model, provider: v.provider, limits: v.limits };
     } catch (e) { return { offline: true }; }
@@ -532,7 +543,7 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
       this.uid = u.uid;
       this.sound.unlock();                               // (in the tap: the browser allows her voice now)
       this.on = true; this.phase = 'connecting'; this.micMuted = false;
-      this.everReady = false; this.reconnects = 0; this.handle = null; this.modelAt = 0; this.goingAway = false;
+      this.everReady = false; this.reconnects = 0; this.handle = null; this.modelAt = 0; this.goingAway = false; this.startRetries = 0;
       this.cancelled = new Set(); this.userBuf = ''; this.herBuf = ''; this.turnDone = true; this.closeAfterSpeech = false;
       this.thisRun = 0; this.unsaved = 0; this.pausedFor = null;
       this.notes = []; this.recent = new Map(); this.callsThisTurn = 0; this.changesThisTurn = 0; this.asking = null; this.creating = 0; this.planBudget = 0;
@@ -544,7 +555,7 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
       const cfg = await readConfig();
       if (run !== this.gen || !this.on) return;
       this.cfg = cfg;
-      if (!cfg.key) { this.fallback(cfg.offline ? NOTES.NO_CONNECTION : NOTES.NO_KEY); return; }
+      if (!cfg.key) { this.fallback(cfg.offline ? NOTES.NO_CONNECTION : saidNote(NOTES.NO_KEY, cfg.reason)); return; }
       const l = Usage.limitsFor(plan, cfg.limits);
       this.limits = l;
       let used = null;
@@ -605,7 +616,7 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
       if (this.cfg.ephemeral && this.cfg.spent) {
         serverLiveConfig(false).then(c => {
           if (g !== this.gen || !this.on) return;
-          if (!c.key) { this.fallback(c.offline ? NOTES.NO_CONNECTION : NOTES.NOT_AVAILABLE); return; }
+          if (!c.key) { this.fallback(c.offline ? NOTES.NO_CONNECTION : saidNote(NOTES.NOT_AVAILABLE, c.reason)); return; }
           this.cfg.key = c.key; this.cfg.spent = false;
           this.connect();
         });
@@ -641,7 +652,7 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
         tools: ok(calls => { this.userDoneAt = 0; this.runTools(g, calls); }),
         cancel: ok(ids => { ids.forEach(i => this.cancelled.add(i)); }),
         goAway: ok(() => { this.goingAway = true; }),
-        closed: ok((beforeReady, refused) => this.closed(beforeReady, refused))
+        closed: ok((beforeReady, refused, reason) => this.closed(beforeReady, refused, reason))
       });
     }
     async ready() {
@@ -654,12 +665,22 @@ ENDING: when the user is ending the conversation ("bye", "I have to go", "that's
       if (!this.micMuted) await this.openMic();
       this.changed();
     }
-    closed(beforeReady, refused) {
+    closed(beforeReady, refused, reason) {
       if (this.link && this.link.resumeHandle) this.handle = this.link.resumeHandle;
       this.link = null;
       this.sound.stopMic(); this.micLive = false; this.sound.stopPlayback();
-      if (beforeReady && !this.everReady && refused && this.modelAt + 1 < this.models.length) { this.modelAt++; this.connect(); return; }
-      if (beforeReady && !this.everReady) { this.fallback(refused ? NOTES.KEY_REFUSED : NOTES.NO_CONNECTION); return; }
+      if (beforeReady && !this.everReady) console.warn('[live] closed before it was ready (model ' + this.model + ', refused ' + refused + '): ' + cleanReason(reason));
+      // a first failure that was not a refusal (the network, a busy service): once more, after a moment (as on Android)
+      if (beforeReady && !this.everReady && !refused && (this.startRetries || 0) < 1) {
+        this.startRetries = (this.startRetries || 0) + 1;
+        this.s.set({ note: NOTES.CONNECTING });
+        setTimeout(() => { if (this.on && !this.link) this.connect(); }, 1200);
+        return;
+      }
+      // the model is not available to this key (or would not start): the next one in the list
+      if (beforeReady && !this.everReady && this.modelAt + 1 < this.models.length) { this.modelAt++; this.connect(); return; }
+      // (what the service said is shown, so the reason can be found)
+      if (beforeReady && !this.everReady) { this.fallback(saidNote(refused ? NOTES.KEY_REFUSED : NOTES.NO_CONNECTION, reason)); return; }
       if (beforeReady && refused && this.handle) { this.handle = null; this.systemPrompt = this.buildPrompt(); this.connect(); return; }
       if (this.reconnects < 2) {
         this.reconnects++;

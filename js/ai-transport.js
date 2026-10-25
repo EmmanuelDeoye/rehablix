@@ -173,15 +173,28 @@
   }
 
   // ---- the thinking models: charged on their real usage (ACTUAL_BILLING) ----
+  // What a call really costs, the way the providers bill it (2026-10-25, the owner's choice "Fair 2x"): new prompt text
+  // in full, prompt text the provider has just seen (its cache: the instructions and the conversation so far, sent again
+  // on every call) at a tenth, and the thinking + answer in full. (Android: AiGateway.effectiveUsage, the same.)
+  const CACHED_SHARE = 0.1;
+  function effectiveUsage(u) {
+    if (!u || typeof u !== 'object') return null;
+    const prompt = Number(u.prompt_tokens) || 0, out = Number(u.completion_tokens) || 0;
+    if (!prompt && !out) return Number(u.total_tokens) || null;
+    const cached = Math.min(prompt, Number(u.prompt_cache_hit_tokens) || Number(u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens) || 0);
+    return (prompt - cached) + cached * CACHED_SHARE + out;
+  }
   function topUp(billedAs, body, answer, usage) {
     const times = ACTUAL_BILLING[billedAs];
     const uid = currentUid();
-    if (!times || !usage || !uid || !window.RehabPlanTiers || !window.rehabPlans) return;
+    const used = effectiveUsage(usage);
+    if (!times || !used || !uid || !window.RehabPlanTiers || !window.rehabPlans) return;
     const plan = window.rehabPlans.getCurrentPlan() || 'free';
-    // the caller charged its estimate of the visible text times the model's weight (= times)
+    // the caller charged its estimate of the visible text times the model's weight (= times): brought to the real
+    // figure, up (hidden thinking) or down (cached text, which the estimate counted in full)
     const charged = window.RehabPlanTiers.estimateTokens(promptText(body) + (answer || '')) * times;
-    const extra = Math.ceil(usage * times - charged);
-    if (extra > 0) window.RehabPlanTiers.consumeQuota(uid, plan, extra, 1).catch(function () {});
+    const extra = Math.ceil(used * times - charged);
+    if (extra !== 0) window.RehabPlanTiers.consumeQuota(uid, plan, extra, 1).catch(function () {});
   }
   /** Passes the response on unchanged, reading its answer and real usage on the way to charge [billedAs]'s top-up. */
   function billed(res, billedAs, body) {
@@ -189,7 +202,7 @@
     if (!body.stream) {
       res.clone().json().then(function (d) {
         const c = d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
-        topUp(billedAs, body, c || '', d && d.usage && d.usage.total_tokens);
+        topUp(billedAs, body, c || '', d && d.usage);
       }).catch(function () {});
       return res;
     }
@@ -208,7 +221,7 @@
           if (!t.startsWith('data:')) return;
           try {
             const j = JSON.parse(t.slice(5).trim());
-            if (j.usage && j.usage.total_tokens) usage = j.usage.total_tokens;          // (the last chunk)
+            if (j.usage && (j.usage.total_tokens || j.usage.completion_tokens)) usage = j.usage;   // (the last chunk)
             const d = j.choices && j.choices[0] && j.choices[0].delta; if (d && d.content) text += d.content;
           } catch (e) { /* partial */ }
         });

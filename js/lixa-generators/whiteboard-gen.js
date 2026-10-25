@@ -27,7 +27,8 @@
       recordId: id,
       actions: [
         // (not saved, when logged out: the board open now, kept in memory for this visit)
-        { type: 'link', href: 'index.html?board=' + (id || 'local') + '#/whiteboard', label: 'Open whiteboard', icon: 'fa-chalkboard' },
+        // (it opens playing: Lixa draws and explains it)
+        { type: 'link', href: 'index.html?board=' + (id || 'local') + '&play=1#/whiteboard', label: 'Watch the lesson', icon: 'fa-chalkboard' },
         { type: 'button', id: 'download-png', label: 'Download PNG', icon: 'fa-image' },
       ],
     };
@@ -36,6 +37,8 @@
   async function generate(data) {
     const Service = window.RehablixWhiteboardService;
     if (!Service || !window.RehablixWhiteboard) return { ok: false, error: 'The whiteboard is not available right now.' };
+    if (!firebase.auth().currentUser) return { ok: false, error: 'Please log in to use the whiteboard. ' + Service.PAID_TEXT };
+    if (Service.isPaid() === false) return { ok: false, error: Service.PAID_TEXT + ' You can upgrade under Plans.' };
     const board = await Service.generate({
       topic: data.content,
       content: data.source || '',
@@ -47,7 +50,7 @@
     Service.setCurrent(id, board, 'agent');
     return {
       ok: true,
-      summary: `Here's your whiteboard, **${board.title}**: ${board.steps.length} steps you can play through, draw on and change. Open it to see it built step by step.`,
+      summary: `Here's your whiteboard lesson, **${board.title}**: ${board.steps.length} steps. Tap **Watch the lesson** and I'll draw and explain it live, step by step. You can pause it, draw on it and change it.`,
       fileCard: cardFor(board, id, false),
     };
   }

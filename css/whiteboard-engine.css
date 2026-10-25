@@ -36,6 +36,19 @@
 .wb-say { width: 100%; box-sizing: border-box; font: inherit; font-size: 0.9rem; line-height: 1.45; color: var(--text-primary, #1f2933); background: var(--surface, #fff); border: 1px solid var(--border-light, #e3e6ea); border-radius: 0.8rem; padding: 0.6rem 0.75rem; resize: vertical; }
 .wb-say:focus { outline: none; border-color: var(--accent, #009688); }
 
+/* a live lesson: Lixa draws and explains; the tools wait until she has finished */
+.wb-living .wb-bar, .wb-living .wb-steps, .wb-living .wb-say, .wb-living .wb-pop { display: none; }
+.wb-living .wb-stage { cursor: default; }
+.wb-livebar { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.4rem 0.35rem 0.75rem; background: var(--surface, #fff); border: 1px solid var(--border-light, #e3e6ea); border-radius: 0.9rem; box-shadow: var(--shadow-sm, none); }
+.wb-livebar[hidden] { display: none; }
+.wb-livedot { flex-shrink: 0; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: #dc2626; animation: wb-pulse 1.2s ease-in-out infinite; }
+.wb-livetext { flex: 1; min-width: 0; font-size: 0.85rem; font-weight: 600; color: var(--text-primary, #1f2933); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-livestop { font-size: 0.8rem; padding: 0 0.8rem; border-color: var(--border-light, #e3e6ea); }
+.wb-caption { padding: 0.6rem 0.85rem; border-radius: 0.8rem; background: var(--accent-soft, #00968814); color: var(--text-primary, #1f2933); font-size: 0.92rem; line-height: 1.5; }
+.wb-caption[hidden] { display: none; }
+.wb-pen { filter: drop-shadow(1px 3px 3px rgba(0, 0, 0, .25)); }
+@keyframes wb-pulse { 50% { opacity: 0.35; } }
+
 /* a step coming in: lines draw themselves, everything else fades up */
 .wb-fresh { animation: wb-in .55s ease-out both; }
 .wb-fresh .wb-stroke { stroke-dasharray: 1; stroke-dashoffset: 1; animation: wb-draw .9s ease-out .1s forwards; }

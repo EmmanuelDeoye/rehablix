@@ -57,8 +57,8 @@
       "keywords": ["deck", "slides", "powerpoint", "pptx", "presentation slides", "slide deck", "design"]
     },
     {
-      "id": "whiteboard", "title": "Whiteboard", "logo": "chalkboard", "route": "#/whiteboard", "open": true, "needsLogin": false,
-      "purpose": "Lixa explains a rehab topic visually, step by step: diagrams (knee, shoulder, spine, brain, gait cycle and more), labels, arrows, handwritten notes. The user can draw on it, change it, save, reopen and export it.",
+      "id": "whiteboard", "title": "Whiteboard", "logo": "chalkboard", "route": "#/whiteboard", "open": true, "needsLogin": true,
+      "purpose": "Paid plans (Basic, Pro, Max): a live whiteboard lesson. Lixa draws a rehab topic with a pen, step by step, while her voice explains it: diagrams (knee, shoulder, spine, brain, gait cycle and more), labels, arrows, handwritten notes. The user can pause it, replay it, draw on it, change it, save, reopen and export it.",
       "inputs": ["a topic", "who it is for", "number of steps"],
       "actions": ["draw an explanation", "play the steps", "draw, write and add diagrams", "ask Lixa to change it", "add an AI picture (Pro and Max)", "export PNG or PDF"],
       "related": ["lixa", "study", "deck"],

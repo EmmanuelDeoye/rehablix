@@ -350,6 +350,61 @@
     };
   }
 
+  // ---- LIVE: the AI writes the lesson as a stream (one JSON object a line) and the board draws and speaks it as it
+  // arrives, like a whiteboard video. The same items as above; the order of the lines is the order they are drawn.
+  const LIVE_FORMAT = [
+    'Write the lesson as a STREAM: one JSON object per line, nothing else (no array, no markdown, no blank lines):',
+    'line 1: {"title": "<short title>", "subject": "<e.g. Physiotherapy>"}',
+    'then for each step, first: {"step": {"title": "<step title>", "say": "<what you say aloud while drawing this step: 2 to 4 short spoken sentences, warm and clear, as a teacher at a whiteboard>", "clear": false}}',
+    'then that step\'s items, one per line, in the order you draw them while you talk: {"item": ITEM}',
+    'last line: {"end": true}',
+    'Set "clear": true on a step to wipe the board first (when it would get crowded).',
+  ].join('\n');
+
+  /** The live lesson's prompt (opts as [buildPrompt]). */
+  function buildLivePrompt(opts) {
+    const p = buildPrompt(opts);
+    const system = p.system.replace(/Return ONLY one JSON object, no markdown:\n\{"title"[^\n]*\n/, '') + '\n\n' + LIVE_FORMAT;
+    return { system, user: p.user, maxTokens: 4800 };
+  }
+
+  /**
+   * Reads the AI's stream as it arrives: push(text) with each piece, end() when it stops. emit gets
+   * {type: 'meta' | 'step' | 'item' | 'end', ...}. A whole board sent in one go (the older format) is read at the end.
+   */
+  function liveParser(emit) {
+    let buf = '', all = '', any = false;
+    function route(o) {
+      if (!o || typeof o !== 'object') return;
+      if (o.end) emit({ type: 'end' });
+      else if (o.step) emit({ type: 'step', step: o.step });
+      else if (o.item) emit({ type: 'item', item: o.item });
+      else if (Array.isArray(o.steps)) {
+        emit({ type: 'meta', title: o.title, subject: o.subject });
+        o.steps.forEach(s => { emit({ type: 'step', step: s }); (s.items || []).forEach(it => emit({ type: 'item', item: it })); });
+      } else if (o.type) emit({ type: 'item', item: o });
+      else if (o.title || o.subject) emit({ type: 'meta', title: o.title, subject: o.subject });
+    }
+    function line(l) {
+      const s = String(l).trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').replace(/^[[,\s]+/, '').replace(/[\],\s]+$/, '').trim();
+      if (!s || s.charAt(0) !== '{') return;
+      let o; try { o = JSON.parse(s); } catch (e) { return; }
+      any = true; route(o);
+    }
+    return {
+      push(t) {
+        const text = String(t || ''); buf += text; all += text;
+        let i; while ((i = buf.indexOf('\n')) >= 0) { line(buf.slice(0, i)); buf = buf.slice(i + 1); }
+      },
+      end() {
+        if (buf.trim()) line(buf);
+        buf = '';
+        if (!any) { try { route(extractJson(all)); any = true; } catch (e) { /* nothing usable */ } }
+        return any;
+      },
+    };
+  }
+
   function leanBoard(b) {
     return { title: b.title, subject: b.subject, steps: b.steps.map(s => ({ title: s.title, say: s.say, clear: s.clear || undefined, items: s.items.filter(i => i.type !== 'ink' && i.type !== 'image').map(i => { const o = Object.assign({}, i); delete o.points; delete o.src; return o; }) })) };
   }
@@ -479,28 +534,58 @@
     let placed = [], crowded = -1;
     board.steps.forEach((s, si) => { if (s.clear) placed = []; s.items.forEach(it => {
       if (it.type === 'arrow' || it.type === 'line' || it.type === 'ink') return;
-      let e = extent(it, all);
-      if (e.x + e.w > W - 6) it.x -= Math.min(e.x - 6, e.x + e.w - (W - 6));
-      if (e.y + e.h > H - 6) it.y -= Math.min(e.y - 6, e.y + e.h - (H - 6));
-      e = extent(it, all);
-      if (e.x < 6) it.x += 6 - e.x;
-      if (e.y < 6) it.y += 6 - e.y;
-      const ox = it.x, oy = it.y;
-      const free = () => { const x = extent(it, all); return inside(x) && !placed.some(p => overlaps(x, p, 8)); };
-      if (!free()) {
-        let done = false;
-        // (small moves only: an item sent across the board would leave its arrows and neighbours behind)
-        for (let d = 8; d <= 220 && !done; d += 8) {
-          for (const [dx, dy] of [[0, d], [d, 0], [0, -d], [-d, 0]]) {
-            it.x = ox + dx; it.y = oy + dy;
-            if (free()) { done = true; break; }
-          }
-        }
-        if (!done) { it.x = ox; it.y = oy; if (crowded < 0) crowded = si; }
-      }
+      if (!fitItem(it, placed, all) && crowded < 0) crowded = si;
       placed.push(extent(it, all));
     }); });
     return crowded;
+  }
+
+  /** Puts [it] inside the board and clear of [placed] (rectangles), with small moves only. False: no free spot near. */
+  function fitItem(it, placed, all) {
+    let e = extent(it, all);
+    if (e.x + e.w > W - 6) it.x -= Math.min(e.x - 6, e.x + e.w - (W - 6));
+    if (e.y + e.h > H - 6) it.y -= Math.min(e.y - 6, e.y + e.h - (H - 6));
+    e = extent(it, all);
+    if (e.x < 6) it.x += 6 - e.x;
+    if (e.y < 6) it.y += 6 - e.y;
+    const ox = it.x, oy = it.y;
+    const free = () => { const x = extent(it, all); return inside(x) && !placed.some(p => overlaps(x, p, 8)); };
+    if (free()) return true;
+    // (small moves only: an item sent across the board would leave its arrows and neighbours behind)
+    for (let d = 8; d <= 220; d += 8) {
+      for (const [dx, dy] of [[0, d], [d, 0], [0, -d], [-d, 0]]) {
+        it.x = ox + dx; it.y = oy + dy;
+        if (free()) return true;
+      }
+    }
+    it.x = ox; it.y = oy;
+    return false;
+  }
+
+  /**
+   * A live item arriving for step [k]: laid out against what is already on that page. When the first item of a step
+   * finds no room, that step wipes the board (a fresh page) and the item goes near the top. Returns the item.
+   */
+  function placeLive(board, k, it) {
+    if (it.type === 'arrow' || it.type === 'line' || it.type === 'ink') return it;
+    const step = board.steps[k];
+    const collect = () => {
+      const all = [], placed = [];
+      for (let j = pageOf(board, k).start; j <= k; j++) board.steps[j].items.forEach(x => all.push(x));
+      all.push(it);
+      all.forEach(x => { if (x !== it && x.type !== 'arrow' && x.type !== 'line' && x.type !== 'ink') placed.push(extent(x, all)); });
+      return { all, placed };
+    };
+    let c = collect();
+    if (fitItem(it, c.placed, c.all)) return it;
+    if (k > 0 && !step.clear && !step.items.length) {
+      step.clear = true;
+      const e = extent(it, [it]);
+      if (e.y > 120) it.y -= e.y - 40;
+      c = collect();
+      fitItem(it, c.placed, c.all);
+    }
+    return it;
   }
 
   // ------------------------------------------------------------------ geometry and drawing
@@ -714,8 +799,12 @@
 
   /**
    * Shows [board] in [el] and lets the user work on it.
-   * opts: { onChange(board), onStep(index, step), aiPicture: async () => {src, w, h, text} | null (shows the AI picture button) }
-   * Returns { board(), setBoard(b, keepStep), step(), go(i), next(), prev(), play(), stop(), addPicture(item), destroy() }.
+   * opts: { onChange(board), onStep(index, step), aiPicture: async () => {src, w, h, text} | null (shows the AI picture button),
+   *   liveVoice: () => voice | null — Lixa's voice for live lessons: {say(text) -> Promise (done speaking), stop(), pause(), resume()};
+   *     when given, Play draws the board live, stroke by stroke, while she explains each step (paid plans);
+   *   liveDraw: true — moving to a later step draws its items with the pen (no voice);
+   *   onLiveEnd(finished) }
+   * Returns { board(), setBoard(b, keepStep), step(), go(i), next(), prev(), play(), stop(), addPicture(item), live(cfg), living(), destroy() }.
    */
   function mount(el, initial, opts) {
     const o = opts || {};
@@ -723,6 +812,9 @@
     let cur = board.steps.length - 1, tool = 'select', color = 'teal', sel = null, showAll = false, playing = null;
     const undo = [];
     let freshStep = -1;
+    // live lessons: items not drawn yet (kept off the board until the pen draws them), and the lesson running now
+    const hidden = new Set();
+    let liveRun = null;
 
     el.innerHTML = `<div class="wb">
       <div class="wb-bar" role="toolbar" aria-label="Whiteboard tools">
@@ -736,8 +828,14 @@
         <button type="button" class="wb-tool" data-act="undo" title="Undo" aria-label="Undo">${icon('undo')}</button>
         ${o.aiPicture ? `<span class="wb-sep"></span><button type="button" class="wb-tool wb-ai" data-act="picture" title="AI picture" aria-label="Add an AI picture">${icon('picture')}<span>AI picture</span></button>` : ''}
       </div>
+      <div class="wb-livebar" hidden role="status" aria-live="polite">
+        <span class="wb-livedot" aria-hidden="true"></span><span class="wb-livetext">Lixa is getting ready…</span>
+        <button type="button" class="wb-nav" data-act="livepause" aria-label="Pause the lesson">${icon('pause', true)}</button>
+        <button type="button" class="wb-nav wb-livestop" data-act="livestop" aria-label="Stop the lesson">Stop</button>
+      </div>
       <div class="wb-pop" hidden></div>
       <div class="wb-stage"><svg class="wb-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Whiteboard"></svg><textarea class="wb-edit" hidden aria-label="Text"></textarea></div>
+      <div class="wb-caption" hidden aria-live="polite"></div>
       <div class="wb-steps">
         <button type="button" class="wb-nav" data-act="prev" aria-label="Previous step">${icon('prev')}</button>
         <div class="wb-stepinfo"><span class="wb-count"></span><input class="wb-steptitle" aria-label="Step title" maxlength="80"></div>
@@ -754,7 +852,7 @@
 
     const changed = () => { if (o.onChange) o.onChange(board); };
     const snapshot = () => { undo.push(JSON.stringify(board)); if (undo.length > 40) undo.shift(); };
-    const visible = () => itemsUpTo(board, showAll ? pageOf(board, cur).end : cur);
+    const visible = () => itemsUpTo(board, showAll ? pageOf(board, cur).end : cur).filter(x => !hidden.has(x.it.id));
     const findItem = id => { for (const s of board.steps) { const i = s.items.findIndex(x => x.id === id); if (i >= 0) return { step: s, i, it: s.items[i] }; } return null; };
 
     function render() {
@@ -780,12 +878,21 @@
 
     function go(i, animate) {
       const n = Math.max(0, Math.min(board.steps.length - 1, i));
+      if (liveRun) return;
+      // (paid plans: the pen draws the new step's items)
+      if (animate && n > cur && o.liveDraw) { closeEdit(); live({ from: n, to: n, voice: null }); return; }
       if (animate && n > cur) freshStep = n;
       cur = n; sel = null; showAll = false; closeEdit(); render();
       if (o.onStep) o.onStep(cur, board.steps[cur]);
     }
     function stop() { if (playing) { clearTimeout(playing); playing = null; render(); } }
     function play() {
+      // a live lesson: Lixa draws and explains each step (from this step, or from the start when at the end)
+      if (o.liveVoice) {
+        if (liveRun) { liveRun.stop(); return; }
+        live({ from: cur > 0 && cur < board.steps.length - 1 ? cur : 0, voice: o.liveVoice() });
+        return;
+      }
       stop();
       if (cur >= board.steps.length - 1) go(0, false); else go(cur + 1, true);
       const tick = () => {
@@ -794,6 +901,208 @@
         render();
       };
       tick();
+    }
+
+    // ---------------------------------------------------------------- live lessons
+    // Lixa draws each step item by item with a pen (lines draw themselves, words are written letter by letter, fills
+    // come in after the outlines) while her voice explains it. With cfg.stream, the board is written by the AI as it
+    // is drawn: the host feeds what arrives (meta, step, item, end). Editing waits until the lesson ends.
+    const livebar = el.querySelector('.wb-livebar'), caption = el.querySelector('.wb-caption');
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+    function durationFor(it) {
+      const chars = String(it.text || '').length + (it.labels || []).reduce((n, l) => n + l.text.length, 0);
+      const ms = { diagram: 3200 + chars * 35, arrow: 700 + chars * 45, line: 600, ink: 1200, image: 1200, text: 500 + chars * 55, note: 900 + chars * 40 }[it.type];
+      return Math.min(9000, ms != null ? ms : 900 + chars * 45);
+    }
+
+    /** The pen: a marker whose tip is at (0, 0). */
+    function penNode() {
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.setAttribute('class', 'wb-pen'); g.setAttribute('pointer-events', 'none');
+      g.setAttribute('visibility', 'hidden');            // (shown at its first point)
+      g.innerHTML = '<path d="M0 0 L5 -14 L40 -58 L52 -48 L17 -4 Z" fill="#0f766e" stroke="#064e46" stroke-width="1.5"/><path d="M0 0 L5 -14 L17 -4 Z" fill="#1f2937"/><path d="M40 -58 L46 -66 L58 -56 L52 -48 Z" fill="#e2e8f0" stroke="#64748b" stroke-width="1"/>';
+      return g;
+    }
+
+    /** Draws one item's group [g] over [ms] (paused time does not count). The pen follows the tip. */
+    function animateGroup(g, ms, run, pen) {
+      const toBoard = el2 => { try { return svg.getScreenCTM().inverse().multiply(el2.getScreenCTM()); } catch (e) { return null; } };
+      const strokes = [], fills = [], texts = [], images = [];
+      g.querySelectorAll('path, line, polyline, rect, ellipse, circle').forEach(n => {
+        const stroke = n.getAttribute('stroke'), fill = n.getAttribute('fill');
+        const sw = parseFloat(n.getAttribute('stroke-width') || '1');
+        if (stroke && stroke !== 'none' && stroke !== 'transparent' && sw > 0) {
+          let real = 0; try { real = n.getTotalLength(); } catch (e) { real = 0; }
+          if (real > 0) {
+            const unit = n.getAttribute('pathLength') ? Number(n.getAttribute('pathLength')) : real;
+            strokes.push({ n, real, unit, m: toBoard(n) });
+            n.style.strokeDasharray = unit + ' ' + unit; n.style.strokeDashoffset = unit;
+          }
+        }
+        if (fill && fill !== 'none' && fill !== 'transparent' && !/^rgba\(0,0,0/.test(fill)) { fills.push(n); n.style.fillOpacity = 0; }
+        else if (fill && /^rgba\(0,0,0/.test(fill)) { fills.push(n); n.style.opacity = 0; }
+      });
+      g.querySelectorAll('text').forEach(t => { texts.push({ t, full: t.textContent, m: toBoard(t) }); t.textContent = ''; });
+      g.querySelectorAll('image').forEach(im => { images.push(im); im.style.opacity = 0; });
+      const total = strokes.reduce((a, s) => a + s.real, 0), chars = texts.reduce((a, x) => a + x.full.length, 0);
+      // the time: strokes first, then the colour, then the writing
+      const tS = strokes.length ? (chars ? 0.55 : 0.85) : 0, tW = chars ? (strokes.length ? 0.35 : 0.95) : 0;
+      const tF = 1 - tS - tW;
+      const place = (x, y) => { if (pen) { pen.setAttribute('transform', 'translate(' + x + ' ' + y + ')'); pen.setAttribute('visibility', 'visible'); } };
+      return new Promise(resolve => {
+        let elapsed = 0, last = performance.now();
+        const frame = now => {
+          if (run.stopped) { finish(); return; }
+          if (!run.paused) elapsed += now - last;
+          last = now;
+          const p = Math.min(1, elapsed / ms);
+          // the strokes, one after another, by length
+          const sp = tS ? Math.min(1, p / tS) : 1;
+          let along = sp * total;
+          strokes.forEach(s => {
+            const d = Math.max(0, Math.min(s.real, along)); along -= s.real;
+            s.n.style.strokeDashoffset = s.unit * (1 - d / s.real);
+            if (d > 0 && d < s.real && s.m) { const q = s.n.getPointAtLength(d); const b = new DOMPoint(q.x, q.y).matrixTransform(s.m); place(b.x, b.y); }
+          });
+          // the colour comes in
+          const fp = tF > 0 ? Math.max(0, Math.min(1, (p - tS) / tF)) : (p >= 1 ? 1 : 0);
+          fills.forEach(n => { if (n.style.opacity !== '') n.style.opacity = fp; else n.style.fillOpacity = fp; });
+          images.forEach(im => { im.style.opacity = fp; });
+          // the words, letter by letter
+          const wp = tW ? Math.max(0, Math.min(1, (p - tS - tF) / tW)) : 1;
+          let left = Math.round(wp * chars);
+          texts.forEach(x => {
+            const n = Math.max(0, Math.min(x.full.length, left)); left -= x.full.length;
+            if (x.t.textContent.length !== n) {
+              x.t.textContent = x.full.slice(0, n);
+              if (n > 0 && n < x.full.length && x.m) {
+                try { const e = x.t.getEndPositionOfChar(n - 1); const b = new DOMPoint(e.x, e.y).matrixTransform(x.m); place(b.x + 2, b.y - 4); } catch (e) { /* not laid out */ }
+              }
+            }
+          });
+          if (p >= 1) finish(); else requestAnimationFrame(frame);
+        };
+        const finish = () => { resolve(); };
+        requestAnimationFrame(t => { last = t; frame(t); });
+      });
+    }
+
+    /** One item drawn live on the step on screen. */
+    async function drawItem(it, run) {
+      const list = itemsUpTo(board, cur).map(x => x.it);
+      const holder = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      holder.innerHTML = itemSvg(it, list);
+      const g = holder.firstElementChild;
+      svg.appendChild(holder);
+      const pen = penNode(); svg.appendChild(pen);
+      if (g) await animateGroup(g, durationFor(it) / (run.speed || 1), run, pen);
+      hidden.delete(it.id);
+      render();                                          // (the item, drawn for good; the pen goes)
+    }
+
+    const setCaption = t => { caption.textContent = t || ''; caption.hidden = !t; };
+    const setLiveText = t => { el.querySelector('.wb-livetext').textContent = t; };
+
+    /**
+     * Starts a live lesson. cfg: { voice (or null: drawing only), from (step), to (last step to play; default all),
+     * stream (true: the board is written as it is drawn; feed it with the controller), speed }.
+     * Returns a controller: { meta(m), step(s), item(it), end(), fail(message), stop(), pause(), resume(), done (Promise: true when it finished) }.
+     */
+    function live(cfg) {
+      const c = cfg || {};
+      if (liveRun) liveRun.stop();
+      stop(); closeEdit(); closePop(); sel = null; showAll = false;
+      const run = { stopped: false, paused: false, streamDone: !c.stream, placeholder: !!c.stream, voice: c.voice || null, speed: c.speed || 1, failed: null };
+      liveRun = run;
+      el.querySelector('.wb').classList.add('wb-living');
+      livebar.hidden = false;
+      setLiveText(c.stream ? 'Lixa is planning the lesson…' : 'Lixa is drawing…');
+      if (c.stream) {
+        board = { title: 'Whiteboard', subject: '', steps: [{ title: '…', say: '', clear: false, items: [] }] };
+        cur = 0;
+      }
+      const used = {};
+      board.steps.forEach(s => s.items.forEach(x => { used[x.id] = 1; }));
+      run.stop = () => { if (run.stopped) return; run.stopped = true; if (run.voice) try { run.voice.stop(); } catch (e) { /* gone */ } if (run.wake) run.wake(); };
+      run.pause = () => { if (run.stopped || run.paused) return; run.paused = true; if (run.voice && run.voice.pause) run.voice.pause(); syncPause(); };
+      run.resume = () => { if (!run.paused) return; run.paused = false; if (run.voice && run.voice.resume) run.voice.resume(); syncPause(); if (run.wake) run.wake(); };
+      const syncPause = () => { el.querySelector('[data-act="livepause"]').innerHTML = icon(run.paused ? 'play' : 'pause', true); el.querySelector('[data-act="livepause"]').setAttribute('aria-label', run.paused ? 'Carry on' : 'Pause the lesson'); };
+      syncPause();
+      const until = async cond => { while (!cond()) await new Promise(r => { run.wake = r; setTimeout(r, 80); }); run.wake = null; };
+      const nudge = () => { if (run.wake) run.wake(); };
+
+      const ctl = {
+        meta(m) { if (!m) return; board.title = str(m.title, 100) || board.title; board.subject = str(m.subject, 60) || board.subject; nudge(); },
+        step(s) {
+          if (run.stopped) return;
+          const st = { title: str(s && s.title, 80) || 'Step ' + (board.steps.length + (run.placeholder ? 0 : 1)), say: str(s && s.say, 600), clear: !!(s && s.clear), items: [] };
+          if (run.placeholder) { st.clear = false; board.steps[0] = st; run.placeholder = false; }
+          else if (board.steps.length < MAX_STEPS) board.steps.push(st);
+          else run.full = true;
+          nudge();
+        },
+        item(raw) {
+          if (run.stopped || run.placeholder || run.full) return;
+          const k = board.steps.length - 1, it = normItem(raw, used);
+          if (!it || it.type === 'image' || board.steps[k].items.length >= MAX_ITEMS) return;
+          placeLive(board, k, it);
+          hidden.add(it.id);
+          board.steps[k].items.push(it);
+          nudge();
+        },
+        end() {
+          run.streamDone = true;
+          // arrows that point at items which never came keep their own ends
+          board.steps.forEach(s => s.items.forEach(x => { if (x.from && !used[x.from]) delete x.from; if (x.to && !used[x.to]) delete x.to; }));
+          nudge();
+        },
+        fail(message) { run.failed = message || 'The lesson stopped.'; run.streamDone = true; nudge(); },
+        stop: () => run.stop(), pause: () => run.pause(), resume: () => run.resume(),
+      };
+
+      ctl.done = (async () => {
+        const last = () => (c.to != null ? Math.min(c.to, board.steps.length - 1) : Infinity);
+        for (let k = c.from || 0; k <= last(); k++) {
+          await until(() => run.stopped || (k < board.steps.length && !run.placeholder) || run.streamDone);
+          if (run.stopped || run.placeholder || k >= board.steps.length) break;
+          const s = board.steps[k];
+          // the page up to the step before, as it is; this step's items wait for the pen
+          s.items.forEach(x => hidden.add(x.id));
+          cur = k; render();
+          setLiveText((s.clear ? 'A fresh page · ' : '') + 'Step ' + (k + 1) + ': ' + s.title);
+          setCaption(s.say);
+          if (o.onStep) o.onStep(k, s);
+          const said = run.voice && s.say ? Promise.resolve(run.voice.say(s.say)).catch(() => {}) : null;
+          for (let i = 0; ; i++) {
+            await until(() => run.stopped || i < s.items.length || k + 1 < board.steps.length || run.streamDone);
+            if (run.stopped || i >= s.items.length) break;
+            await until(() => run.stopped || !run.paused);
+            if (run.stopped) break;
+            await drawItem(s.items[i], run);
+          }
+          if (run.stopped) break;
+          if (said) await Promise.race([said, until(() => run.stopped)]);
+          await until(() => run.stopped || !run.paused);
+          if (run.stopped) break;
+          await sleep(c.to != null ? 0 : 450);
+        }
+        const finished = !run.stopped && !run.failed;
+        hidden.clear();
+        if (liveRun === run) liveRun = null;
+        if (run.voice && !finished) try { run.voice.stop(); } catch (e) { /* gone */ }
+        el.querySelector('.wb').classList.remove('wb-living');
+        livebar.hidden = true;
+        setCaption(run.failed || '');
+        if (run.failed) setTimeout(() => { if (!liveRun) setCaption(''); }, 6000);
+        if (cur > board.steps.length - 1) cur = board.steps.length - 1;
+        render();
+        if (c.stream) changed();
+        if (o.onLiveEnd) o.onLiveEnd(finished, run.failed);
+        return finished;
+      })();
+      run.controller = ctl;
+      return ctl;
     }
 
     // -- pointer → board coordinates
@@ -810,7 +1119,7 @@
     }
 
     svg.addEventListener('pointerdown', e => {
-      if (e.button > 0) return;
+      if (e.button > 0 || liveRun) return;
       stop(); closePop();
       const p = pt(e);
       const g = e.target.closest && e.target.closest('.wb-item');
@@ -955,6 +1264,9 @@
     el.querySelector('.wb').addEventListener('click', async e => {
       const b = e.target.closest('button'); if (!b || b.closest('.wb-pop')) return;
       if (b.dataset.tool) { tool = b.dataset.tool; sel = null; closePop(); if (tool === 'diagram') openDiagramPicker([W / 2, H / 2]); render(); return; }
+      if (b.dataset.act === 'livepause') { if (liveRun) { if (liveRun.paused) liveRun.resume(); else liveRun.pause(); } return; }
+      if (b.dataset.act === 'livestop') { if (liveRun) liveRun.stop(); return; }
+      if (liveRun) return;                               // (nothing else while Lixa is drawing)
       switch (b.dataset.act) {
         case 'color': if (pop.hidden) openColors(); else closePop(); break;
         case 'bigger': resize(1.15); break;
@@ -981,7 +1293,7 @@
     titleIn.addEventListener('change', () => { const v = str(titleIn.value, 80); if (v && v !== board.steps[cur].title) { snapshot(); board.steps[cur].title = v; changed(); } render(); });
     sayIn.addEventListener('change', () => { const v = str(sayIn.value, 600); if (v !== board.steps[cur].say) { snapshot(); board.steps[cur].say = v; changed(); } });
     const onKey = e => {
-      if (!el.isConnected) return;
+      if (!el.isConnected || liveRun) return;
       if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
       if ((e.key === 'Delete' || e.key === 'Backspace') && sel) { e.preventDefault(); el.querySelector('[data-act="del"]').click(); }
       if (e.key === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); el.querySelector('[data-act="undo"]').click(); }
@@ -1004,9 +1316,10 @@
       setBoard(b, keepStep) { board = normalize(b); cur = keepStep ? Math.min(cur, board.steps.length - 1) : board.steps.length - 1; sel = null; render(); },
       step: () => cur,
       go: i => go(i, true), next: () => go(cur + 1, true), prev: () => go(cur - 1), play, stop, addPicture,
-      destroy() { stop(); document.removeEventListener('keydown', onKey); el.innerHTML = ''; },
+      live, living: () => !!liveRun, stopLive: () => { if (liveRun) liveRun.stop(); },
+      destroy() { if (liveRun) liveRun.stop(); stop(); document.removeEventListener('keydown', onKey); el.innerHTML = ''; },
     };
   }
 
-  root.RehablixWhiteboard = { W, H, COLORS, DIAGRAMS, MAX_STEPS, MAX_IMAGES, diagramKey, buildPrompt, buildRevisePrompt, parseBoard, normalize, leanBoard, keepHandwork, toSVG, toPNG, mount };
+  root.RehablixWhiteboard = { W, H, COLORS, DIAGRAMS, MAX_STEPS, MAX_IMAGES, diagramKey, buildPrompt, buildRevisePrompt, buildLivePrompt, liveParser, parseBoard, normalize, leanBoard, keepHandwork, toSVG, toPNG, mount };
 })(typeof window !== 'undefined' ? window : this);
