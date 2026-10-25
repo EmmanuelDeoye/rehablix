@@ -17,9 +17,10 @@
   // (the second press on Close must come within CLOSE_AGAIN_MS of the first)
   const CLOSE_AGAIN_MS = 2000;
   let closeTapAt = 0, toastTimer = null, captionSeen = '';
-  let root = null, bubble = null, navBtn = null, session = null, avatar = null, bubbleAvatar = null, map = null;
+  let root = null, bubble = null, navBtn = null, session = null, avatar = null, bubbleAvatar = null, map = null, floatConfirm = null;
   let showing = false, active = false, panel = null;      // panel: 'settings' | 'details' | 'captions' | null
   let wakeLock = null;                                      // the screen kept on while agent mode is open (Keep screen on)
+  let narration = null;                                     // a whiteboard lesson talking through her: {mouth, shape, viseme}
   let warnNoConfirm = false;                                // the warning before "Ask before changes" is turned off
   let bubblePos = null;
   try { bubblePos = JSON.parse(localStorage.getItem('rehab-agent-bubble') || 'null'); } catch (e) { bubblePos = null; }
@@ -116,8 +117,11 @@
     avatar = new window.LixaAgentAvatar(root.querySelector('.lxa-canvas'));
     avatar.source = () => {
       const v = session ? session.view : { state: 'Idle' };
+      // a whiteboard lesson talking through her: she says it whenever she is not saying an answer of her own
+      const n = narration && v.state !== 'Speaking' ? narration : null;
       return {
-        state: v.state, mouthOpen: v.mouth || 0, mouthShape: v.shape, viseme: v.viseme == null ? -1 : v.viseme, asking: v.asking, waving: v.waving, gentle: !!(v.talkMode && v.talkMode.kind === 'THERAPIST'),
+        state: n ? 'Speaking' : v.state, mouthOpen: n ? n.mouth : (v.mouth || 0), mouthShape: n ? n.shape : v.shape,
+        viseme: n ? n.viseme : (v.viseme == null ? -1 : v.viseme), asking: v.asking, waving: v.waving, gentle: !!(v.talkMode && v.talkMode.kind === 'THERAPIST'),
         emotion: v.emotion || 'neutral', body: v.talkMode && v.talkMode.kind === 'PATIENT' ? (v.body || 'normal') : 'normal'
       };
     };
@@ -158,6 +162,17 @@
       const btn = root.querySelector('[data-act="' + panel + '"]');
       if (open && !open.contains(e.target) && !(btn && btn.contains(e.target))) { panel = null; render(); }
     }, true);
+
+    // her Confirm card while she is in the background (she often works in a box open on the page): over the page and
+    // over the box, so answering it never closes the box
+    floatConfirm = document.createElement('div');
+    floatConfirm.className = 'lxa-card lxa-confirm lxa-float-confirm';
+    floatConfirm.setAttribute('role', 'alertdialog');
+    floatConfirm.hidden = true;
+    floatConfirm.addEventListener('click', onClick);
+    // (a box that closes on a press outside itself must not see this card's presses)
+    ['pointerdown', 'mousedown', 'touchstart', 'click'].forEach(t => floatConfirm.addEventListener(t, e => e.stopPropagation()));
+    document.body.appendChild(floatConfirm);
 
     bubble = document.createElement('button');
     bubble.type = 'button';
@@ -333,6 +348,10 @@
     if (v.found && v.found.length) cards += `<div class="lxa-card lxa-found"><b>Found</b>${v.found.map(f => `<button type="button" class="lxa-found-row" data-act="openfound" data-ref="${esc(f.ref)}"><span>${esc(f.title)}</span><small>${esc(f.label)}${f.patient ? ' <i class="fas fa-lock" title="Patient data"></i>' : ''}</small></button>`).join('')}</div>`;
     const cardsEl = root.querySelector('.lxa-cards');
     if (cardsEl.dataset.html !== cards) { cardsEl.innerHTML = cards; cardsEl.dataset.html = cards; }
+    // (in the background, the Confirm card floats over the page and any box open on it)
+    const fc = v.confirm && !showing && active ? `<b>${esc(v.confirm.text)}</b><p class="lxa-small">Lixa is asking before she goes ahead.</p><div class="lxa-card-actions"><button type="button" data-act="cancel">Cancel</button><button type="button" class="lxa-primary" data-act="confirm">${v.confirm.plan ? 'Start' : 'Confirm'}</button></div>` : '';
+    floatConfirm.hidden = !fc;
+    if (floatConfirm.dataset.html !== fc) { floatConfirm.innerHTML = fc; floatConfirm.dataset.html = fc; }
 
     // what she heard, and the hint line (in the captions panel); what only the user can act on, always in view
     const live = session.live && session.live.on ? session.live : null;
@@ -423,6 +442,7 @@
     active = false; showing = false; panel = null;
     if (root) root.hidden = true;
     if (bubble) bubble.hidden = true;
+    if (floatConfirm) floatConfirm.hidden = true;
     document.body.classList.remove('lxa-open');
     syncNavButton();
     syncWakeLock();
@@ -537,5 +557,25 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 
   // (session: for tests and debugging in the browser console only)
-  window.LixaAgentMode = { open, close, minimize, toggle, isActive: () => active, isShowing: () => showing, session: () => session };
+  /**
+   * A whiteboard lesson talks through her (js/whiteboard/whiteboard-service.js): narrating(true) while its voice is
+   * playing (she stops listening, so she never hears the lesson as the user), and its voice's sound for her mouth.
+   */
+  function narrating(on) {
+    if (!on) narration = null;
+    else if (!narration) narration = { mouth: 0, shape: 0.5, viseme: -1 };
+    if (session) session.setNarrating(!!on);
+  }
+  function narrate(ev) {
+    if (!narration || !ev) return;
+    narration.mouth = ev.speaking ? (ev.amplitude || 0) : 0;
+    narration.shape = ev.shape == null ? 0.5 : ev.shape;
+    narration.viseme = ev.speaking && ev.viseme != null ? ev.viseme : -1;
+  }
+
+  window.LixaAgentMode = {
+    open, close, minimize, toggle, isActive: () => active, isShowing: () => showing, session: () => session, narrating, narrate,
+    /** She is saying an answer of her own right now (a lesson's voice waits for her). */
+    speaking: () => !!(session && session.state === 'Speaking'),
+  };
 })();

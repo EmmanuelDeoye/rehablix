@@ -107,6 +107,19 @@
     }
     return cloud;
   }
+  // With Lixa Agent on, the lesson talks through her: her mascot (the floating bubble) says it, and she stops
+  // listening meanwhile (js/lixa-agent/agent-ui.js narrating / narrate). Android: whiteboard/WhiteboardVoice.kt.
+  const agent = () => (window.LixaAgentMode && window.LixaAgentMode.isActive() && window.LixaAgentMode.narrating ? window.LixaAgentMode : null);
+  let quietTimer = null, openSessions = 0;
+  function narrating(on) {
+    clearTimeout(quietTimer);
+    const a = agent();
+    if (on) { if (a) a.narrating(true); return; }
+    // (she listens again only if no next scene starts talking within a moment, so her microphone is not opened and
+    // closed between scenes)
+    quietTimer = setTimeout(() => { const b = agent(); if (b && !openSessions) b.narrating(false); }, 2500);
+  }
+
   function voice() {
     if (!window.LixaAgentVoice) return null;
     return {
@@ -117,14 +130,32 @@
         let onSentence = () => {}, last = -1;
         const sess = { failed: false };
         problem = () => { sess.failed = true; };        // (no voice key, or no connection for too long: the board goes on at reading pace)
-        const job = v.speak(ev => { if (ev.speaking && ev.sentence !== last) { last = ev.sentence; onSentence(ev.sentence); } });
-        sess.add = s => job.add(s);
-        sess.close = () => job.close();
+        const job = v.speak(ev => {
+          if (ev.speaking && ev.sentence !== last) { last = ev.sentence; onSentence(ev.sentence); }
+          const a = agent(); if (a) a.narrate(ev);
+        });
+        openSessions++;
+        let ended = false;
+        const end = () => { if (ended) return; ended = true; openSessions--; narrating(false); };
+        Promise.resolve(job.done).then(end);
+        // (an answer Lixa Agent is saying herself is finished first: the two voices never talk at once)
+        const waiting = [];
+        let closeWanted = false, gate = null;
+        const flush = () => {
+          const a = agent();
+          if (a && a.speaking()) { gate = setTimeout(flush, 150); return; }
+          gate = null;
+          narrating(true);
+          while (waiting.length) job.add(waiting.shift());
+          if (closeWanted) job.close();
+        };
+        sess.add = s => { waiting.push(s); if (!gate) flush(); };
+        sess.close = () => { closeWanted = true; if (!gate) job.close(); };
         sess.onSentence = f => { onSentence = f; };
         sess.done = job.done;
-        sess.stop = () => v.stop();
-        sess.pause = () => v.pause();
-        sess.resume = () => v.resume();
+        sess.stop = () => { clearTimeout(gate); gate = null; waiting.length = 0; v.stop(); end(); };
+        sess.pause = () => { v.pause(); const a = agent(); if (a) { clearTimeout(quietTimer); a.narrating(false); } };
+        sess.resume = () => { v.resume(); narrating(true); };
         return sess;
       },
     };

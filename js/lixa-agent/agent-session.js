@@ -189,6 +189,8 @@
       this.setState('Listening');
       this.syncEars();
     }
+    /** A whiteboard lesson starts or stops talking through her (js/whiteboard/whiteboard-service.js). */
+    setNarrating(on) { this.narrating = !!on; this.syncEars(); }
     /** The mic button while listening: stop listening (she stays). */
     stopListening() { this.handsFree = false; this.said = ''; clearTimeout(this.holdTimer); this.set({ heard: '' }); if (this.state === 'Listening') this.setState('Idle'); this.syncEars(); }
 
@@ -198,6 +200,8 @@
       // (Live has the microphone: a yes or no to a Confirm card is heard by Live itself)
       if (this.live && this.live.on) return 'off';
       if (this.view.confirm) return 'confirm';
+      // (a whiteboard lesson is talking through her: she does not hear the lesson as the user)
+      if (this.narrating) return 'off';
       const s = this.state;
       if (s === 'Listening' || s === 'Idle') return this.handsFree && !this.turnBusy ? 'listen' : 'off';
       if (s === 'Speaking') return this.bargeIn && !this.muted ? 'interrupt' : 'off';
@@ -736,7 +740,11 @@
         this.setState('NeedsConfirmation');
         // (said within this turn's own speech, so nothing of the answer is cut off)
         const job = this.speechJob;
-        if (job && !job.closed && !job.stopped && !this.muted) R().SpeechText.sentences(spoken || (text.replace(/\?$/, '') + '? Just tell me, or tap Confirm.')).forEach(x => this.queueStatus(job, x));
+        if (job && !job.closed && !job.stopped && !this.muted) {
+          R().SpeechText.sentences(spoken || (text.replace(/\?$/, '') + '? Just tell me, or tap Confirm.')).forEach(x => this.queueStatus(job, x));
+          // (the question's last sentence: once it is answered, whatever of it is still to be said is skipped)
+          this.confirmSpeech = { job, through: this.flow.length - 1 };
+        }
         this.syncEars();
         clearTimeout(this.confirmTimer);
         this.confirmTimer = setTimeout(() => this.answerConfirm(false), 60000);
@@ -744,6 +752,9 @@
     }
     answerConfirm(yes) {
       clearTimeout(this.confirmTimer);
+      // answered (a tap, or a yes / no) while she is still asking: she stops asking at once
+      const cs = this.confirmSpeech; this.confirmSpeech = null;
+      if (cs && cs.job.skipThrough) cs.job.skipThrough(cs.through);
       const r = this.confirmResolve; this.confirmResolve = null;
       this.set({ confirm: null });
       this.setState(yes ? 'Working' : 'Thinking');
@@ -843,8 +854,8 @@
       if (this.confirmResolve) this.answerConfirm(false);
       return new Promise(resolve => {
         this.confirmResolve = resolve;
+        // (in the background, the card floats over the page and any box open on it: agent-ui.js)
         this.set({ confirm: { text, tapOnly: !!tapOnly } });
-        if (this.host.restore) this.host.restore();
         clearTimeout(this.confirmTimer);
         this.confirmTimer = setTimeout(() => { this.set({ note: 'No answer, so I left it. Nothing was changed.' }); this.answerConfirm(false); }, 60000);
       });

@@ -231,16 +231,18 @@
       this.unlock();
       this.paused = false;
       if (this.gain) this.gain.gain.value = 1;
-      const job = { items: [], closed: false, stopped: false, gaveUp: false, index: 0, wake: null };
+      const job = { items: [], closed: false, stopped: false, gaveUp: false, index: 0, wake: null, skipUntil: -1 };
       const wake = () => { const w = job.wake; job.wake = null; if (w) w(); };
       job.add = sentence => { if (job.closed || job.stopped) return; job.items.push(this.limited(() => this.synth(sentence, job))); wake(); };
       job.close = () => { job.closed = true; wake(); };
+      /** Sentences up to [n] are not said (the one playing stops now): a question the user has already answered. */
+      job.skipThrough = n => { job.skipUntil = Math.max(job.skipUntil, n); if (job.current && job.index <= n) job.current.stop(); };
       job.done = (async () => {
         while (!job.stopped) {
           if (job.index < job.items.length) {
             const clip = await job.items[job.index];
             if (job.stopped) break;
-            if (clip) await this.play(clip, job.index, onEvent, job);
+            if (clip && job.index > job.skipUntil) await this.play(clip, job.index, onEvent, job);
             job.index++;
           } else if (job.closed) break;
           else await new Promise(r => { job.wake = r; });

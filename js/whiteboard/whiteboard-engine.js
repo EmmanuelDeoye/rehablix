@@ -26,10 +26,11 @@
   const COLORS = { ink: '#1b1f24', blue: '#1d4ed8', red: '#c1121f', green: '#15803d', orange: '#ea580c', purple: '#6d28d9', teal: '#0f766e', gray: '#64748b' };
   const SOFT = { ink: '#f1f5f9', blue: '#dbeafe', red: '#fee2e2', green: '#dcfce7', orange: '#ffedd5', purple: '#ede9fe', teal: '#ccfbf1', gray: '#f1f5f9', yellow: '#fef08a' };
   const LENGTHS = {
-    short: { label: 'Short', scenes: '3 to 4', words: 110, maxTokens: 2400 },
-    moderate: { label: 'Moderate', scenes: '5 to 7', words: 170, maxTokens: 3200 },
-    long: { label: 'Long', scenes: '9 to 12', words: 240, maxTokens: 4200 },
-    auto: { label: 'Auto', scenes: '3 to 8 (you decide from how much the topic needs)', words: 170, maxTokens: 3400 },
+    // (maxTokens: room for the words and the AI's own drawings, which take many more tokens than library pictures)
+    short: { label: 'Short', scenes: '3 to 4', words: 110, maxTokens: 4000 },
+    moderate: { label: 'Moderate', scenes: '5 to 7', words: 170, maxTokens: 5200 },
+    long: { label: 'Long', scenes: '9 to 12', words: 240, maxTokens: 6500 },
+    auto: { label: 'Auto', scenes: '3 to 8 (you decide from how much the topic needs)', words: 170, maxTokens: 5400 },
   };
   /** How fast Lixa speaks (words a second): the drawing of a beat is spread over this long. */
   const WORDS_PER_SECOND = 2.5;
@@ -380,10 +381,9 @@
   // ------------------------------------------------------------------ the prompts
   const VOCAB = [
     'ITEMS you can draw (x, y = top-left corner on the 1000 x 640 board; colours: ink, blue, red, green, orange, purple, teal):',
-    '{"id": "p1", "type": "person", "x": 80, "y": 200, "h": 200, "pose": "stand|walk|run|sit|wave|point|think|happy|hop|hurt|lift-weights|lift-box|squat|reach|lie|wheelchair|crutches|cane", "facing": "right|left", "mood": "neutral|happy|sad|pain", "label": "Mrs Ade, 68", "say": "My knee locks!"}  (a person acting the idea out; pick the pose that matches the story: hop = on one leg holding a hurt foot, hurt = bent over clutching a knee, lift-weights = barbell overhead; "say" draws a speech bubble)',
-    '{"id": "c1", "type": "icon", "name": "<icon>", "x": 400, "y": 200, "size": 120, "label": "words", "color": "red"}  icons: ' + 'ICON_NAMES',
-    '{"id": "s1", "type": "sketch", "x": 600, "y": 160, "w": 300, "h": 220, "paths": ["M10 80 C40 20 ...", "..."], "fill": "blue", "label": "a seatbelt"}  (YOUR OWN line drawing of anything not in the lists, in a 100 x 100 box: simple clear strokes, like an analogy picture: a seatbelt, a bridge, a sponge, a traffic jam, a rope, a plant growing)',
-    '{"id": "d1", "type": "diagram", "name": "<diagram>", "x": 160, "y": 110, "w": 300, "labels": [{"part": "<part>", "text": "<1-3 words>"}]}  (labels are drawn beside it: leave ~150 px free on each side) diagrams: DIAGRAMS_LIST',
+    '{"id": "s1", "type": "sketch", "x": 120, "y": 130, "w": 300, "h": 300, "paths": ["M50 8 C30 8 22 30 34 44 ...", {"d": "M40 60 Q50 70 60 60", "color": "red", "width": 4}, {"d": "M20 80 L80 80 L80 95 L20 95 Z", "fill": "blue"}], "labels": [{"at": [50, 30], "text": "brain"}], "label": "caption under it"}',
+    '   = YOUR OWN DRAWING, the heart of every scene (see DRAWING below). Paths use a 100 x 100 box stretched to w x h (keep w and h equal unless the thing is clearly wide or tall). A path is "M…" data, or {"d", "color", "fill" (a soft fill: blue|red|green|orange|purple|teal|yellow|gray), "width" (1-8)}. "labels" point at parts of your drawing ("at" = x, y inside the 100 x 100 box) and are written beside it: leave ~150 px free left and right.',
+    '{"id": "c1", "type": "icon", "name": "<symbol>", "x": 400, "y": 200, "size": 70, "color": "red"}  (a SMALL symbol only, size 40-90, never the main picture) symbols: SYMBOL_NAMES',
     '{"id": "f1", "type": "flow", "x": 60, "y": 260, "w": 880, "h": 120, "steps": ["Injury", "Swelling", "Stiffness", "Weakness"], "dir": "row|col", "color": "blue"}  (a chain of boxes with arrows: causes, stages, a process)',
     '{"id": "y1", "type": "cycle", "x": 560, "y": 120, "w": 380, "h": 380, "steps": ["Pain", "Fear", "Avoid moving", "Weakness"], "color": "red"}  (a vicious or healthy circle)',
     '{"id": "v1", "type": "compare", "x": 60, "y": 120, "w": 880, "h": 420, "columns": [{"title": "Acute", "points": ["< 6 weeks", "rest + ice"]}, {"title": "Chronic", "points": ["> 3 months", "graded activity"]}]}  (2-3 columns side by side)',
@@ -399,10 +399,26 @@
     '{"type": "emphasis", "target": "d1", "style": "circle|underline|tick|cross|star|highlight|box", "color": "red"}  (mark something ALREADY drawn, when you point at it)',
   ].join('\n');
 
-  function vocabText() {
-    return VOCAB.replace('ICON_NAMES', Object.keys(ICONS).join(', '))
-      .replace('DIAGRAMS_LIST', Object.keys(DIAGRAMS).map(k => k + ' (parts: ' + Object.keys(DIAGRAMS[k].parts).slice(0, 10).join(', ') + ')').join('; '));
-  }
+  function vocabText() { return VOCAB.replace('SYMBOL_NAMES', SYMBOLS.join(', ')); }
+
+  // The library's small symbols, which the AI may still use beside its own drawings. People, diagrams and the bigger
+  // icons stay in the library for lessons made before (they still play) but are not drawn in new scenes: the AI draws
+  // the real thing itself.
+  const SYMBOLS = ['check', 'cross', 'warning', 'question', 'bulb', 'star', 'target', 'clock', 'calendar', 'chartup', 'flag', 'magnifier', 'gear', 'battery', 'fire', 'ice', 'speech', 'puzzle', 'trophy', 'money'];
+  /** May a newly written scene draw [it]? (no stock figures as the picture) */
+  const drawnFresh = it => !(it.type === 'person' || it.type === 'diagram' || (it.type === 'icon' && SYMBOLS.indexOf(it.name) < 0));
+
+  const DRAWING = 'DRAWING: you draw like a skilled whiteboard artist, live, with a marker. Every MAIN visual is your own "sketch": the people, body parts, organs, ' +
+    'bones, nerves, cells, tools, places and everyday analogies the words are about, drawn for THIS idea (never a generic stand-in). ' +
+    'Draw recognisably: right proportions; smooth curves (C and Q commands) rather than jagged lines; 8 to 30 strokes per drawing, in the order a person would draw them: ' +
+    'the outline first, then the inner parts, then small details (motion lines, pain flashes, arrows inside the drawing). ' +
+    'A person: an oval head with a simple face that shows the feeling, a body with shoulders and hips, arms and legs bending at real joints, hands and feet; acting out the moment (limping, lifting, reaching, holding the sore spot). ' +
+    'A standing person in a square sketch, to adapt (move the elbows, hands, knees and feet to act out the pose; change the mouth for the feeling): ' +
+    'head "M50 4 C57 4 61 9 61 15 C61 21 57 26 50 26 C43 26 39 21 39 15 C39 9 43 4 50 4 Z", face "M46 13 L46 14 M54 13 L54 14 M46 20 Q50 23 54 20", ' +
+    'body "M50 26 L50 30 M42 31 C46 29 54 29 58 31 L56 60 C52 62 48 62 44 60 Z", arms "M42 32 C37 40 35 48 34 57 M58 32 C63 40 65 48 66 57", ' +
+    'hands "M34 57 C32 59 33 62 35 61 M66 57 C68 59 67 62 65 61", legs "M46 61 C45 72 44 84 43 95 M54 61 C55 72 56 84 57 95", feet "M43 95 L36 97 M57 95 L64 97". ' +
+    'Anatomy: the true shape, simplified (the S-curve of a spine, the bean of a kidney, a neuron\'s branches), with the key part in a colour or soft fill and named with "labels". ' +
+    'Colour is for meaning: the key part red or blue, the rest ink. One clear, big drawing beats several small ones; add to an earlier drawing with a new sketch beside or over it as the explanation grows.';
 
   const TEACHER = 'You are Lixa, a brilliant, warm teacher who makes whiteboard explainer videos, the hand-drawn kind people love to watch on YouTube. ' +
     'You can explain anything, in whatever way the learner asks: simply for a child, rigorously for an exam, with stories, analogies, humour or real cases. ' +
@@ -415,7 +431,7 @@
       '{"title": "<an inviting title>", "subject": "<e.g. Physiotherapy, Neuroscience, Everyday science>", "scenes": [{"title": "<2-6 words>", "goal": "<what this scene makes the learner understand, 1 sentence>", "visual": "<the concrete visual idea: who or what is drawn and how, e.g. \'a runner whose knee buckles as she pivots, then the knee diagram with the ACL circled\'>"}]}\n\n' +
       'Use ' + L.scenes + ' scenes. A great lesson: opens with a hook the learner can relate to (a situation, a story, a surprising fact or a question); builds the idea one clear step at a time; makes it concrete with everyday analogies and real examples; ' +
       'clears up a common mistake when there is one; ends with a short recap and a question to think about. ' +
-      'Give every scene a DIFFERENT kind of visual (people acting it out, an analogy sketch, a labelled diagram, a flow, a cycle, a side-by-side comparison, a timeline, a chart, a mnemonic list, icons…). ' +
+      'Every scene\'s visual is drawn by hand for this idea (no stock pictures): give each scene a DIFFERENT kind (the people involved acting it out, an analogy drawing, a labelled drawing of the body part, a flow, a cycle, a side-by-side comparison, a timeline, a chart, a mnemonic list…). ' +
       'Whatever the learner says about style, depth, audience, tone, examples or length comes first.';
     const user = 'LEARNER\'S REQUEST: ' + str(o.request, 2000) + (o.level ? '\nAUDIENCE: ' + str(o.level, 120) : '') + '\nLENGTH: ' + L.label;
     return { system, user, maxTokens: 1600 };
@@ -441,6 +457,7 @@
       'HOW TO TEACH: speak like a real person, warm and confident (contractions, "imagine…", "notice…", "here\'s the thing", a question now and then); one idea per beat; build the picture up piece by piece; ' +
       'use people, stories and everyday analogies; when you come back to something already drawn, point at it with an "emphasis" item (its id); explain what the drawing means instead of reading it out; ' +
       'numbers and facts must be correct; end the scene with a clear takeaway. Never say "in this scene", "on the whiteboard" or "next slide".\n\n' +
+      DRAWING + '\n\n' +
       vocabText() + '\n' +
       (o.picture ? 'You may also use at most one {"id": "q1", "type": "picture", "x": 600, "y": 130, "w": 340, "h": 260, "prompt": "<what an AI illustration should show>"} when a real-looking picture truly helps.\n' : '') +
       '\nLAYOUT: the board is 1000 wide and 640 high; keep everything inside x 30-970 and y 100-620 (the title uses the top). Plan the whole page before the first beat so that later items have room; ' +
@@ -636,10 +653,34 @@
         o.name = k; o.size = num(it.size, 110, 40, 300); o.label = str(it.label, 40); break;
       }
       case 'sketch': {
-        o.w = num(it.w, 260, 60, 900); o.h = num(it.h, 200, 60, 560); o.label = str(it.label, 50);
-        o.paths = (Array.isArray(it.paths) ? it.paths : []).slice(0, 24).map(d => String(d || '').slice(0, 1600)).filter(d => /^[\sMmLlHhVvCcSsQqTtAaZz0-9.,\-eE]+$/.test(d) && /^\s*[Mm]/.test(d));
+        o.w = num(it.w, 300, 60, 940); o.h = num(it.h, 240, 60, 540); o.label = str(it.label, 50);
+        // a stroke is "M…" path data (numbers and path commands only), or {d, color, fill, width}
+        const safe = d => /^[\sMmLlHhVvCcSsQqTtAaZz0-9.,\-eE]+$/.test(d) && /^\s*[Mm]/.test(d);
+        o.paths = (Array.isArray(it.paths) ? it.paths : []).slice(0, 40).map(p => {
+          const d = String(typeof p === 'string' ? p : (p && p.d) || '').slice(0, 2400);
+          if (!safe(d)) return null;
+          if (typeof p === 'string') return d;
+          const q = { d };
+          if (colorOf(p.color)) q.color = p.color;
+          if (SOFT[p.fill]) q.fill = p.fill;
+          if (p.width != null) q.width = num(p.width, 3, 1, 8);
+          return q;
+        }).filter(Boolean);
         if (!o.paths.length) return null;
-        o.fill = SOFT[it.fill] ? it.fill : null; break;
+        o.fill = SOFT[it.fill] ? it.fill : null;
+        // labels on parts of the drawing: the point (0-100 inside the sketch) and 1-3 words
+        o.labels = (Array.isArray(it.labels) ? it.labels : []).slice(0, 8).map(l => {
+          const at = l && Array.isArray(l.at) ? l.at : [];
+          return { at: [num(at[0], 50, -50, 150), num(at[1], 50, -50, 150)], text: str(l && l.text, 30) };
+        }).filter(l => l.text);
+        // strokes drawn outside the 100 x 100 box: the whole drawing is fitted back into it (same shape), so it never
+        // runs into its neighbours or its own labels
+        const bb = pathBounds(o.paths.map(p => (typeof p === 'string' ? p : p.d)));
+        if (bb && (bb.x0 < -3 || bb.y0 < -3 || bb.x1 > 103 || bb.y1 > 103)) {
+          const s = Math.min(100 / Math.max(1, bb.x1 - bb.x0), 100 / Math.max(1, bb.y1 - bb.y0));
+          o.fit = [+s.toFixed(4), +((100 - (bb.x1 - bb.x0) * s) / 2 - bb.x0 * s).toFixed(2), +((100 - (bb.y1 - bb.y0) * s) / 2 - bb.y0 * s).toFixed(2)];
+        }
+        break;
       }
       case 'diagram': {
         const key = diagramKey(it.name); if (!key) return null;
@@ -811,21 +852,25 @@
         return { svg, box: boxOf(bx, by, bw, bh) };
       }
       case 'sketch': {
-        const kx = it.w / 100, ky = it.h / 100, f = it.fill ? SOFT[it.fill] : 'none';
-        const paths = it.paths.map(d => `<path d="${d}" fill="${f}" stroke="${c}" stroke-width="3.2" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>`).join('');
+        // (the AI's own drawing, in a 100 x 100 box stretched to w x h; strokes keep the board's thickness)
+        const kx = it.w / 100, ky = it.h / 100;
+        // (fit: [scale, dx, dy] bringing strokes drawn outside the box back into it, from normItem)
+        const f = Array.isArray(it.fit) && it.fit.length === 3 && it.fit.every(Number.isFinite) ? it.fit : [1, 0, 0];
+        const k = Math.sqrt(kx * ky) * f[0];
+        const paths = it.paths.map(p => {
+          const q = typeof p === 'string' ? { d: p, fill: it.fill } : p;
+          return `<path d="${q.d}" fill="${q.fill ? SOFT[q.fill] : 'none'}" stroke="${COLORS[q.color] || c}" stroke-width="${(q.width || 3.2) / k}" stroke-linecap="round" stroke-linejoin="round"/>`;
+        }).join('');
+        const ls = sideLabels(it, (it.labels || []).map(l => ({ ax: it.x + (l.at[0] * f[0] + f[1]) * kx, ay: it.y + (l.at[1] * f[0] + f[2]) * ky, text: l.text })));
         const label = it.label ? textEl(it.x + it.w / 2, it.y + it.h + 32, it.label, 26, COLORS.ink, { anchor: 'middle' }) : '';
-        return { svg: `<g transform="translate(${it.x} ${it.y}) scale(${kx} ${ky})">${paths}</g>` + label, box: boxOf(it.x, it.y, it.w, it.h + (it.label ? 40 : 0)) };
+        const b = labelsBox(ls, it.x, it.y, it.x + it.w, it.y + it.h + (it.label ? 40 : 0));
+        const fit = f[0] === 1 && !f[1] && !f[2] ? '' : ` translate(${f[1]} ${f[2]}) scale(${f[0]})`;
+        return { svg: `<g transform="translate(${it.x} ${it.y}) scale(${kx} ${ky})${fit}">${paths}</g>` + labelsSvg(ls, c) + label, box: b };
       }
       case 'diagram': {
         const d = DIAGRAMS[it.name];
         const ls = diagramLabels(it);
-        const labels = ls.map(l => {
-          const anchor = l.side === 'left' ? 'end' : 'start', lx = l.side === 'left' ? l.tx + 4 : l.tx - 4;
-          return `<g><path d="M${lx} ${l.ty - 7} L${l.ax} ${l.ay}"${stroke(c, 2)}/><circle cx="${l.ax}" cy="${l.ay}" r="3.5" fill="${c}"/>${textEl(l.tx, l.ty, l.text, 26, c, { anchor, font: HAND, weight: 700 })}</g>`;
-        }).join('');
-        let x1 = it.x, x2 = it.x + it.w, y1 = it.y, y2 = it.y + it.h;
-        ls.forEach(l => { const tw = textW(l.text, 26) + 6, lx = l.side === 'left' ? l.tx - tw : l.tx; x1 = Math.min(x1, lx); x2 = Math.max(x2, lx + tw); y1 = Math.min(y1, l.ty - 24); y2 = Math.max(y2, l.ty + 8); });
-        return { svg: `<g transform="translate(${it.x} ${it.y}) scale(${it.w / d.w} ${it.h / d.h})">${diagramInner(it.name)}</g>` + labels, box: boxOf(x1, y1, x2 - x1, y2 - y1) };
+        return { svg: `<g transform="translate(${it.x} ${it.y}) scale(${it.w / d.w} ${it.h / d.h})">${diagramInner(it.name)}</g>` + labelsSvg(ls, c), box: labelsBox(ls, it.x, it.y, it.x + it.w, it.y + it.h) };
       }
       case 'flow': {
         const n = it.steps.length, row = it.dir === 'row', gap = row ? 44 : 34;
@@ -943,11 +988,55 @@
   }
   /** A diagram's labels, beside it, with leader lines (none on top of another). */
   function diagramLabels(it) {
-    const d = DIAGRAMS[it.name], sx = it.w / d.w, sy = it.h / d.h, cx = it.x + it.w / 2;
+    const d = DIAGRAMS[it.name], sx = it.w / d.w, sy = it.h / d.h;
+    return sideLabels(it, (it.labels || []).map(l => { const p = partPoint(d, l.part); return p ? { ax: it.x + p[0] * sx, ay: it.y + p[1] * sy, text: l.text } : null; }).filter(Boolean));
+  }
+  /**
+   * The box that holds every point and control point of some SVG path data (absolute and relative commands), or null.
+   * (control points bound a curve, so the box is never too small)
+   */
+  function pathBounds(ds) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const add = (x, y) => { if (!Number.isFinite(x) || !Number.isFinite(y)) return; x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
+    const COUNT = { M: 2, L: 2, T: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, A: 7, Z: 0 };
+    ds.forEach(d => {
+      const tokens = String(d).match(/[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g) || [];
+      let cx = 0, cy = 0, sx = 0, sy = 0, cmd = null, i = 0;
+      while (i < tokens.length) {
+        if (/[A-Za-z]/.test(tokens[i])) { cmd = tokens[i++]; if (cmd === 'Z' || cmd === 'z') { cx = sx; cy = sy; cmd = null; } continue; }
+        if (!cmd) { i++; continue; }
+        const up = cmd.toUpperCase(), rel = cmd !== up, n = COUNT[up];
+        const a = tokens.slice(i, i + n).map(Number); i += n;
+        if (a.length < n) break;
+        const px = v => (rel ? cx + v : v), py = v => (rel ? cy + v : v);
+        if (up === 'H') { cx = px(a[0]); add(cx, cy); continue; }
+        if (up === 'V') { cy = py(a[0]); add(cx, cy); continue; }
+        if (up === 'A') { cx = px(a[5]); cy = py(a[6]); add(cx, cy); continue; }
+        for (let j = 0; j + 1 < n; j += 2) add(px(a[j]), py(a[j + 1]));
+        cx = px(a[n - 2]); cy = py(a[n - 1]);
+        if (up === 'M') { sx = cx; sy = cy; cmd = rel ? 'l' : 'L'; }     // (more pairs after a move are lines)
+      }
+    });
+    return x0 <= x1 && y0 <= y1 ? { x0, y0, x1, y1 } : null;
+  }
+
+  function labelsSvg(ls, c) {
+    return ls.map(l => {
+      const anchor = l.side === 'left' ? 'end' : 'start', lx = l.side === 'left' ? l.tx + 4 : l.tx - 4;
+      return `<g><path d="M${lx} ${l.ty - 7} L${l.ax} ${l.ay}"${stroke(c, 2)}/><circle cx="${l.ax}" cy="${l.ay}" r="3.5" fill="${c}"/>${textEl(l.tx, l.ty, l.text, 26, c, { anchor, font: HAND, weight: 700 })}</g>`;
+    }).join('');
+  }
+  /** The drawing's box (x1, y1)-(x2, y2) grown to hold its side labels. */
+  function labelsBox(ls, x1, y1, x2, y2) {
+    ls.forEach(l => { const tw = textW(l.text, 26) + 6, lx = l.side === 'left' ? l.tx - tw : l.tx; x1 = Math.min(x1, lx); x2 = Math.max(x2, lx + tw); y1 = Math.min(y1, l.ty - 24); y2 = Math.max(y2, l.ty + 8); });
+    return boxOf(x1, y1, x2 - x1, y2 - y1);
+  }
+  /** Labels beside a drawing, each with a leader line to its point [{ax, ay, text}]: left or right, never on top of each other. */
+  function sideLabels(it, points) {
+    const cx = it.x + it.w / 2;
     const placed = { left: [], right: [] };
-    (it.labels || []).forEach(l => {
-      const p = partPoint(d, l.part); if (!p) return;
-      const ax = it.x + p[0] * sx, ay = it.y + p[1] * sy, tw = textW(l.text, 26) + 10;
+    points.forEach(l => {
+      const ax = l.ax, ay = l.ay, tw = textW(l.text, 26) + 10;
       let side = ax < cx ? 'left' : 'right';
       if (side === 'left' && it.x - 16 - tw < 4) side = 'right';
       else if (side === 'right' && it.x + it.w + 16 + tw > W - 4 && it.x - 16 - tw >= 4) side = 'left';
@@ -1026,13 +1115,17 @@
   }
 
   // ------------------------------------------------------------------ the hand that draws (the marker's tip at 0, 0)
+  // (just the marker, as the user asked: no hand; its tip at 0, 0, leaning down to the right)
   const HAND_SVG =
-    '<path d="M70 92 L118 140 L150 112 L100 66 Z" fill="#334155"/>' +
-    '<path d="M0 0 L9 2 L56 50 L50 56 L2 9 Z" fill="#0f766e" stroke="#064e46" stroke-width="1.2"/><path d="M0 0 L9 2 L2 9 Z" fill="#111827"/>' +
-    '<path d="M50 56 L56 50 L66 60 L60 66 Z" fill="#e2e8f0"/>' +
-    '<path d="M34 46 C34 34 50 30 60 36 C70 32 84 40 82 54 C90 60 88 74 78 78 C74 90 56 94 46 86 C34 82 30 66 34 46 Z" fill="#f2c9a6" stroke="#b9805e" stroke-width="2"/>' +
-    '<path d="M34 46 C28 42 28 32 36 30 C42 28 48 34 50 40" fill="#f2c9a6" stroke="#b9805e" stroke-width="2"/>' +
-    '<path d="M44 48 C50 46 56 48 60 52 M42 58 C50 56 58 58 62 64 M44 68 C52 68 58 70 62 74" fill="none" stroke="#b9805e" stroke-width="1.8" stroke-linecap="round"/>';
+    '<g transform="rotate(40)">' +
+    '<rect x="26" y="-3" width="92" height="17" rx="5" fill="#0f172a" opacity="0.16"/>' +
+    '<path d="M0 0 L13 -4.6 L13 4.6 Z" fill="#111827"/>' +
+    '<path d="M13 -5.2 L23 -8 L23 8 L13 5.2 Z" fill="#0f766e"/>' +
+    '<rect x="23" y="-8.5" width="74" height="17" rx="4" fill="#14b8a6" stroke="#0f766e" stroke-width="1.5"/>' +
+    '<rect x="31" y="-8.5" width="11" height="17" fill="#e2e8f0"/>' +
+    '<path d="M46 -4.5 H90" stroke="#ffffff" stroke-opacity="0.5" stroke-width="2.2" stroke-linecap="round"/>' +
+    '<rect x="94" y="-9.5" width="24" height="19" rx="5" fill="#0f766e"/>' +
+    '</g>';
 
   /** How long an item takes to draw, as a share of its beat (heavier items get more of the time). */
   function weight(it) {
@@ -1066,6 +1159,7 @@
     const lesson = normalizeLesson(initial);
     const writing = new Map();                           // scene -> its writing (a promise)
     let cur = 0, run = null, ended = false, captions = true, muted = false, pictureBudget = 2, destroyed = false;
+    let msPerWord = 1000 / WORDS_PER_SECOND;             // how fast she speaks (learnt as she talks)
     try { captions = localStorage.getItem('rehab-wb-cc') !== '0'; muted = localStorage.getItem('rehab-wb-muted') === '1'; } catch (e) { /* storage blocked */ }
 
     el.innerHTML = `<div class="wbx">
@@ -1134,6 +1228,8 @@
             if (ev.type === 'title' && sc.followup) { sc.title = str(ev.title, 80) || sc.title; updateUi(); return; }
             if (ev.type !== 'beat' || sc.beats.length >= 14) return;
             const b = normBeat(ev.beat, used); if (!b) return;
+            b.draw = b.draw.filter(drawnFresh);
+            if (!b.say && !b.draw.length) return;
             layoutBeat(sc, b);
             b.draw.forEach(it => { if (it.type === 'picture') askPicture(it); });
             sc.beats.push(b);
@@ -1258,53 +1354,71 @@
       if (h.onScene) h.onScene(k, sc);
       await wipe(r);
       if (r.stopped) return false;
-      const title = { type: 'title', text: sc.title };
-      await drawItem(title, 1100, r, () => false);
-      // her voice, sentence by sentence, as the beats come
+      // Her voice and the pen wait for each other: a beat is drawn while she says it, and she is given the next beat's
+      // words only once its drawing is done, so she never talks ahead of the board (she pauses, as a teacher does,
+      // while a drawing is finished) and the board never runs ahead of her.
       const sess = !muted && h.voice ? h.voice.open() : null;
-      const sentences = [], first = [], lastOf = [];
+      const sentences = [], first = [], lastOf = [], beatOf = [], startedAt = [];
       let fed = 0, said = -1, voiceDone = false, closed = false;
       r.sess = sess;
       if (sess) {
-        sess.onSentence(i => { said = i; setCaption(sentences[i]); });
+        sess.onSentence(i => {
+          said = i; startedAt[i] = Date.now(); setCaption(sentences[i]);
+          // how fast she really speaks: two sentences of one beat follow each other with no wait in between
+          if (i > 0 && beatOf[i] === beatOf[i - 1] && startedAt[i - 1]) {
+            const per = (startedAt[i] - startedAt[i - 1]) / Math.max(1, words(sentences[i - 1]));
+            if (per > 150 && per < 1200) msPerWord = msPerWord * 0.7 + per * 0.3;
+          }
+        });
         Promise.resolve(sess.done).then(() => { voiceDone = true; });
       }
       const voiced = () => sess && !sess.failed && !voiceDone;
-      const feed = () => {
-        while (fed < sc.beats.length) {
+      /** Gives her the words of the beats up to [j]. */
+      const feed = j => {
+        while (fed <= j && fed < sc.beats.length) {
           const ss = sentencesOf(sc.beats[fed].say);
           first[fed] = sentences.length;
-          ss.forEach(s => { sentences.push(s); if (sess) sess.add(s); });
+          ss.forEach(s => { beatOf[sentences.length] = fed; sentences.push(s); if (sess) sess.add(s); });
           lastOf[fed] = sentences.length - 1;
           fed++;
         }
         if (sess && !closed && sc.status !== 'writing' && fed >= sc.beats.length) { closed = true; sess.close(); }
       };
+      // (the first words are made ready while the title is written)
+      feed(0);
+      const title = { type: 'title', text: sc.title };
+      await drawItem(title, 1100, r, () => false);
+      if (r.stopped) return false;
       for (let j = 0; ; j++) {
-        feed();
         await until(r, () => j < sc.beats.length || sc.status !== 'writing');
         if (r.stopped) return false;
         if (j >= sc.beats.length) break;
-        feed();
-        const b = sc.beats[j], est = speechMs(b.say), t0 = Date.now();
-        const withVoice = !!(b.say && voiced());
+        feed(j);
+        const b = sc.beats[j], spoken = first[j] <= lastOf[j];
         // the drawing of a beat starts when she starts saying it
-        if (withVoice) await until(r, () => said >= first[j] || !voiced(), 20000);
+        if (spoken && voiced()) await until(r, () => said >= first[j] || !voiced(), 20000);
         if (r.stopped) return false;
-        if (!(b.say && voiced())) setCaption(b.say);
+        const withVoice = spoken && voiced();
+        const est = Math.max(900, words(b.say) * msPerWord), t0 = Date.now();
+        if (!withVoice) setCaption(b.say);
         const tw = b.draw.reduce((a, it) => a + weight(it), 0) || 1;
-        const moved = () => voiced() && said > lastOf[j];
+        // she has said all of this beat and waits for the pen: the drawing is finished quickly
+        const idle = () => {
+          if (!voiced() || !spoken || said < lastOf[j]) return false;
+          const at = startedAt[lastOf[j]];
+          return !!at && Date.now() - at > words(sentences[lastOf[j]]) * msPerWord + 300;
+        };
         for (const it of b.draw) {
           await until(r, () => !r.paused);
           if (r.stopped) return false;
           if (it.pending) await Promise.race([it.pending, sleep(6000)]);
-          await drawItem(it, est * 0.88 * weight(it) / tw, r, moved);
+          await drawItem(it, est * 0.9 * weight(it) / tw, r, idle);
           if (r.stopped) return false;
         }
         hand.setAttribute('visibility', 'hidden');
-        // then the rest of what she says about it (or, without her voice, time to read the caption)
-        if (b.say && voiced()) await until(r, () => said > lastOf[j] || !voiced());
-        else await hold(r, Math.max(0, est - (Date.now() - t0)));
+        // the drawing is done: now she may go on to the next beat (or, without her voice, time to read the caption)
+        feed(j + 1);
+        if (!withVoice) await hold(r, Math.max(0, est - (Date.now() - t0)));
         if (r.stopped) return false;
       }
       if (sess && !closed) { closed = true; sess.close(); }

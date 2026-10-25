@@ -146,6 +146,10 @@
 .lxa-card-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .lxa-card-actions button { padding: 7px 16px; border-radius: 10px; border: 1px solid var(--border-light); background: transparent; color: var(--text-primary); font-weight: 600; cursor: pointer; }
 .lxa-card-actions .lxa-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* her Confirm card while she works in the background (on a page, or in a box open on it): over everything, the box stays open */
+.lxa-float-confirm { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 10100; width: min(420px, calc(100vw - 32px)); box-sizing: border-box; box-shadow: 0 14px 40px rgba(15, 23, 42, 0.28); color: var(--text-primary); }
+.lxa-float-confirm[hidden] { display: none; }
+.lxa-float-confirm .lxa-small { margin: 4px 0 0; font-size: 0.8rem; color: var(--text-secondary); }
 .lxa-confirm { border-color: #F59E0B; }
 .lxa-warn { border-color: #DC2626; }
 .lxa-danger { color: #DC2626; }

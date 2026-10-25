@@ -306,7 +306,83 @@
     return new Response(stream, { status: res.status, statusText: res.statusText, headers: res.headers });
   }
 
+  // ---- visitors (not logged in): half the Free plan's budget each 4-hour window, kept on this device ----
+  // (2026-10-25, the owner's choice. Every tool's own quota check is skipped without an account, so the limit is kept
+  // here, where every AI request passes. Android: data/GuestQuota.kt, the same.)
+  const GUEST_KEY = 'rehab-guest-quota';
+  let guestMem = null;                                    // (when the browser blocks storage)
+  function guestBudget() {
+    const T = window.RehabPlanTiers;
+    const free = T && T.PLAN_TOKEN_BUDGET ? T.PLAN_TOKEN_BUDGET.free : 15000;
+    return free == null ? null : Math.floor(free / 2);
+  }
+  function guestWindow() {
+    const span = (window.RehabPlanTiers && window.RehabPlanTiers.QUOTA_WINDOW_MS) || 4 * 60 * 60 * 1000;
+    let q = guestMem;
+    try { q = JSON.parse(localStorage.getItem(GUEST_KEY) || 'null') || guestMem; } catch (e) { /* storage blocked */ }
+    if (!q || !q.windowStart || Date.now() - q.windowStart >= span) q = { windowStart: Date.now(), tokensUsed: 0 };
+    return Object.assign(q, { resetAt: q.windowStart + span });
+  }
+  function guestCheck() {
+    const budget = guestBudget();
+    if (budget == null) return;
+    const q = guestWindow();
+    if (q.tokensUsed < budget) return;
+    const mins = Math.max(1, Math.ceil((q.resetAt - Date.now()) / 60000));
+    throw new Error('You\'ve used the free tokens for visitors. Log in or sign up (it\'s free) to keep going, or wait about ' + mins + ' minute(s).');
+  }
+  function guestCharge(tokens) {
+    if (currentUid() || !(tokens > 0)) return;
+    const q = guestWindow();
+    guestMem = { windowStart: q.windowStart, tokensUsed: (q.tokensUsed || 0) + Math.ceil(tokens) };
+    try { localStorage.setItem(GUEST_KEY, JSON.stringify(guestMem)); } catch (e) { /* storage blocked: kept in memory */ }
+  }
+  const estimate = t => Math.ceil(String(t || '').length / 4);
+  /** Passes a visitor's reply on unchanged, counting its tokens (the question + the answer, at the model's rate). */
+  function guestMetered(res, body) {
+    if (!res || !res.ok) return res;
+    const times = ACTUAL_BILLING[body.model] || 1, asked = promptText(body);
+    if (!body.stream) {
+      res.clone().json().then(function (d) {
+        const c = d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+        guestCharge(estimate(asked + (c || '')) * times);
+      }).catch(function () {});
+      return res;
+    }
+    if (!res.body || !res.body.getReader) { guestCharge(estimate(asked) * times); return res; }
+    const reader = res.body.getReader(), decoder = new TextDecoder();
+    let text = '', buf = '';
+    const stream = new ReadableStream({
+      async pull(controller) {
+        const r = await reader.read();
+        if (r.done) { guestCharge(estimate(asked + text) * times); controller.close(); return; }
+        buf += decoder.decode(r.value, { stream: true });
+        const lines = buf.split('\n'); buf = lines.pop() || '';
+        lines.forEach(function (l) {
+          const t = l.trim();
+          if (!t.startsWith('data:')) return;
+          try { const j = JSON.parse(t.slice(5).trim()); const d = j.choices && j.choices[0] && j.choices[0].delta; if (d && d.content) text += d.content; } catch (e) { /* partial */ }
+        });
+        controller.enqueue(r.value);
+      },
+      cancel(reason) { guestCharge(estimate(asked + text) * times); return reader.cancel(reason); }
+    });
+    return new Response(stream, { status: res.status, statusText: res.statusText, headers: res.headers });
+  }
+
   window.fetch = async function (input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    if ((isOpenAIChat(url, init) || isDeepSeekChat(url, init)) && !currentUid()) {
+      guestCheck();
+      let body = null;
+      try { body = JSON.parse(init.body); } catch (e) { body = null; }
+      const res = await aiFetch(input, init);
+      return body ? guestMetered(res, body) : res;
+    }
+    return aiFetch(input, init);
+  };
+
+  async function aiFetch(input, init) {
     const url = typeof input === 'string' ? input : (input && input.url) || '';
     if (isOpenAIChat(url, init)) {
       let ob;
@@ -355,7 +431,7 @@
       if (fb && fb.ok) return fb;
     }
     return billed(res, body.model, body);
-  };
+  }
 
   // ---------------------------------------------------------------------------
   // Web search routing (Lixa): only OpenAI's search model can browse.
