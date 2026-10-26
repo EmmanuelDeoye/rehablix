@@ -174,6 +174,15 @@
       metadataContainer.appendChild(div);
     });
     // (patient reference numbers are no longer shown: records are found and linked by the patient's name)
+    // a presentation or report linked to a Smart EMR patient: the way back to that patient's file
+    if (type === 'case' && data && data.emrPatientId && /^[-\w]{1,64}$/.test(data.emrPatientId)) {
+      const a = document.createElement('a');
+      a.className = 'metadata-item';
+      a.href = 'index.html?patient=' + encodeURIComponent(data.emrPatientId) + '#/emr';
+      a.innerHTML = '<i class="fas fa-notes-medical"></i><span>Open in Smart EMR</span>';
+      a.addEventListener('click', e => { if (window.RehablixRouter && window.RehablixRouter.go) { e.preventDefault(); window.RehablixRouter.go(a.getAttribute('href')); } });
+      metadataContainer.appendChild(a);
+    }
   }
 
   function updatePublicToggleVisibility() {

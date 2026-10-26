@@ -88,7 +88,9 @@
 
   /** A new lesson, planned: opts { request, length, level }. */
   function planLesson(opts, adapter) {
-    return window.RehablixWhiteboard.plan({ ai: (req, onText) => ai(req, onText, adapter) }, opts);
+    // (pitched for the learner's own field: js/specialty.js)
+    const learner = (opts && opts.learner) || (window.RehablixSpecialty ? window.RehablixSpecialty.describe() : '');
+    return window.RehablixWhiteboard.plan({ ai: (req, onText) => ai(req, onText, adapter) }, Object.assign({}, opts, learner ? { learner } : {}));
   }
 
   // ---- Lixa's voice, sentence by sentence (her own voice and accent, as chosen in Lixa Agent)
@@ -266,16 +268,23 @@
     const ready = l.scenes.map((s, i) => ({ s, i })).filter(x => x.s.beats.length);
     if (!ready.length) throw new Error('No scene has been drawn yet. Play the lesson first.');
     const wrap = document.createElement('div');
+    let first = true;
     for (let n = 0; n < ready.length; n++) {
       const { s, i } = ready[n];
-      const png = await WB.toPNG(l, i, 1.6);
-      const page = document.createElement('div');
-      page.style.cssText = 'width:270mm;padding:4mm 0;font-family:Arial,sans-serif;color:#1f2937;' + (n ? 'page-break-before:always;' : '');
-      page.innerHTML = '<div style="font-size:13pt;font-weight:700;color:#0f766e;margin-bottom:2mm"></div><img style="width:100%;border:1px solid #e5e7eb;border-radius:6px"><div style="font-size:10pt;margin-top:3mm;line-height:1.45"></div>';
-      page.children[0].textContent = l.title + ' — ' + (i + 1) + '. ' + s.title;
-      page.children[1].src = png;
-      page.children[2].textContent = s.beats.map(b => b.say).join(' ');
-      wrap.appendChild(page);
+      // (a scene that turned to a clean page has a picture for each board-full)
+      const pages = WB.pageCount(l, i);
+      for (let p = 0; p < pages; p++) {
+        const png = await WB.toPNG(l, i, 1.6, p);
+        const page = document.createElement('div');
+        page.style.cssText = 'width:270mm;padding:4mm 0;font-family:Arial,sans-serif;color:#1f2937;' + (first ? '' : 'page-break-before:always;');
+        first = false;
+        page.innerHTML = '<div style="font-size:13pt;font-weight:700;color:#0f766e;margin-bottom:2mm"></div><img style="width:100%;border:1px solid #e5e7eb;border-radius:6px"><div style="font-size:10pt;margin-top:3mm;line-height:1.45"></div>';
+        page.children[0].textContent = l.title + ' — ' + (i + 1) + '. ' + s.title + (pages > 1 ? ' (' + (p + 1) + ' of ' + pages + ')' : '');
+        page.children[1].src = png;
+        // (what was said is printed once, under the scene's last page)
+        page.children[2].textContent = p === pages - 1 ? s.beats.map(b => b.say).join(' ') : '';
+        wrap.appendChild(page);
+      }
     }
     await window.html2pdf().set({ margin: 8, filename: fileName(l, 'pdf'), image: { type: 'jpeg', quality: 0.92 }, html2canvas: { scale: 1.5 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }, pagebreak: { mode: 'css' } }).from(wrap).save();
   }

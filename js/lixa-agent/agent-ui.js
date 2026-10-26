@@ -46,6 +46,8 @@
     onChange: () => render(),
     /** A few lines about what is on the page now, de-identified (patients are never named to the AI). */
     pageDetail(ids) {
+      const lesson = whiteboardDetail();
+      if (lesson) return lesson;
       const host = document.querySelector('#keepAliveHost:not([hidden]) .kept-alive-view:not([hidden])') || document.querySelector('#transientHost:not([hidden])');
       if (!host) return '';
       const heads = Array.from(host.querySelectorAll('h1, h2, h3, .tab.active, .tab-btn.active, [aria-selected="true"]'))
@@ -55,6 +57,22 @@
       return 'Headings and open tabs on the page: ' + heads.map(h => (D ? D.scrubText(h, ids) : h).slice(0, 80)).join(' | ') + '.';
     }
   };
+
+  /**
+   * The whiteboard lesson on screen, for her: which scene, what has just been said, and how to work with it (she
+   * answers questions about it as a new scene). Android: AgentPages.whiteboardDetail, the same.
+   */
+  function whiteboardDetail() {
+    if (route() !== 'whiteboard') return '';
+    const view = window.RehablixWhiteboardView, p = view && view.player && view.player();
+    if (!p || !p.now) return '';
+    const n = p.now();
+    const state = n.ended ? 'it has finished' : n.paused ? 'it is paused' : n.playing ? 'it is playing (it speaks in your voice)' : 'it is ready to play';
+    return 'A whiteboard lesson is on screen: "' + n.lesson + '", scene ' + (n.scene + 1) + ' of ' + n.of + ' ("' + n.title + '"); ' + state + '.' +
+      (n.said ? ' Just said in this scene: "' + String(n.said).slice(-700) + '"' : '') +
+      ' When the user asks about the lesson (what something means, to explain a part again, an example, to go deeper), answer it ON THE BOARD with whiteboard_change (it draws and explains a new scene now); ' +
+      'use whiteboard_step to pause, carry on, or go to a scene. Keep what you say yourself to one short sentence.';
+  }
 
   // ------------------------------------------------------------------ building the screen
   function build() {
@@ -480,9 +498,45 @@
       if (moved) {
         bubblePos = { x: bubble.offsetLeft / window.innerWidth, y: bubble.offsetTop / window.innerHeight };
         try { localStorage.setItem('rehab-agent-bubble', JSON.stringify(bubblePos)); } catch (e) { /* ignore */ }
-      } else open();
+      } else tapBubble();
     });
     window.addEventListener('resize', () => { if (!bubble.hidden) placeBubble(); });
+  }
+
+  // ------------------------------------------------------------------ a whiteboard lesson: tap her to pause it and talk
+  // While a lesson talks through her, a tap on the bubble pauses the lesson and she listens; when she has answered (or
+  // after a quiet 12 seconds) the lesson carries on where it stopped — unless her answer started a new scene, which
+  // plays at once. Android: AgentBubble / AgentMode.lessonHeld, the same.
+  let heldLesson = null, heldTimer = null;
+  function lessonPlayer() {
+    if (route() !== 'whiteboard') return null;
+    const v = window.RehablixWhiteboardView;
+    const p = v && v.player ? v.player() : null;
+    return p && p.now ? p : null;
+  }
+  function tapBubble() {
+    const p = lessonPlayer();
+    if (p && session && p.now().playing) {
+      p.pause();
+      heldLesson = { at: Date.now(), busy: false };
+      clearInterval(heldTimer);
+      heldTimer = setInterval(watchHeldLesson, 500);
+      session.voice.unlock();
+      session.listen();
+      return;
+    }
+    open();
+  }
+  function watchHeldLesson() {
+    const p = lessonPlayer();
+    if (!heldLesson || !p || !session) { clearInterval(heldTimer); heldLesson = null; return; }
+    const s = session.state;
+    if (s === 'Thinking' || s === 'Working' || s === 'Speaking' || session.view.confirm) { heldLesson.busy = true; return; }
+    if (!heldLesson.busy && Date.now() - heldLesson.at < 12000) return;
+    // (she worked the lesson herself meanwhile — paused it, moved it, added a scene: that stands)
+    const S = window.RehablixWhiteboardService, acted = S && S.agentActedAt && S.agentActedAt >= heldLesson.at;
+    if (!acted && p.now().paused) p.resume();
+    clearInterval(heldTimer); heldLesson = null;
   }
 
   // ------------------------------------------------------------------ the ways in: navbar icon, Lixa logo, empty Send

@@ -195,7 +195,8 @@
       Object.keys(data || {}).forEach(id => {
         const item = data[id] || {};
         const title = String(src.titleOf(item) || item.title || 'Untitled');
-        const hay = norm(title + ' ' + src.label);
+        // (a patient's work is also found by the patient's name and diagnosis: "open Mrs Ade's presentation")
+        const hay = norm(title + ' ' + src.label + (src.patient ? ' ' + [item.patientName, item.diagnosis].filter(Boolean).join(' ') : ''));
         const score = words.length ? words.filter(w => hay.includes(w)).length : 1;
         if (score > 0) all.push({ id, src, title, score, at: item.updatedAt || item.createdAt || item.timestamp || 0 });
       });
@@ -587,6 +588,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
           if (!S()) return { ok: false, text: 'The whiteboard is not available.' };
           if (!host.loggedIn()) return { ok: false, text: 'Saved lessons need the user to log in.' };
           if (notPaid()) return notPaid();
+          S().agentActedAt = Date.now();
           const want = String(a.which || 'current').toLowerCase().trim();
           let id = null;
           if (want && want !== 'current' && want !== 'last') {
@@ -605,6 +607,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
         risk: 'READ', describe: 'whiteboard_step {"go": "next" | "previous" | "first" | "last" | "again" | "pause" | "play" | "<scene number>"} — moves the whiteboard lesson on screen to a scene and plays it, plays the scene again, or pauses / carries on.',
         async run(a) {
           if (notPaid()) return notPaid();
+          if (S()) S().agentActedAt = Date.now();          // (a lesson paused by a tap on her stays as she left it)
           const p = player();
           if (!p || host.route() !== 'whiteboard') return { ok: false, text: 'No whiteboard lesson is open. Use whiteboard_open first.' };
           const l = p.lesson(), cur = p.scene(), g = String(a.go || 'next').toLowerCase().trim();
@@ -622,6 +625,7 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
         check: a => (!a.instruction ? 'instruction is needed' : null),
         async run(a) {
           if (!S() || !host.loggedIn()) return { ok: false, text: 'The user needs to log in.' };
+          S().agentActedAt = Date.now();
           if (notPaid()) return notPaid();
           const p = player();
           if (!p || host.route() !== 'whiteboard') {
@@ -774,7 +778,180 @@ Use one tool at a time and wait for its result. Only use ids and refs that appea
           return { ok: true, text: 'Created and saved. Its card (with its name) is in the Lixa chat, and it is in History > Files.' + (a.tool === 'whiteboard' ? ' Open it with whiteboard_open, then go through it with whiteboard_step.' : '') };
         }
       }
-    }, whiteboardTools(host), screenTools(host));
+    }, whiteboardTools(host), screenTools(host), presentationEmrTools(host), sightTools(host));
+  }
+
+  /**
+   * Seeing the screen (2026-10-26, the owner's choice: on request, paid plans): a picture of the Rehablix page (never
+   * other apps or tabs; her own agent screen is left out) looked at by the vision model, for what words alone cannot
+   * show. About 1,100 tokens of image per look, at the OpenAI rate. Android: AgentSight.kt, the same.
+   */
+  const H2C = { src: 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', integrity: 'sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgNS4tSPHuGibyoeqMV/TJlSKda6FXzoEyYGjTe+vXA==' };
+  const LOOK_IMAGE_TOKENS = 1100, LOOK_WEIGHT = 4;
+  function html2canvasReady() {
+    if (window.html2canvas) return Promise.resolve(window.html2canvas);
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = H2C.src; s.integrity = H2C.integrity; s.crossOrigin = 'anonymous'; s.referrerPolicy = 'no-referrer';
+      s.onload = () => (window.html2canvas ? resolve(window.html2canvas) : reject(new Error('no html2canvas')));
+      s.onerror = () => reject(new Error('The screen picture could not be taken.'));
+      document.head.appendChild(s);
+    });
+  }
+  async function screenPicture() {
+    const h2c = await html2canvasReady();
+    const canvas = await h2c(document.body, {
+      backgroundColor: getComputedStyle(document.body).backgroundColor || '#ffffff', scale: Math.min(1, 1280 / Math.max(1, window.innerWidth)),
+      useCORS: true, logging: false, x: window.scrollX, y: window.scrollY, width: window.innerWidth, height: window.innerHeight,
+      windowWidth: document.documentElement.clientWidth, windowHeight: window.innerHeight,
+      // (her own agent screen and bubble are not part of what she looks at)
+      ignoreElements: el => el.id === 'lixaAgent' || el.id === 'lixaAgentBubble' || (el.classList && el.classList.contains('lxa-float-confirm')),
+    });
+    return canvas.toDataURL('image/jpeg', 0.72);
+  }
+  function sightTools(host) {
+    return {
+      look_at_screen: {
+        risk: 'READ',
+        describe: 'look_at_screen {"question": "<what to look for or answer from the screen>"} — takes a picture of the Rehablix page on the screen (only this app, never other apps or tabs) and looks at it: layout, charts, images, colours, a highlighted or greyed-out control, an error, anything the words alone do not show. It uses more tokens than read_screen: for the words on the screen use read_screen; use look_at_screen when the user asks you to look at the screen, or when the answer has to be seen. Paid plans only.',
+        check: a => (!a.question ? 'question is needed' : null),
+        async run(a) {
+          const u = user();
+          if (!u) return { ok: false, text: 'Looking at the screen needs an account. Tell the user to log in first.' };
+          const lv = (window.RehabPlanTiers && window.RehabPlanTiers.PLAN_LEVEL) || { free: 0, student: 1, pro: 2, max: 3 };
+          if (!(lv[plan()] >= 1)) return { ok: false, text: 'Looking at the screen comes with the Basic, Pro and Max plans. Tell the user (they can upgrade under Plans), and offer read_screen, which reads the words on the screen.' };
+          await Quota.check();
+          let image;
+          try { image = await screenPicture(); } catch (e) { return { ok: false, text: 'The screen picture could not be taken (' + ((e && e.message) || 'unknown') + '). Use read_screen instead.' }; }
+          const core = window.RehablixAIQuotaCore;
+          const cfg = core && await core.resolveModelConfig('blix360');                  // (the OpenAI connection, as the app's own image tasks use it)
+          if (!cfg || !cfg.endpoint) return { ok: false, text: 'Looking at the screen is not available right now. Use read_screen instead.' };
+          const question = String(a.question).slice(0, 600);
+          const system = 'You are looking at a picture of the Rehablix app\'s screen for Lixa, the app\'s assistant, to answer the user. Describe only what is actually visible; say plainly when something cannot be seen or read. Be brief and concrete (what is where, its state, any error or warning). Do not invent content.';
+          let answer = '';
+          try {
+            const res = await fetch(cfg.endpoint.replace(/\/$/, '') + '/chat/completions', {
+              method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cfg.token },
+              body: JSON.stringify({ model: 'gpt-4.1', max_tokens: 700, temperature: 0.2, messages: [{ role: 'system', content: system }, { role: 'user', content: [{ type: 'text', text: question }, { type: 'image_url', image_url: { url: image, detail: 'high' } }] }] }),
+            });
+            if (!res.ok) return { ok: false, text: 'The picture could not be looked at (' + res.status + '). Use read_screen instead.' };
+            const d = await res.json();
+            answer = ((d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '').trim();
+          } catch (e) { return { ok: false, text: 'The picture could not be looked at (no connection). Use read_screen instead.' }; }
+          // (the picture's tokens and the words, at the OpenAI rate)
+          if (window.RehabPlanTiers) window.RehabPlanTiers.consumeQuota(u.uid, plan(), LOOK_IMAGE_TOKENS, LOOK_WEIGHT).catch(() => {});
+          Quota.report(system + question + answer, LOOK_WEIGHT);
+          return answer ? { ok: true, text: 'Looking at the screen: ' + answer } : { ok: false, text: 'Nothing could be made out from the picture. Use read_screen instead.' };
+        }
+      }
+    };
+  }
+
+  /**
+   * Presentation Maker and Smart EMR together: a presentation written from a patient's Smart EMR record (and linked to
+   * them), and a presentation's content linked into the patient's file (as Smart EMR's own Link button does).
+   * Android: AgentEmr presentation tools, the same.
+   */
+  function presentationEmrTools(host) {
+    async function emrScope() {
+      const u = user(); if (!u) return null;
+      try { if (window.RehablixCenter && window.RehablixCenter.getEffectiveScopeUid) return (await window.RehablixCenter.getEffectiveScopeUid('doc')) || null; } catch (e) { /* personal */ }
+      return u.uid;
+    }
+    /** The Smart EMR patient called [name]: {ok, scope, id, data} | {ok: false, text}. */
+    async function emrPatient(name) {
+      const scope = await emrScope();
+      if (!scope) return { ok: false, text: 'Smart EMR is not available to this account (log in, or the group admin has turned it off).' };
+      const words = norm(name).split(' ').filter(w => w.length >= 2);
+      if (!words.length) return { ok: false, text: 'Say which patient (their name as it is in Smart EMR).' };
+      const idx = window.RehablixEmrStore ? await window.RehablixEmrStore.loadIndex(scope) : {};
+      const hits = Object.keys(idx || {}).map(id => ({ id, e: idx[id] || {} })).filter(h => h.e.name && words.every(w => norm(h.e.name).split(' ').some(n => n.startsWith(w))));
+      if (!hits.length) return { ok: false, text: 'No Smart EMR patient is called "' + name + '". Ask the user for the name as it is in Smart EMR.' };
+      if (hits.length > 1) return { ok: false, text: hits.length + ' Smart EMR patients match "' + name + '": ' + hits.slice(0, 5).map(h => h.e.name).join('; ') + '. Ask the user which one.' };
+      const data = (await firebase.database().ref('history/' + scope + '/patients/' + hits[0].id).once('value')).val();
+      if (!data) return { ok: false, text: 'That patient\'s record could not be read.' };
+      return { ok: true, scope, id: hits[0].id, data };
+    }
+    /** A saved presentation or report: the one open on the screen ("open"), else the best match for [words]. */
+    async function presentation(words) {
+      const u = user(); if (!u) return null;
+      let id = null;
+      const w = String(words || 'open').trim();
+      if (!w || /^(open|this|current|it)$/i.test(w)) {
+        const q = new URLSearchParams(window.location.search);
+        if (host.route() === 'result' && q.get('type') === 'case') id = q.get('id');
+      } else {
+        const hits = (await searchSaved(w, u.uid)).filter(h => h.src.type === 'presentation');
+        if (hits.length) id = hits[0].id;
+      }
+      if (!id || !/^[-\w]{1,64}$/.test(id)) return null;
+      const rec = (await firebase.database().ref('history/' + u.uid + '/caseHistory/' + id).once('value')).val();
+      return rec ? { id, rec } : null;
+    }
+    return {
+      presentation_from_emr: {
+        risk: 'WRITE',
+        describe: 'presentation_from_emr {"patient": "<the patient\'s name, as in Smart EMR>", "type": "presentation" | "report" | "documentation", "focus": "<optional: what to emphasise, in the user\'s words>"} — WRITE: writes a case presentation (or a clinical report, or documentation) from that patient\'s Smart EMR record (intake, assessment, problems, treatment plan, sessions and progress), saves it linked to the patient (it shows in the patient\'s Linked Records, and it has an "Open in Smart EMR" link) and opens it.',
+        confirmText: a => 'Write a ' + (['report', 'documentation'].indexOf(a.type) >= 0 ? (a.type === 'report' ? 'clinical report' : 'documentation') : 'case presentation') + ' from ' + String(a.patient || 'this patient') + '\'s Smart EMR record?',
+        check: a => (!a.patient ? 'patient is needed' : null),
+        long: true,
+        async run(a) {
+          if (!host.loggedIn()) return { ok: false, text: 'The user needs to log in first. Nothing was created.' };
+          const P = await emrPatient(a.patient);
+          if (!P.ok) return P;
+          const PC = window.RehablixPatientContext;
+          const notes = PC ? PC.toPromptText(await PC.build(P.scope, P.id, P.data)) : '';
+          if (!notes) return { ok: false, text: 'That patient\'s record has nothing to write from yet.' };
+          let orch = window.LixaOrchestrator;
+          if (!orch || !orch.agentCreate) {
+            host.open('#/lixa');
+            for (let i = 0; i < 40 && !(window.LixaOrchestrator && window.LixaOrchestrator.agentCreate); i++) await new Promise(r => setTimeout(r, 150));
+            orch = window.LixaOrchestrator;
+            if (!orch || !orch.agentCreate) return { ok: false, text: 'The Lixa chat is not ready, so nothing was created.' };
+          }
+          const mode = ['report', 'documentation'].indexOf(a.type) >= 0 ? a.type : 'presentation';
+          const r = await orch.agentCreate('presentation', 'A ' + (mode === 'presentation' ? 'case presentation' : mode) + ' for ' + P.data.name + ', from their Smart EMR record', {
+            content: 'FROM THE PATIENT\'S SMART EMR RECORD:\n' + notes, mode, patientName: P.data.name || '', diagnosis: P.data.primaryDx || '',
+            additionalInstructions: String(a.focus || '').slice(0, 600), emrPatientId: P.id, emrScope: P.scope,
+          });
+          if (!r || !r.ok) return { ok: false, text: 'It could not be written: ' + ((r && r.error) || 'unknown error') + '. Nothing was saved.' };
+          const id = r.fileCard && r.fileCard.recordId;
+          if (id) host.open('index.html?type=case&id=' + id + '#/result');
+          return { ok: true, text: 'Written from Smart EMR, saved, linked to the patient and open on the screen. Its card is also in the Lixa chat.' };
+        }
+      },
+      emr_update_from_presentation: {
+        risk: 'WRITE',
+        describe: 'emr_update_from_presentation {"presentation": "open" | "<words: the patient\'s name or the title>", "patient": "<optional: the Smart EMR patient\'s name, when it is not the presentation\'s patient>"} — WRITE: links a saved presentation or report to its Smart EMR patient and adds its content to the patient\'s Assessment (what the Link button in Smart EMR\'s Linked Records does). "open" = the one on the screen.',
+        confirmText: a => 'Add this presentation to ' + (a.patient ? String(a.patient) + '\'s' : 'the patient\'s') + ' Smart EMR file (linked, and its content added to the Assessment)?',
+        async run(a) {
+          if (!host.loggedIn()) return { ok: false, text: 'The user needs to log in first. Nothing was changed.' };
+          const doc = await presentation(a.presentation);
+          if (!doc) return { ok: false, text: 'No saved presentation or report matches. Ask the user which one (or to open it).' };
+          const P = await emrPatient(a.patient || doc.rec.patientName || '');
+          if (!P.ok) return P;
+          const S = window.RehablixEmrStore, PC = window.RehablixPatientContext;
+          if (!S) return { ok: false, text: 'Smart EMR is not available right now. Nothing was changed.' };
+          const title = doc.rec.fileName || doc.rec.documentType || 'Presentation';
+          const date = new Date(doc.rec.timestamp || Date.now()).toLocaleDateString();
+          const entry = { source: 'caseHistory', key: doc.id, type: title, date, linkedAt: new Date().toISOString(), structuredSummary: null };
+          let added = true;
+          try {
+            await S.mutateList(P.scope, P.id, 'linkedRecords', arr => {
+              if (arr.some(r => r && r.source === entry.source && r.key === entry.key)) { added = false; return false; }
+              arr.push(entry);
+            }, { allowEmpty: true });
+          } catch (e) { return { ok: false, text: (e && e.message) || 'The patient\'s file could not be changed. Nothing was changed.' }; }
+          if (added) {
+            const text = PC ? PC.stripMarkdown(doc.rec.resultsMarkdown || doc.rec.results || '') : String(doc.rec.results || '');
+            await firebase.database().ref('history/' + P.scope + '/patients/' + P.id + '/assessment').transaction(cur => (cur ? cur + '\n\n' : '') + '--- Linked from ' + title + ' (' + date + ') ---\n' + text);
+            S.audit(P.scope, P.id, 'link', 'Linked ' + title);
+          }
+          if (!doc.rec.emrPatientId) firebase.database().ref('history/' + user().uid + '/caseHistory/' + doc.id + '/emrPatientId').set(P.id).catch(() => {});
+          return { ok: true, text: added ? 'Linked to the patient in Smart EMR and its content added to their Assessment. They can open the patient from the presentation\'s "Open in Smart EMR".' : 'It was already linked to that patient: nothing was added again.' };
+        }
+      }
+    };
   }
 
   /**

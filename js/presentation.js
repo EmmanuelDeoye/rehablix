@@ -1693,7 +1693,11 @@ ${combinedText || 'No notes provided.'}`;
             configSections.forEach(section => {
                 section.style.display = section.dataset.mode === currentMode ? 'block' : 'none';
             });
+            // the user's area of specialization fills "Your profession" when nothing was chosen (js/specialty.js)
+            if (window.RehablixSpecialty) window.RehablixSpecialty.preset(professionSelect, 'presentation');
+            validateForm();
         }, 100);
+        document.addEventListener('rehablix:specialty', () => { if (window.RehablixSpecialty) { window.RehablixSpecialty.preset(professionSelect, 'presentation'); validateForm(); } });
         
         console.log('[INIT] Ready - Plan:', currentPlan);
     }

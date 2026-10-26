@@ -443,8 +443,10 @@
     },
     /** How she treats greetings and pleasantries: with the user's first name (blank when unknown). Same text as Android. */
     nameLine(name) {
-      return !name || !String(name).trim() ? '' :
-        `\n\nThe user's first name is ${name}. Use their first name only when they greet you at the start of a conversation or say goodbye, naturally and at most once (for example "Good morning, ${name}!" or "Bye for now, ${name}!"). Never put their name in any other reply (not for thanks, please, sorry or answers): most replies have no name at all.`;
+      // (and their area of specialization, which every answer is tailored to: js/specialty.js)
+      const spec = typeof window !== 'undefined' && window.RehablixSpecialty ? window.RehablixSpecialty.promptLine() : '';
+      return (!name || !String(name).trim() ? '' :
+        `\n\nThe user's first name is ${name}. Use their first name only when they greet you at the start of a conversation or say goodbye, naturally and at most once (for example "Good morning, ${name}!" or "Bye for now, ${name}!"). Never put their name in any other reply (not for thanks, please, sorry or answers): most replies have no name at all.`) + spec;
     },
     /** {start: mode} | {end: true} | null. A mode is {kind, startedWith}. */
     change(said, current) {

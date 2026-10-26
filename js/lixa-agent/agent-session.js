@@ -576,7 +576,10 @@
       const request = (cutOff ? cutOff + '\n\nWhat the user says now: ' : '') + window.RehablixDeidentify.scrubText(said, ids);
       const talk = this.view.talkMode;
       const ending = !!(this.endingTalk && talk); this.endingTalk = false;
-      const direct = !!talk || !Rr.Talk.needsApp(said);
+      // (a whiteboard lesson on screen: everything goes through the agent, which sees the lesson and can answer a
+      // question about it on the board as a new scene)
+      const lessonOnScreen = !talk && this.host.route() === 'whiteboard' && !!(window.RehablixWhiteboardView && window.RehablixWhiteboardView.player && window.RehablixWhiteboardView.player());
+      const direct = !!talk || (!lessonOnScreen && !Rr.Talk.needsApp(said));
       const reaction = this.muted || direct || again ? null : Rr.Reactions.pick(said);
       const job = this.startSpeaking();
       this.turnRequest = request; this.turnLogged = false;

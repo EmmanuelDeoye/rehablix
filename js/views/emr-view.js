@@ -105,12 +105,30 @@
             loadDashboardData();
             loadPatientsList();
             if (window.RehablixRegMigration) window.RehablixRegMigration.checkAndPrompt(scopeUid, 'patients'); // EMR UPGRADE (item 5)
+            takePatientLink();
         } else {
             console.log('[EMR] User logged out');
             showToast('Please log in to use the EMR', 'info', 3000);
         }
     });
     cleanupFns.push(unsubAuth);
+
+    // A link straight to one patient, index.html?patient=<id>#/emr (a presentation's "Open in Smart EMR", Lixa Agent):
+    // kept until the account and its patients' scope are known, then the patient is opened.
+    let pendingPatientLink = null;
+    function takePatientLink() {
+        try {
+            const id = new URLSearchParams(window.location.search).get('patient');
+            if (id && /^[-\w]{1,64}$/.test(id)) {
+                pendingPatientLink = id;
+                if (window.RehablixRouter && window.RehablixRouter.clearQuery) window.RehablixRouter.clearQuery();
+            }
+        } catch (e) { /* no link */ }
+        if (!pendingPatientLink || !currentUser || !scopeUid) return;
+        const id = pendingPatientLink;
+        pendingPatientLink = null;
+        Promise.resolve(openPatient(id)).catch(() => showToast('That patient could not be opened.', 'error'));
+    }
 
     // Resolves which uid's patient data this session should use — see the
     // scopeUid declaration above for why this differs for group members.
@@ -2884,7 +2902,15 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         document.getElementById('assessmentAttachments').innerHTML = '';
         document.getElementById('extractionProgress').style.display = 'none';
         uploadedFileRefs = [];
+        presetIntakeProfession();
     }
+    // A new patient's discipline starts as the user's own area of specialization (js/specialty.js)
+    function presetIntakeProfession() {
+        if (isEditingPatient || !window.RehablixSpecialty) return;
+        window.RehablixSpecialty.preset(document.getElementById('intakeProfession'), 'emr');
+    }
+    presetIntakeProfession();
+    document.addEventListener('rehablix:specialty', presetIntakeProfession);
 
     document.getElementById('intakeNextBtn')?.addEventListener('click', function() {
         if (isEditingPatient) updatePatient(false);
@@ -3260,6 +3286,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
             loadDashboardData();
             loadPatientsList();
         }
+        takePatientLink();
         console.log('[EMR] Ready');
     }
 
@@ -3287,6 +3314,7 @@ Use plain, professional language. Do not use markdown formatting.${CLINICAL_INTE
         const btn = document.getElementById('emrSearchToggle');
         if (slot && btn) slot.appendChild(btn);
         applyHandoff();
+        takePatientLink();
         // A patient opened before navigating away is still in
         // currentPatientData (this view is kept alive) — nothing to
         // reload; the realtime listener already kept it current in the

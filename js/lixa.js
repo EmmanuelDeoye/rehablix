@@ -783,6 +783,8 @@
 
     function fieldInputHtml(field, value) {
       const id = `lixaField_${core.escapeHtml(field.key)}`;
+      // (a "profession" field starts as the user's area of specialization: js/specialty.js)
+      if ((value === undefined || value === null || value === '') && field.key === 'profession' && window.RehablixSpecialty) value = window.RehablixSpecialty.label();
       const val = value === undefined || value === null ? '' : String(value);
       if (field.type === 'textarea') {
         return `<textarea id="${id}" name="${core.escapeHtml(field.key)}" rows="3" placeholder="${core.escapeHtml(field.placeholder || '')}">${core.escapeHtml(val)}</textarea>`;
@@ -1424,11 +1426,19 @@
     // nothing was). The request and the finished file card go into this chat, as when it is typed here.
     // Returns {ok, fileCard} | {ok: false, missing: [questions]} | {ok: false, error}.
     let agentCreating = false;
-    async function agentCreate(toolId, request) {
+    // [given]: fields already known (e.g. a presentation written from a Smart EMR record: its notes, patient and link).
+    async function agentCreate(toolId, request, given) {
       const tool = TOOLS[toolId];
       if (!tool || toolId === 'audio') return { ok: false, error: 'there is no generator called "' + toolId + '"' };
       if (agentCreating || pending) return { ok: false, error: 'the Lixa chat is busy with another file right now; try again in a moment' };
       const text = String(request || '').trim();
+      if (given && typeof given === 'object') {
+        agentCreating = true;
+        try {
+          pushUserText(text);
+          return await runGeneration(toolId, Object.assign({}, given));
+        } finally { agentCreating = false; }
+      }
       const collected = (tool.extractFromText ? tool.extractFromText(text) : {}) || {};
       // (the same reading of the request as startTool: too little detail means the main input is missing)
       if (TASK_SETUP_SCHEMAS[toolId] && toolId !== 'standardized') {

@@ -366,14 +366,18 @@
       if (sc.status === 'ready' && !sc.beats.length) sc.status = 'empty';
       return sc;
     });
-    return { v: 2, title: str(o.title, 100) || 'Whiteboard lesson', subject: str(o.subject, 60), request: str(o.request, 2000), level: str(o.level, 120), length, scenes };
+    const out = { v: 2, title: str(o.title, 100) || 'Whiteboard lesson', subject: str(o.subject, 60), request: str(o.request, 2000), level: str(o.level, 120), length, scenes };
+    // (the learner's own field, e.g. "a physiotherapy student": examples and terms are pitched for it)
+    if (o.learner) out.learner = str(o.learner, 120);
+    return out;
   }
   function normBeat(b, used) {
     if (!b || typeof b !== 'object') return null;
     const say = str(b.say, 900);
     const draw = (Array.isArray(b.draw) ? b.draw : (b.draw ? [b.draw] : [])).slice(0, 5).map(it => normItem(it, used)).filter(Boolean);
     if (!say && !draw.length) return null;
-    return { say, draw };
+    // (clear: this beat starts on a fresh page of the board)
+    return b.clear === true ? { say, draw, clear: true } : { say, draw };
   }
   // (what is saved: a scene being written is saved as not written; a picture being made is not saved)
   const leanLesson = l => JSON.parse(JSON.stringify(l, (k, v) => (k === 'pending' ? undefined : k === 'status' && v === 'writing' ? 'empty' : v)));
@@ -433,7 +437,8 @@
       'clears up a common mistake when there is one; ends with a short recap and a question to think about. ' +
       'Every scene\'s visual is drawn by hand for this idea (no stock pictures): give each scene a DIFFERENT kind (the people involved acting it out, an analogy drawing, a labelled drawing of the body part, a flow, a cycle, a side-by-side comparison, a timeline, a chart, a mnemonic list…). ' +
       'Whatever the learner says about style, depth, audience, tone, examples or length comes first.';
-    const user = 'LEARNER\'S REQUEST: ' + str(o.request, 2000) + (o.level ? '\nAUDIENCE: ' + str(o.level, 120) : '') + '\nLENGTH: ' + L.label;
+    const user = 'LEARNER\'S REQUEST: ' + str(o.request, 2000) + (o.level ? '\nAUDIENCE: ' + str(o.level, 120) : '') +
+      (o.learner ? '\nTHE LEARNER IS ' + str(o.learner, 120) + ' (pitch examples, terms and cases for that field, unless the request says otherwise)' : '') + '\nLENGTH: ' + L.label;
     return { system, user, maxTokens: 1600 };
   }
 
@@ -442,7 +447,7 @@
     const p = extractJson(raw), o = opts || {};
     const scenes = (Array.isArray(p.scenes) ? p.scenes : []).slice(0, 14).map(s => ({ title: s && s.title, goal: s && s.goal, visual: s && s.visual, status: 'empty', beats: [] }));
     if (!scenes.length) throw new Error('The SI did not plan any scenes. Please try again.');
-    return normalizeLesson({ v: 2, title: p.title, subject: p.subject, request: o.request, level: o.level, length: o.length, scenes });
+    return normalizeLesson({ v: 2, title: p.title, subject: p.subject, request: o.request, level: o.level, learner: o.learner, length: o.length, scenes });
   }
 
   /** The prompt for scene [k] of [lesson]: written as a stream of beats, one JSON object a line. */
@@ -461,11 +466,14 @@
       vocabText() + '\n' +
       (o.picture ? 'You may also use at most one {"id": "q1", "type": "picture", "x": 600, "y": 130, "w": 340, "h": 260, "prompt": "<what an AI illustration should show>"} when a real-looking picture truly helps.\n' : '') +
       '\nLAYOUT: the board is 1000 wide and 640 high; keep everything inside x 30-970 and y 100-620 (the title uses the top). Plan the whole page before the first beat so that later items have room; ' +
-      'leave 25 px between items and never overlap; prefer a few big, clear drawings to many small ones; text big enough to read (size 26-44). Ids are unique within the scene.';
+      'leave 25 px between items and never overlap; prefer a few big, clear drawings to many small ones; text big enough to read (size 26-44). Ids are unique within the scene. ' +
+      'Use the space wisely: fill the board from left to right and top to bottom, keep related things next to each other, and when the board is full turn to a clean page by putting "clear": true on the beat that starts it ({"say": "…", "clear": true, "draw": […]}: the board is wiped, the title stays). ' +
+      'After a clean page, never point at (emphasis) or join (arrow) anything from the page before.';
     const outline = lesson.scenes.map((s, i) => (i + 1) + '. ' + s.title + (s.goal ? ': ' + s.goal : '') + (i === k ? '   <== THIS SCENE' : '')).join('\n');
     const before = lesson.scenes.slice(0, k).filter(s => s.beats.length).map((s, i) => '- ' + s.title + ': ' + s.beats.map(b => b.say).join(' ').slice(0, 260)).join('\n');
     const user = 'LESSON: ' + lesson.title + (lesson.subject ? ' (' + lesson.subject + ')' : '') +
-      '\nTHE LEARNER ASKED FOR: ' + (lesson.request || lesson.title) + (lesson.level ? '\nAUDIENCE: ' + lesson.level : '') + '\nLENGTH: ' + L.label +
+      '\nTHE LEARNER ASKED FOR: ' + (lesson.request || lesson.title) + (lesson.level ? '\nAUDIENCE: ' + lesson.level : '') +
+      (lesson.learner ? '\nTHE LEARNER IS ' + lesson.learner + ' (examples, terms and cases from that field)' : '') + '\nLENGTH: ' + L.label +
       '\n\nTHE LESSON\'S SCENES:\n' + outline +
       (before ? '\n\nALREADY SAID (do not repeat it; build on it):\n' + before : '') +
       '\n\nWRITE SCENE ' + (k + 1) + ' of ' + lesson.scenes.length + ': "' + sc.title + '"' + (sc.goal ? '\nGOAL: ' + sc.goal : '') + (sc.visual ? '\nVISUAL IDEA: ' + sc.visual : '') +
@@ -1056,42 +1064,99 @@
   // ------------------------------------------------------------------ layout: inside the board, clear of what is already there
   const FREE_TYPES = { arrow: 1, line: 1, emphasis: 1 };
   const overlaps = (a, b, m) => a.x < b.x + b.w + m && b.x < a.x + a.w + m && a.y < b.y + b.h + m && b.y < a.y + a.h + m;
-  /** Moves [it] (small moves only) so it is on the board and clear of [placed] rectangles. */
-  function placeItem(it, placed, all) {
-    if (FREE_TYPES[it.type]) return;
-    const move = (dx, dy) => { it.x += dx; it.y += dy; };
-    let b = render(it, all).box;
-    if (b.x + b.w > W - 20) move(-Math.min(b.x - 20, b.x + b.w - (W - 20)), 0);
-    if (b.y + b.h > H - 14) move(0, -Math.min(b.y - 96, b.y + b.h - (H - 14)));
-    b = render(it, all).box;
-    if (b.x < 20) move(20 - b.x, 0);
-    if (b.y < 96) move(0, 96 - b.y);
-    const ok = () => { const x = render(it, all).box; return x.x >= 14 && x.y >= 92 && x.x + x.w <= W - 14 && x.y + x.h <= H - 8 && !placed.some(p => overlaps(x, p, 14)); };
-    if (ok()) return;
-    const ox = it.x, oy = it.y;
-    for (let d = 10; d <= 260; d += 10) {
-      for (const [dx, dy] of [[0, d], [d, 0], [-d, 0], [0, -d], [d, d], [-d, d]]) { it.x = ox + dx; it.y = oy + dy; if (ok()) return; }
-    }
-    it.x = ox; it.y = oy;
+  const onBoard = b => b.x >= 14 && b.y >= 92 && b.x + b.w <= W - 14 && b.y + b.h <= H - 8;
+  /** [it] made smaller by [f] (its width, height and size), never below readable sizes. */
+  function shrinkItem(it, f) {
+    ['w', 'h', 'size'].forEach(k => { if (typeof it[k] === 'number') it[k] = Math.round(it[k] * f); });
+    if (typeof it.size === 'number') it.size = Math.max(it.type === 'icon' ? 40 : 22, it.size);
   }
-  /** Lays out [beat]'s items against the scene's earlier items (and its title). */
+  /**
+   * Puts [it] in the free place on the board nearest to where the AI meant it (the whole board is searched), clear of
+   * [placed]; false when there is no such place.
+   */
+  function freeSpot(it, placed, all) {
+    const b = render(it, all).box;
+    if (b.w > W - 28 || b.h > H - 100) return false;
+    const ox = it.x - b.x, oy = it.y - b.y;                // (the item's own corner, from its box's)
+    const tx = Math.min(Math.max(14, b.x), W - 14 - b.w), ty = Math.min(Math.max(92, b.y), H - 8 - b.h);
+    const free = (x, y) => !placed.some(p => overlaps({ x, y, w: b.w, h: b.h }, p, 14));
+    let best = free(tx, ty) ? [tx, ty, 0] : null;
+    if (!best) {
+      for (let y = 92; y + b.h <= H - 8; y += 12) {
+        for (let x = 14; x + b.w <= W - 14; x += 12) {
+          if (!free(x, y)) continue;
+          const d = (x - tx) * (x - tx) + (y - ty) * (y - ty);
+          if (!best || d < best[2]) best = [x, y, d];
+        }
+      }
+    }
+    if (!best) return false;
+    it.x = best[0] + ox; it.y = best[1] + oy;
+    // (an item drawn towards another one may not move exactly with its box: checked for real)
+    const r = render(it, all).box;
+    return onBoard(r) && !placed.some(p => overlaps(r, p, 14));
+  }
+  /** Places [it] clear of [placed]: where meant, else the nearest free place, else a little smaller. False: no room. */
+  function placeItem(it, placed, all) {
+    if (FREE_TYPES[it.type]) return true;
+    const keep = { x: it.x, y: it.y, w: it.w, h: it.h, size: it.size };
+    const restore = () => Object.keys(keep).forEach(k => { if (keep[k] === undefined) delete it[k]; else it[k] = keep[k]; });
+    for (const f of [1, 0.85, 0.72, 0.6]) {
+      restore();
+      if (f < 1) shrinkItem(it, f);
+      if (freeSpot(it, placed, all)) return true;
+    }
+    restore();
+    return false;
+  }
+  /**
+   * Lays out [beat]'s items against what is already on the board (and the title). When they cannot fit, the beat
+   * starts a fresh page ("clear": the board is wiped, the title stays), as a teacher turns to a clean board.
+   */
   function layoutBeat(scene, beat) {
-    const all = sceneItems(scene).concat(beat.draw);
-    const placed = [render({ type: 'title', text: scene.title }, []).box];
-    sceneItems(scene).forEach(x => { if (!FREE_TYPES[x.type]) placed.push(render(x, all).box); });
-    beat.draw.forEach(it => { placeItem(it, placed, all); if (!FREE_TYPES[it.type]) placed.push(render(it, all).box); });
+    const keep = beat.draw.map(it => ({ it, x: it.x, y: it.y, w: it.w, h: it.h, size: it.size }));
+    const restore = () => keep.forEach(k => ['x', 'y', 'w', 'h', 'size'].forEach(p => { if (k[p] === undefined) delete k.it[p]; else k.it[p] = k[p]; }));
+    const onto = page => {
+      const all = page.concat(beat.draw);
+      const placed = [render({ type: 'title', text: scene.title }, []).box];
+      page.forEach(x => { if (!FREE_TYPES[x.type]) placed.push(render(x, all).box); });
+      let fits = true;
+      beat.draw.forEach(it => { if (!placeItem(it, placed, all)) fits = false; if (!FREE_TYPES[it.type]) placed.push(render(it, all).box); });
+      return fits;
+    };
+    const page = pageItems(scene);
+    if (!page.length) { delete beat.clear; onto([]); return; }
+    if (beat.clear) { onto([]); return; }
+    if (onto(page)) return;
+    restore();
+    beat.clear = true;
+    onto([]);
   }
   const sceneItems = scene => scene.beats.reduce((a, b) => a.concat(b.draw), []);
+  /** The scene's pages, each the items of one board-full (a beat with "clear" starts the next). */
+  function pagesOf(scene) {
+    const pages = [[]];
+    scene.beats.forEach(b => { if (b.clear && pages[pages.length - 1].length) pages.push([]); pages[pages.length - 1].push.apply(pages[pages.length - 1], b.draw); });
+    return pages;
+  }
+  const pageItems = scene => { const p = pagesOf(scene); return p[p.length - 1]; };
 
-  /** The whole of scene [k] as a standalone SVG (export, thumbnails). */
+  /** How many board-fulls (pages) scene [k] of [lesson] has. */
+  function pageCount(lesson, k) {
+    const l = normalizeLesson(lesson), sc = l.scenes[Math.max(0, Math.min(k || 0, l.scenes.length - 1))];
+    return sc ? pagesOf(sc).length : 0;
+  }
+  /** Scene [k] as a standalone SVG (export, thumbnails): page opts.page of it, by default its last page. */
   function toSVG(lesson, k, opts) {
     const l = normalizeLesson(lesson), sc = l.scenes[Math.max(0, Math.min(k || 0, l.scenes.length - 1))], o = opts || {};
     if (!sc) return '';
-    const items = [{ type: 'title', text: sc.title }].concat(sceneItems(sc));
+    const pages = pagesOf(sc), p = o.page == null ? pages.length - 1 : Math.max(0, Math.min(o.page, pages.length - 1));
+    const items = [{ type: 'title', text: sc.title }].concat(pages[p]);
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W * (o.scale || 1)}" height="${H * (o.scale || 1)}">${boardDefs()}<rect width="${W}" height="${H}" fill="#fdfdfb"/>${items.map(it => rough(render(it, items))).join('')}</svg>`;
   }
-  function toPNG(lesson, k, scale) {
-    const s = scale || 2, svg = toSVG(lesson, k, { scale: s });
+  /** Scene [k] (page [page], by default its last) as a PNG data URL. */
+  function toPNG(lesson, k, scale, page) {
+    const s = scale || 2, svg = toSVG(lesson, k, { scale: s, page });
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
@@ -1160,6 +1225,7 @@
     const writing = new Map();                           // scene -> its writing (a promise)
     let cur = 0, run = null, ended = false, captions = true, muted = false, pictureBudget = 2, destroyed = false;
     let msPerWord = 1000 / WORDS_PER_SECOND;             // how fast she speaks (learnt as she talks)
+    let saidLines = [];                                  // what has been said in the scene playing (for Lixa Agent)
     try { captions = localStorage.getItem('rehab-wb-cc') !== '0'; muted = localStorage.getItem('rehab-wb-muted') === '1'; } catch (e) { /* storage blocked */ }
 
     el.innerHTML = `<div class="wbx">
@@ -1197,7 +1263,7 @@
     function showScene(k) {
       clearBoard();
       const sc = lesson.scenes[k]; if (!sc) return;
-      drawn = [{ type: 'title', text: sc.title }].concat(sceneItems(sc));
+      drawn = [{ type: 'title', text: sc.title }].concat(pageItems(sc));
       ink.innerHTML = drawn.map(it => `<g>${rough(render(it, drawn))}</g>`).join('');
     }
 
@@ -1357,13 +1423,14 @@
       // Her voice and the pen wait for each other: a beat is drawn while she says it, and she is given the next beat's
       // words only once its drawing is done, so she never talks ahead of the board (she pauses, as a teacher does,
       // while a drawing is finished) and the board never runs ahead of her.
+      saidLines = [];
       const sess = !muted && h.voice ? h.voice.open() : null;
       const sentences = [], first = [], lastOf = [], beatOf = [], startedAt = [];
       let fed = 0, said = -1, voiceDone = false, closed = false;
       r.sess = sess;
       if (sess) {
         sess.onSentence(i => {
-          said = i; startedAt[i] = Date.now(); setCaption(sentences[i]);
+          said = i; startedAt[i] = Date.now(); setCaption(sentences[i]); saidLines.push(sentences[i]);
           // how fast she really speaks: two sentences of one beat follow each other with no wait in between
           if (i > 0 && beatOf[i] === beatOf[i - 1] && startedAt[i - 1]) {
             const per = (startedAt[i] - startedAt[i - 1]) / Math.max(1, words(sentences[i - 1]));
@@ -1395,12 +1462,19 @@
         if (j >= sc.beats.length) break;
         feed(j);
         const b = sc.beats[j], spoken = first[j] <= lastOf[j];
+        // a fresh page: the board is wiped and the title written again
+        if (b.clear && drawn.length > 1) {
+          await wipe(r);
+          if (r.stopped) return false;
+          await drawItem({ type: 'title', text: sc.title }, 600, r, () => false);
+          if (r.stopped) return false;
+        }
         // the drawing of a beat starts when she starts saying it
         if (spoken && voiced()) await until(r, () => said >= first[j] || !voiced(), 20000);
         if (r.stopped) return false;
         const withVoice = spoken && voiced();
         const est = Math.max(900, words(b.say) * msPerWord), t0 = Date.now();
-        if (!withVoice) setCaption(b.say);
+        if (!withVoice) { setCaption(b.say); if (b.say) saidLines.push(b.say); }
         const tw = b.draw.reduce((a, it) => a + weight(it), 0) || 1;
         // she has said all of this beat and waits for the pen: the drawing is finished quickly
         const idle = () => {
@@ -1510,12 +1584,17 @@
       lesson: () => lesson, scene: () => cur, playing: () => !!run && !run.paused, living: () => !!run,
       play: k => playFrom(k == null ? (ended ? 0 : cur) : k), go: k => playFrom(k), pause, resume, toggle, ask,
       muted: on => { if (on != null) setMuted(on); return muted; },
+      /** Where the lesson is, for Lixa Agent: the scene on the board and what has been said in it so far. */
+      now: () => {
+        const sc = lesson.scenes[cur];
+        return { lesson: lesson.title, scene: cur, of: lesson.scenes.length, title: sc ? sc.title : '', said: saidLines.slice(-10).join(' '), playing: !!run && !run.paused, paused: !!run && !!run.paused, ended };
+      },
       destroy() { destroyed = true; stopRun(); document.removeEventListener('keydown', onKey); el.removeEventListener('click', onClick); el.innerHTML = ''; },
     };
   }
 
   root.RehablixWhiteboard = {
     W, H, COLORS, LENGTHS, DIAGRAMS, ICONS, POSES, diagramKey, iconKey,
-    planPrompt, parsePlan, scenePrompt, sceneParser, plan, normalizeLesson, leanLesson, render, toSVG, toPNG, mount, sentencesOf, speechMs,
+    planPrompt, parsePlan, scenePrompt, sceneParser, plan, normalizeLesson, leanLesson, render, toSVG, toPNG, pageCount, layoutBeat, mount, sentencesOf, speechMs,
   };
 })(typeof window !== 'undefined' ? window : this);

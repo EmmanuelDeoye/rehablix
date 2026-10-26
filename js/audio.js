@@ -62,6 +62,14 @@ function mount() {
   const sessionTitleInput = $('sessionTitle');
   const sessionTypeSelect = $('sessionType');
   const professionalSelect = $('professionalType');
+  // "Professional involved" starts as the user's own area of specialization (js/specialty.js) until they change it
+  if (professionalSelect && window.RehablixSpecialty) {
+    let professionalTouched = false;
+    professionalSelect.addEventListener('change', e => { if (e.isTrusted) professionalTouched = true; });
+    const presetProfessional = () => { if (!professionalTouched) window.RehablixSpecialty.preset(professionalSelect, 'audio'); };
+    presetProfessional();
+    document.addEventListener('rehablix:specialty', presetProfessional);
+  }
   const sourceModeTabs = $('sourceModeTabs');
   const liveSetupPanel = $('liveSetupPanel');
   const uploadSetupPanel = $('uploadSetupPanel');

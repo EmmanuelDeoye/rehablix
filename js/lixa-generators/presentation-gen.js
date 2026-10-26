@@ -40,7 +40,8 @@
     const mode = data.mode || detectMode(data.content);
     const modeText = MODE_LABELS[mode] || 'Clinical Document';
     const patientName = data.patientName || 'Patient';
-    const profession = data.profession || 'Healthcare Professional';
+    // (not given: the user's own area of specialization, js/specialty.js)
+    const profession = data.profession || (window.RehablixSpecialty && window.RehablixSpecialty.label()) || 'Healthcare Professional';
     const diagnosis = data.diagnosis || 'Not specified';
 
     const systemPrompt = `You are an expert clinical assistant helping a ${profession} prepare a **${modeText}**.
@@ -91,7 +92,20 @@ ${data.additionalInstructions ? `\nADDITIONAL INSTRUCTIONS FROM THE CLINICIAN:\n
       mode,
       timestamp: Date.now()
     };
+    // written from a Smart EMR patient's record (Lixa Agent): it is linked to that patient both ways
+    const emrLink = data.emrPatientId && /^[-\w]{1,64}$/.test(String(data.emrPatientId)) && data.emrScope ? { id: String(data.emrPatientId), scope: String(data.emrScope) } : null;
+    if (emrLink) historyItem.emrPatientId = emrLink.id;
     const ref = await firebase.database().ref(`history/${user.uid}/caseHistory`).push(historyItem);
+    if (emrLink && window.RehablixEmrStore) {
+      const entry = { source: 'caseHistory', key: ref.key, type: historyItem.fileName, date: new Date().toLocaleDateString(), linkedAt: new Date().toISOString(), structuredSummary: null };
+      try {
+        await window.RehablixEmrStore.mutateList(emrLink.scope, emrLink.id, 'linkedRecords', arr => {
+          if (arr.some(r => r && r.source === entry.source && r.key === entry.key)) return false;
+          arr.push(entry);
+        }, { allowEmpty: true });
+        window.RehablixEmrStore.audit(emrLink.scope, emrLink.id, 'link', 'Linked ' + historyItem.fileName);
+      } catch (e) { console.warn('[presentation] could not link it to the Smart EMR patient', e); }
+    }
 
     return {
       ok: true,
