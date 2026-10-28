@@ -31,7 +31,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function loadAll() {
     try {
-      const [plans, pricing, promo] = await Promise.all(['appConfig/plans', 'appConfig/pricing', 'appConfig/promo'].map(p => db.ref(p).once('value').then(s => s.val())));
+      const [plans, pricing, promo, ai] = await Promise.all(['appConfig/plans', 'appConfig/pricing', 'appConfig/promo', 'appConfig/ai'].map(p => db.ref(p).once('value').then(s => s.val())));
+      paintAi(ai || {});
       paintLimits((plans && plans.limits) || {}, (plans && plans.live) || {});
       $('ppLimitsUpdated').textContent = plans && plans.updatedAt ? 'Last saved ' + new Date(plans.updatedAt).toLocaleString() : 'Using the built-in limits';
       pricingSaved = pricing || {};
@@ -99,6 +100,143 @@ document.addEventListener('DOMContentLoaded', () => {
       msg($('ppLimitsMsg'), 'Saved. The apps use these limits now.', true);
       $('ppLimitsUpdated').textContent = 'Last saved ' + new Date(cfg.updatedAt).toLocaleString();
     } catch (e) { msg($('ppLimitsMsg'), 'Could not save: ' + e.message, false); }
+  });
+
+  // ===================================================================== AI limits & costs
+  // appConfig/ai, read by the server (rehablix-android/backend/functions/ai-config.js: its DEFAULTS are the built-in
+  // values below, keep in step) and by both apps to show what is left. -1 = unlimited, 0 = none.
+  const AI_PLAN_COLS = [
+    ['blixDaily', 'Blix 360 / day'], ['usdDaily', 'OpenAI $ / day'], ['visionDaily', 'Images / day'],
+    ['searchDaily', 'Web searches / day'], ['motionMonthly', 'Motion AI / month'], ['audioMinutesMonthly', 'Audio min / month']
+  ];
+  const AI_MODELS = [
+    ['blix', 'Blix 360 (Pro, and Max with Deep off)', 'gpt-5-mini'], ['blixDeep', 'Blix 360 Deep (Max)', 'gpt-5'],
+    ['blixFallback', 'Blix stand-in (when Blix fails)', 'gpt-4.1'],
+    ['vision', 'Lixa images & video — paid plans', 'gpt-4.1-mini'], ['visionFree', 'Lixa images & video — Free', 'gpt-4.1-mini'],
+    ['motion', 'Motion / Gait AI interpretation', 'gpt-4.1-mini'],
+    ['openaiText', 'Tools\' long OpenAI text — paid plans', 'gpt-4.1'], ['openaiTextFree', 'Tools\' long OpenAI text — Free', 'gpt-4.1-mini'],
+    ['light', 'Short jobs: titles, suggestions, labels', 'gpt-4.1-nano'],
+    ['fallback', 'DeepSeek stand-in (paid plans)', 'gpt-4.1-mini'], ['search', 'Web search', 'gpt-5-search-api'],
+    ['transcribe', 'Audio tool transcription — paid plans', 'gpt-4o-mini-transcribe'], ['transcribeFree', 'Audio tool transcription — Free trial', 'whisper-1'],
+    ['agentTranscribe', 'Lixa agent voice', 'gpt-4o-mini-transcribe']
+  ];
+  // Models never used (costly or retired); the server ignores them too (ai-config.js BLOCKED). The gpt-4o transcribers are fine.
+  const BLOCKED_MODEL = /^(o1|o3)(-|$)|^gpt-5\.4|^gpt-4o(?!-(mini-)?transcribe$)/i;
+  const AI_CAPS = [
+    ['basal', 'Basal 100', 5000], ['deepseek', 'Corpus 101', 9000], ['reasoner', 'Medulla 200 (thinking + answer)', 32768],
+    ['blix', 'Blix 360 (thinking + answer); GPT-4.1 on plans with Blix', 32768], ['blixMin', 'Blix 360: least room for thinking + answer', 16000],
+    ['openai', 'GPT-4.1 — paid plans without Blix', 16384],
+    ['openaiFree', 'GPT-4.1 mini — Free', 4000], ['fallback', 'DeepSeek stand-in', 3000], ['search', 'Web search', 8000], ['motion', 'Motion AI interpretation', 1500],
+    ['light', 'Short jobs (a request asking for this many or fewer is one)', 400]
+  ];
+  const AI_PRICES = {
+    'gpt-5': { in: 1.25, cached: 0.125, out: 10 }, 'gpt-5-mini': { in: 0.25, cached: 0.025, out: 2 }, 'gpt-5-nano': { in: 0.05, cached: 0.005, out: 0.4 },
+    'gpt-4.1': { in: 2, cached: 0.5, out: 8 }, 'gpt-4.1-mini': { in: 0.4, cached: 0.1, out: 1.6 }, 'gpt-4.1-nano': { in: 0.1, cached: 0.025, out: 0.4 },
+    'gpt-5-search-api': { in: 1.25, cached: 0.125, out: 10, perCall: 0.01 },
+    'deepseek-v4-flash': { in: 0.27, cached: 0.07, out: 1.1 }, 'deepseek-reasoner': { in: 0.55, cached: 0.14, out: 2.19 },
+    'whisper-1': { perMinute: 0.006 }, 'gpt-4o-transcribe': { perMinute: 0.006, audioIn: 6, in: 2.5, out: 10 },
+    'gpt-4o-mini-transcribe': { perMinute: 0.003, audioIn: 3, in: 1.25, out: 5 }, 'gpt-image-1': { perCall: 0.011 }
+  };
+  const PRICE_COLS = [['in', 'Input / 1M'], ['cached', 'Cached / 1M'], ['out', 'Output / 1M'], ['audioIn', 'Audio in / 1M'], ['perCall', 'Per call'], ['perMinute', 'Per minute']];
+  const AI_OTHER = { timezone: 'Africa/Lagos', verifyEmailFrom: '2026-10-28T00:00:00Z', audioTokensPerMinute: 1000 };
+  const dbKey = (model) => model.replace(/\./g, '_');           // (database keys cannot hold '.')
+  const fromDbKey = (key) => key.replace(/_/g, '.');
+
+  function paintAi(ai) {
+    const D = PC.AI_DEFAULTS.plans;
+    const plansSet = ai.plans || {};
+    $('ppAiPlans').innerHTML = '<tr><th>Plan</th>' + AI_PLAN_COLS.map(c => `<th>${c[1]}</th>`).join('') + '</tr>' + PLANS.map(([id, label]) => {
+      const set = plansSet[id] || {};
+      return `<tr data-plan="${id}"><td><strong>${label}</strong></td>` + AI_PLAN_COLS.map(([k]) => {
+        const d = D[id][k];
+        return `<td><input type="number" min="-1" step="${k === 'usdDaily' ? '0.01' : '1'}" data-k="${k}" value="${set[k] != null ? set[k] : ''}" placeholder="${d === -1 ? 'Unlimited' : d}"></td>`;
+      }).join('') + '</tr>';
+    }).join('');
+    const models = ai.models || {};
+    $('ppAiModels').innerHTML = '<tr><th>Job</th><th>Model</th></tr>' + AI_MODELS.map(([k, label, d]) =>
+      `<tr><td>${esc(label)}</td><td><input type="text" data-k="${k}" value="${esc(models[k] || '')}" placeholder="${esc(d)}" spellcheck="false" autocomplete="off"></td></tr>`).join('');
+    const caps = ai.caps || {};
+    $('ppAiCaps').innerHTML = '<tr><th>Model</th><th>Most tokens per answer</th></tr>' + AI_CAPS.map(([k, label, d]) =>
+      `<tr><td>${esc(label)}</td><td><input type="number" min="1" step="100" data-k="${k}" value="${caps[k] != null ? caps[k] : ''}" placeholder="${d.toLocaleString()}"></td></tr>`).join('');
+    const prices = ai.prices || {};
+    const priceModels = Object.keys(AI_PRICES).concat(Object.keys(prices).map(fromDbKey).filter(m => !AI_PRICES[m]))
+      .concat(AI_MODELS.map(m => (models[m[0]] || '').trim()).filter(m => m && !AI_PRICES[m]));
+    const uniq = priceModels.filter((m, i) => priceModels.indexOf(m) === i);
+    $('ppAiPrices').innerHTML = '<tr><th>Model</th>' + PRICE_COLS.map(c => `<th>${c[1]}</th>`).join('') + '</tr>' + uniq.map(m => {
+      const set = prices[dbKey(m)] || {}, d = AI_PRICES[m] || {};
+      return `<tr data-model="${esc(m)}"><td><code>${esc(m)}</code></td>` + PRICE_COLS.map(([k]) =>
+        `<td><input type="number" min="0" step="0.001" data-k="${k}" value="${set[k] != null ? set[k] : ''}" placeholder="${d[k] != null ? d[k] : '—'}"></td>`).join('') + '</tr>';
+    }).join('');
+    $('ppAiOther').innerHTML =
+      `<tr><td>Server clock (days and months reset at midnight here)</td><td><input type="text" id="ppAiTz" value="${esc(ai.timezone || '')}" placeholder="${AI_OTHER.timezone}" spellcheck="false"></td></tr>` +
+      `<tr><td>Email accounts made from this date must verify their email</td><td><input type="datetime-local" id="ppAiVerifyFrom" value="${ai.verifyEmailFrom ? toLocalInput(Date.parse(ai.verifyEmailFrom)) : ''}"><div class="settings-hint">Empty: ${new Date(AI_OTHER.verifyEmailFrom).toLocaleString()}</div></td></tr>` +
+      `<tr><td>Tokens counted per transcribed audio minute</td><td><input type="number" min="1" step="100" id="ppAiAudioTokens" value="${ai.audioTokensPerMinute != null ? ai.audioTokensPerMinute : ''}" placeholder="${AI_OTHER.audioTokensPerMinute}"></td></tr>` +
+      `<tr><td>Lowest plan with Blix 360 Deep</td><td><select id="ppAiDeepPlan">${PLANS.map(([id, label]) => `<option value="${id}"${((ai.minPlan && ai.minPlan.blixDeep) || 'max') === id ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select><div class="settings-hint">Deep runs Blix on the Deep model above; everyone else's Blix uses the Blix 360 model.</div></td></tr>`;
+    $('ppAiUpdated').textContent = ai.updatedAt ? 'Last saved ' + new Date(ai.updatedAt).toLocaleString() : 'Using the built-in AI limits';
+  }
+
+  $('ppSaveAi') && $('ppSaveAi').addEventListener('click', async () => {
+    const cfg = { plans: {}, models: {}, caps: {}, prices: {} };
+    for (const [id, label] of PLANS) {
+      const row = $('ppAiPlans').querySelector(`tr[data-plan="${id}"]`);
+      const entry = {};
+      for (const [k, colLabel] of AI_PLAN_COLS) {
+        const v = numOrNull(row.querySelector(`input[data-k="${k}"]`).value);
+        if (v == null) continue;
+        if (Number.isNaN(v) || (v < 0 && v !== -1)) { msg($('ppAiMsg'), `${label} — ${colLabel}: use -1 (unlimited), 0 (none) or a number above 0.`, false); return; }
+        entry[k] = k === 'usdDaily' ? Math.round(v * 100) / 100 : Math.floor(v);
+      }
+      if (Object.keys(entry).length) cfg.plans[id] = entry;
+    }
+    for (const [k, label] of AI_MODELS) {
+      const v = $('ppAiModels').querySelector(`input[data-k="${k}"]`).value.trim();
+      if (!v) continue;
+      if (!/^[a-z0-9][a-z0-9.\-]*$/i.test(v)) { msg($('ppAiMsg'), `${label}: "${v}" is not a model name.`, false); return; }
+      if (BLOCKED_MODEL.test(v)) { msg($('ppAiMsg'), `${label}: "${v}" is not used by Rehablix (too costly or retired). Pick a cheaper model.`, false); return; }
+      cfg.models[k] = v;
+    }
+    for (const [k, label] of AI_CAPS) {
+      const v = numOrNull($('ppAiCaps').querySelector(`input[data-k="${k}"]`).value);
+      if (v == null) continue;
+      if (Number.isNaN(v) || v < 1) { msg($('ppAiMsg'), `${label}: the ceiling must be 1 or more.`, false); return; }
+      cfg.caps[k] = Math.floor(v);
+    }
+    let bad = null;
+    $('ppAiPrices').querySelectorAll('tr[data-model]').forEach(row => {
+      const e = {};
+      row.querySelectorAll('input[data-k]').forEach(inp => {
+        const v = numOrNull(inp.value);
+        if (v == null) return;
+        if (Number.isNaN(v) || v < 0) { bad = `${row.dataset.model}: prices must be 0 or more.`; return; }
+        e[inp.dataset.k] = v;
+      });
+      if (Object.keys(e).length) cfg.prices[dbKey(row.dataset.model)] = e;
+    });
+    if (bad) { msg($('ppAiMsg'), bad, false); return; }
+    const tz = $('ppAiTz').value.trim();
+    if (tz) {
+      try { new Intl.DateTimeFormat('en-CA', { timeZone: tz }); } catch (e) { msg($('ppAiMsg'), `"${tz}" is not a time zone (for example Africa/Lagos).`, false); return; }
+      cfg.timezone = tz;
+    }
+    const from = fromLocalInput($('ppAiVerifyFrom').value);
+    if (from) cfg.verifyEmailFrom = new Date(from).toISOString();
+    const at = numOrNull($('ppAiAudioTokens').value);
+    if (at != null) { if (Number.isNaN(at) || at < 1) { msg($('ppAiMsg'), 'Tokens per audio minute must be 1 or more.', false); return; } cfg.audioTokensPerMinute = Math.floor(at); }
+    const deepPlan = $('ppAiDeepPlan') && $('ppAiDeepPlan').value;
+    if (deepPlan && deepPlan !== 'max') cfg.minPlan = { blixDeep: deepPlan };
+    ['plans', 'models', 'caps', 'prices'].forEach(k => { if (!Object.keys(cfg[k]).length) delete cfg[k]; });
+    // the most consequential change gets its own warning
+    const free = (cfg.plans && cfg.plans.free) || {};
+    if (free.usdDaily === -1 || free.blixDaily === -1 || free.visionDaily === -1) {
+      if (!window.confirm('Free accounts would get UNLIMITED OpenAI use with these settings. Are you sure?')) return;
+    }
+    if (!window.confirm('Save these AI limits? The server applies them to every user within a minute.')) return;
+    try {
+      cfg.updatedAt = Date.now();
+      await db.ref('appConfig/ai').set(cfg);
+      msg($('ppAiMsg'), 'Saved. The server uses these limits within a minute.', true);
+      paintAi(cfg);
+    } catch (e) { msg($('ppAiMsg'), 'Could not save: ' + e.message, false); }
   });
 
   // ===================================================================== promo

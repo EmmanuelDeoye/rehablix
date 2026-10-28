@@ -60,7 +60,9 @@
   const MODELS = [
     {
       id: 'blix360', label: 'Blix 360', rank: 1,
-      // GPT-5: thinks before it answers and sees images (GPT-4.1 answers if GPT-5 cannot be reached: js/ai-transport.js).
+      // An OpenAI reasoning model: thinks before it answers and sees images (GPT-4.1 answers if it cannot be reached:
+      // js/ai-transport.js). 'gpt-5' here only says "Blix": the server runs it on its Blix model (gpt-5-mini; Max's Deep
+      // switch: gpt-5), both editable on the admin page.
       // Charged at 2x what each call really costs: thinking included, repeated (cached) prompt text at a tenth (ai-transport.js ACTUAL_BILLING).
       provider: 'openai', apiModel: 'gpt-5', endpoint: 'https://api.openai.com/v1',
       maxTokens: 20000, weight: 2, minPlan: 'pro',
@@ -124,6 +126,66 @@
     return Math.ceil((text || '').length / 4);
   }
 
+  // ---- Server metering (window.REHABLIX_SERVER_AI): the server counts every AI call ----
+  // at aiUsage/{uid} = { day: { key, usd, blix, vision, search, tokens }, month: { key, motion, audioSec },
+  // window: { start, tokens } } (rehablix-android/backend/functions/ai-meter.js), on its own clock (appConfig/ai
+  // timezone), and refuses what is over a limit. The app only reads it: to warn before sending, and to show what is
+  // left. Nothing is written from here (consumeQuota does nothing), so usage can be neither lost nor faked.
+  const serverMetered = () => !!window.REHABLIX_SERVER_AI;
+  function tzParts(tz, ms) {
+    const o = {};
+    new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+      .formatToParts(new Date(ms)).forEach(x => { o[x.type] = x.value; });
+    return o;
+  }
+  function serverClock() { return (window.RehablixPlanConfig && window.RehablixPlanConfig.aiSettings().timezone) || 'Africa/Lagos'; }
+  function serverDay(ms) { const o = tzParts(serverClock(), ms); return `${o.year}-${o.month}-${o.day}`; }
+  /** When the server's next day (or month, with month: true) starts. */
+  function serverReset(ms, month) {
+    const tz = serverClock(), o = tzParts(tz, ms);
+    const local = month ? Date.UTC(+o.year, +o.month, 1) : Date.UTC(+o.year, +o.month - 1, +o.day + 1);
+    const p = tzParts(tz, local);
+    const offset = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - local;
+    return local - offset;
+  }
+  /** This account's usage as the server keeps it, rolled to today / this month / the current window. */
+  async function aiUsage(uid) {
+    const now = Date.now();
+    let raw = {};
+    try { raw = (await firebase.database().ref(`aiUsage/${uid}`).once('value')).val() || {}; } catch (e) { raw = {}; }
+    const day = serverDay(now), month = day.slice(0, 7);
+    const n = v => (typeof v === 'number' && isFinite(v) ? v : 0);
+    const d = raw.day && raw.day.key === day ? raw.day : {};
+    const m = raw.month && raw.month.key === month ? raw.month : {};
+    const w = raw.window && typeof raw.window.start === 'number' && now - raw.window.start < QUOTA_WINDOW_MS ? raw.window : null;
+    return {
+      day: { usd: n(d.usd), blix: n(d.blix), vision: n(d.vision), search: n(d.search), tokens: n(d.tokens), resetAt: serverReset(now) },
+      month: { motion: n(m.motion), audioSec: n(m.audioSec), resetAt: serverReset(now, true) },
+      window: w ? { start: w.start, tokens: n(w.tokens), resetAt: w.start + QUOTA_WINDOW_MS } : { start: 0, tokens: 0, resetAt: now + QUOTA_WINDOW_MS }
+    };
+  }
+  /** What is left today/this month for plan: { blix, vision, search, motion, audioMinutes } (null = unlimited). */
+  async function aiAllowance(uid, plan) {
+    const lim = window.RehablixPlanConfig ? window.RehablixPlanConfig.aiLimits(plan) : null;
+    if (!lim || !uid) return null;
+    const u = await aiUsage(uid);
+    const left = (limit, used) => (limit === -1 ? null : Math.max(0, limit - used));
+    return {
+      limits: lim, usage: u,
+      blix: left(lim.blixDaily, u.day.blix), vision: left(lim.visionDaily, u.day.vision), search: left(lim.searchDaily, u.day.search),
+      motion: left(lim.motionMonthly, u.month.motion), audioMinutes: lim.audioMinutesMonthly === -1 ? null : Math.max(0, Math.floor(lim.audioMinutesMonthly - u.month.audioSec / 60)),
+      spendReached: lim.usdDaily !== -1 && u.day.usd >= lim.usdDaily
+    };
+  }
+  async function serverQuota(uid, plan) {
+    const budget = PLAN_TOKEN_BUDGET[plan];
+    const cap = dailyCap(plan);
+    const u = await aiUsage(uid);
+    if (cap && u.day.tokens >= cap) return { allowed: false, budget: budget == null ? cap : budget, used: budget == null ? u.day.tokens : u.window.tokens, resetAt: u.day.resetAt, daily: true };
+    if (budget === null || budget === undefined) return { allowed: true, budget: cap, used: u.day.tokens, resetAt: u.day.resetAt };
+    return { allowed: u.window.tokens < budget, budget, used: u.window.tokens, resetAt: u.window.resetAt };
+  }
+
   // Pre-send check: is there room left in the current window? Does NOT
   // consume anything — call consumeQuota() after the response completes.
   async function hasQuota(uid, plan) {
@@ -131,6 +193,7 @@
     const cap = dailyCap(plan);
     if ((budget === null || budget === undefined) && !cap) return { allowed: true, unlimited: true };
     if (!uid) return { allowed: true, unlimited: true }; // logged-out users aren't tracked here
+    if (serverMetered()) return serverQuota(uid, plan);
     // the day's cap stops use until midnight, whatever the 4-hour window says ({daily: true} then)
     const usedToday = cap ? await dailyUsed(uid) : 0;
     const dayOver = !!cap && usedToday >= cap;
@@ -161,7 +224,7 @@
   // lets usage grow inside a window.
   const credit = {};
   async function consumeQuota(uid, plan, rawTokens, weight) {
-    if (!uid) return;
+    if (!uid || serverMetered()) return;   // (the server records what each call really used)
     let add = Math.ceil((rawTokens || 0) * (weight || 1));
     if (add < 0) { credit[uid] = (credit[uid] || 0) - add; return; }
     if (add > 0 && credit[uid]) { const use = Math.min(credit[uid], add); credit[uid] -= use; add -= use; }
@@ -231,6 +294,7 @@
     UPLOAD_LIMIT_MB, uploadKind, uploadLimitMb, checkUpload,
     PLAN_LEVEL, PLAN_LABELS, PLAN_ORDER, PLAN_TOKEN_BUDGET, DEFAULT_TOKEN_BUDGET, QUOTA_WINDOW_MS, dailyCap,
     MODELS, getModel, isModelUnlocked, nextPlan,
-    estimateTokens, hasQuota, consumeQuota
+    estimateTokens, hasQuota, consumeQuota,
+    aiUsage, aiAllowance, serverMetered
   };
 })();

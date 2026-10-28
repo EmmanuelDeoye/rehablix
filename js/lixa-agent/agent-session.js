@@ -38,7 +38,8 @@
    */
   async function transcribeSentence(blob, type) {
     if (!blob || blob.size < 1500) return '';
-    const headers = {};
+    // (one spoken sentence for the agent: the server's short-clip rule, not the Audio tool's monthly minutes)
+    const headers = window.REHABLIX_SERVER_AI ? { 'X-Rehablix-Feature': 'agent' } : {};
     if (!window.REHABLIX_SERVER_AI) {
       const key = await firebase.database().ref('tokens/open_ai').once('value').then(s => (s.val() || {}).api_key).catch(() => null);
       if (!key) return '';

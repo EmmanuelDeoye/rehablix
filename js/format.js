@@ -810,6 +810,7 @@ Return ONLY the HTML.`;
       if (window.reportApiError) {
         window.reportApiError({ status: 200, bodyText: `Empty response after ${attempt} attempts, finish_reason=${finishReason}`, tool: 'format', context: 'generate formatted document' });
       }
+      if (window.RehablixAIIssues) window.RehablixAIIssues.report({ feature: 'format', kind: 'bad_output' });
       throw new Error('The SI returned an empty response after two attempts. Please try again.');
     }
 

@@ -1897,6 +1897,7 @@
     };
 
     // The model chosen on any page (js/model-choice.js); `fallbackId` when that module is unavailable.
+    // (with the model chosen on any page; past today's Blix 360 allowance it writes with Medulla 200: js/model-choice.js)
     function chosenModelConfig(fallbackId) {
       return window.RehablixModelChoice ? window.RehablixModelChoice.resolve() : window.RehablixAIQuotaCore.resolveModelConfig(fallbackId);
     }

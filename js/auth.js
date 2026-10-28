@@ -868,6 +868,9 @@ function initializeAuth() {
         const user = userCredential.user;
         
         await user.updateProfile({ displayName: name });
+        // New email accounts verify their email before the SI goes beyond the visitor level (the server's rule);
+        // js/upsell.js shows the "Verify your email" strip with Resend / I've verified until then.
+        user.sendEmailVerification().catch(err => console.warn('Verification email not sent:', err));
 
         const userRecord = {
           name: name,

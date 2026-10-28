@@ -804,7 +804,8 @@ ${window.RehablixKnowledge ? window.RehablixKnowledge.text('web') : ''}`;
 
   function updateModelPickerLabel() {
     if (!modelPickerLabel || !window.RehabPlanTiers) return;
-    modelPickerLabel.textContent = window.RehabPlanTiers.getModel(selectedModelId).label;
+    const mc = window.RehablixModelChoice;
+    modelPickerLabel.textContent = window.RehabPlanTiers.getModel(selectedModelId).label + (selectedModelId === 'blix360' && mc && mc.deep && mc.deep() ? ' Deep' : '');
   }
 
   function renderModelPicker() {
@@ -824,7 +825,7 @@ ${window.RehablixKnowledge ? window.RehablixKnowledge.text('web') : ''}`;
           <span class="model-option-plan">${escapeHtml(tiers.PLAN_LABELS[m.minPlan])}+</span>
         </button>
       `;
-    }).join('');
+    }).join('') + (window.RehablixModelChoice && window.RehablixModelChoice.deepRowHtml ? window.RehablixModelChoice.deepRowHtml() : '');
   }
 
   if (modelPickerBtn && modelPickerPopup) {
@@ -845,6 +846,8 @@ ${window.RehablixKnowledge ? window.RehablixKnowledge.text('web') : ''}`;
       const option = e.target.closest('.model-option');
       if (!option) return;
       e.stopPropagation();
+      // Blix 360 Deep (js/model-choice.js): a switch, so the picker stays open
+      if (option.dataset.rxDeep && window.RehablixModelChoice) { window.RehablixModelChoice.toggleDeep(); renderModelPicker(); updateModelPickerLabel(); return; }
       const modelId = option.dataset.modelId;
       const tiers = window.RehabPlanTiers;
       const plan = (window.rehabPlans && window.rehabPlans.getCurrentPlan()) || 'free';

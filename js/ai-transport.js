@@ -52,10 +52,16 @@
   const ACTUAL_BILLING = { 'gpt-5': 2, 'deepseek-reasoner': 2 };
 
   const nativeFetch = window.fetch.bind(window);
+  // With the keys on the server (js/server-ai.js, window.REHABLIX_SERVER_AI) the server does the DeepSeek -> OpenAI
+  // stand-in (paid accounts, cheaper model), waits for the first words, and counts what each call really used
+  // (rehablix-android/backend/functions/ai-chat.js). Here, then, only: DeepSeek's request settings, Blix's GPT-4.1
+  // retry, answering a refused web search without the web, and telling the app about refusals and cut-off answers.
+  const SERVER = !!window.REHABLIX_SERVER_AI;
   let openaiKey = null;
 
   let keyMissUntil = 0;
   async function getOpenAIKey() {
+    if (SERVER) return (window.RehablixServerAI && window.RehablixServerAI.PLACEHOLDER) || 'server-held';   // (never read)
     if (openaiKey) return openaiKey;
     if (Date.now() < keyMissUntil) return null;
     keyMissUntil = Date.now() + 60000; // cleared below on success
@@ -153,6 +159,7 @@
   }
 
   async function openAIFallback(dsBody, init, reason) {
+    if (SERVER) return null;   // (the server stands in, or says to try again)
     const key = await getOpenAIKey();
     if (!key) return null;
     console.warn('[ai-transport] DeepSeek ' + reason + ' — answering with OpenAI ' + OPENAI_FALLBACK_MODEL);
@@ -198,7 +205,7 @@
   }
   /** Passes the response on unchanged, reading its answer and real usage on the way to charge [billedAs]'s top-up. */
   function billed(res, billedAs, body) {
-    if (!res || !res.ok || !ACTUAL_BILLING[billedAs]) return res;
+    if (SERVER || !res || !res.ok || !ACTUAL_BILLING[billedAs]) return res;
     if (!body.stream) {
       res.clone().json().then(function (d) {
         const c = d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
@@ -240,7 +247,9 @@
   function prepareBlixBody(b) {
     const want = b.max_completion_tokens || b.max_tokens || 4096;
     delete b.max_tokens; delete b.temperature; delete b.top_p; delete b.frequency_penalty; delete b.presence_penalty;
-    b.max_completion_tokens = Math.min(Math.max(want, OPENAI_REASONING_MIN), OPENAI_MAX_OUTPUT);
+    // (through the server the tool's own size is sent: the server gives Blix its thinking room, and runs a short job,
+    // such as a title, on its light model instead of spending a Blix answer on it)
+    b.max_completion_tokens = SERVER ? Math.min(want, OPENAI_MAX_OUTPUT) : Math.min(Math.max(want, OPENAI_REASONING_MIN), OPENAI_MAX_OUTPUT);
     if (b.stream) b.stream_options = { include_usage: true };
     return b;
   }
@@ -257,6 +266,8 @@
     let res = null;
     try { res = await nativeFetch(url, Object.assign({}, init, { body: JSON.stringify(body) })); }
     catch (err) { if (err && err.name === 'AbortError') throw err; res = null; }
+    // the server said no (today's Blix answers used, the plan, the spend cap): that stands, GPT-4.1 does not step in
+    if (res && SERVER && window.RehablixServerAI && await window.RehablixServerAI.refusalOf(res)) return res;
     let empty = false;
     if (res && res.ok && !body.stream) {
       const d = await res.clone().json().catch(function () { return null; });
@@ -276,7 +287,7 @@
   // anything (so there is no half-rendered reply to undo).
   const CONTENT_RE = /"content"\s*:\s*"(?:[^"\\]|\\.)+"/;
   async function streamWithFallback(res, body, init) {
-    if (!res.body || !res.body.getReader) return res;
+    if (SERVER || !res.body || !res.body.getReader) return res;   // (the server has already waited for the first words)
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     const held = [];
@@ -372,15 +383,88 @@
 
   window.fetch = async function (input, init) {
     const url = typeof input === 'string' ? input : (input && input.url) || '';
-    if ((isOpenAIChat(url, init) || isDeepSeekChat(url, init)) && !currentUid()) {
-      guestCheck();
-      let body = null;
-      try { body = JSON.parse(init.body); } catch (e) { body = null; }
-      const res = await aiFetch(input, init);
-      return body ? guestMetered(res, body) : res;
-    }
-    return aiFetch(input, init);
+    const ai = isOpenAIChat(url, init) || isDeepSeekChat(url, init);
+    if (!ai) return aiFetch(input, init);
+    let body = null;
+    try { body = JSON.parse(init.body); } catch (e) { body = null; }
+    const guest = !currentUid();
+    if (guest) guestCheck();
+    let res = await aiFetch(input, init);
+    if (SERVER && body && !res.ok) res = await afterRefusal(res, body, init);
+    if (guest && body) res = guestMetered(res, body);
+    return body ? watchAnswer(res, body) : res;
   };
+
+  // ---- the server's refusals (with the keys on the server) ----
+  const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions';
+  const isSearch = b => !!(b && (b.web_search_options || /search/.test(String(b.model || ''))));
+  function announce(detail) { try { window.dispatchEvent(new CustomEvent('rehablix:ai-blocked', { detail })); } catch (e) { /* old browsers */ } }
+  /**
+   * A refused web search (today's searches used, a visitor, the spend cap) is answered without the web on DeepSeek, with
+   * a note to the user; any other refusal is passed on as it is, after telling the app (js/ai-issues.js explains it).
+   */
+  async function afterRefusal(res, body, init) {
+    const refusal = window.RehablixServerAI && await window.RehablixServerAI.refusalOf(res);
+    if (!refusal) return res;
+    if (isSearch(body) && ['search_daily', 'login_required', 'verify_email', 'openai_spend', 'plan_model'].includes(refusal.code)) {
+      const plain = {
+        model: 'deepseek-v4-flash',
+        messages: [{ role: 'system', content: 'Web search is not available for this answer. Answer from your own knowledge, and say briefly when something may have changed recently or should be checked online.' }]
+          .concat((body.messages || []).map(m => ({ role: m.role, content: m.content }))),
+        max_tokens: Math.min(Number(body.max_completion_tokens || body.max_tokens) || 8000, 8000),
+        temperature: 0.7, top_p: 0.9, stream: !!body.stream
+      };
+      const again = await aiFetch(DEEPSEEK_URL, Object.assign({}, init, { body: JSON.stringify(plain) }));
+      if (again.ok) { announce(Object.assign({}, refusal, { soft: true, answeredWithout: 'web search' })); return again; }
+      const second = await window.RehablixServerAI.refusalOf(again);   // (e.g. the token budget is used up too)
+      announce(second || refusal);
+      return again;
+    }
+    announce(refusal);
+    return res;
+  }
+
+  // ---- answers cut short by the model's length limit, or empty (js/ai-issues.js suggests a stronger model) ----
+  /** The SI model a request was made with (js/plan-tiers.js ids), from its settings. */
+  function tierOf(b) {
+    if (b.model === 'deepseek-v4-flash') return b.temperature === 0.4 && b.top_p === 0.85 ? 'basal100' : 'corpus101';
+    if (b.model === 'deepseek-reasoner') return 'medulla200';
+    if (b.model === 'gpt-5') return 'blix360';
+    return null;
+  }
+  function issue(kind, b) {
+    try { window.dispatchEvent(new CustomEvent('rehablix:ai-issue', { detail: { kind, model: tierOf(b), route: (document.body && document.body.dataset.route) || 'lixa' } })); } catch (e) { /* old browsers */ }
+  }
+  /** Passes the answer on unchanged, noticing if it ends cut short or comes back empty (only for real tasks: >= 1,500 tokens asked). */
+  function watchAnswer(res, b) {
+    const asked = Number(b.max_completion_tokens || b.max_tokens) || 0;
+    if (!res || !res.ok || asked < 1500 || isSearch(b)) return res;
+    if (!b.stream) {
+      res.clone().json().then(d => {
+        const c = d && d.choices && d.choices[0];
+        if (c && c.finish_reason === 'length') issue('cut_off', b);
+        else if (!(c && c.message && String(c.message.content || '').trim())) issue('empty', b);
+      }).catch(() => {});
+      return res;
+    }
+    if (!res.body || !res.body.getReader) return res;
+    const reader = res.body.getReader(), decoder = new TextDecoder();
+    let tail = '', saw = false, cut = false;
+    const stream = new ReadableStream({
+      async pull(controller) {
+        let r;
+        try { r = await reader.read(); } catch (e) { controller.error(e); return; }
+        if (r.done) { if (cut) issue('cut_off', b); else if (!saw) issue('empty', b); controller.close(); return; }
+        const text = tail + decoder.decode(r.value, { stream: true });
+        if (!saw && CONTENT_RE.test(text)) saw = true;
+        if (/"finish_reason"\s*:\s*"length"/.test(text)) cut = true;
+        tail = text.slice(-200);
+        controller.enqueue(r.value);
+      },
+      cancel(reason) { return reader.cancel(reason); }
+    });
+    return new Response(stream, { status: res.status, statusText: res.statusText, headers: res.headers });
+  }
 
   async function aiFetch(input, init) {
     const url = typeof input === 'string' ? input : (input && input.url) || '';

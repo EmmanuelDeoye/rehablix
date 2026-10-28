@@ -1327,6 +1327,7 @@ ${combinedText || 'No notes provided.'}`;
                     context: `generate ${currentMode}`
                 });
             }
+            if (window.RehablixAIIssues) window.RehablixAIIssues.report({ feature: 'presentation', kind: 'bad_output' });
             throw new Error('The SI returned an empty response after two attempts. Please try again, or choose a larger output size and retry.');
         }
 

@@ -28,7 +28,7 @@
     return t.isModelUnlocked(want, plan()) ? want : FALLBACK;
   }
   function model() { const t = tiers(); return t ? t.getModel(id()) : null; }
-  function label() { const m = model(); return m ? m.label : 'Corpus 101'; }
+  function label() { const m = model(); return m ? m.label + (m.id === 'blix360' && deep() ? ' Deep' : '') : 'Corpus 101'; }
 
   /** Chooses a model for every page. Returns false (and says why) when the plan does not unlock it. */
   function set(newId, opts) {
@@ -56,7 +56,7 @@
     refreshChips();
   }
   // another tab chose a model
-  window.addEventListener('storage', e => { if (e.key === KEY) announce(); });
+  window.addEventListener('storage', e => { if (e.key === KEY || e.key === DEEP_KEY) announce(); });
   // the plan (and so what is unlocked) can change after the page loads
   document.addEventListener('planUpdated', () => announce());
 
@@ -64,10 +64,64 @@
    * The request settings for the chosen model: { token, endpoint, model, maxTokens, weight,
    * temperature, top_p, responseStyle } (js/ai-quota-core.js), or null when it is not configured.
    */
-  function resolve() {
+  async function resolve() {
     const core = window.RehablixAIQuotaCore;
-    return core ? core.resolveModelConfig(id()) : Promise.resolve(null);
+    if (!core) return null;
+    return core.resolveModelConfig(await withBlixLeft(id()));
   }
+
+  // Blix 360 Deep (Max; the admin can change the plan): Blix answers on the full model instead of its everyday one.
+  // Off unless the user turns it on; it only takes effect while Blix is the model and the plan has it (the server checks).
+  const DEEP_KEY = 'rehab-blix-deep';
+  const ORDER = ['free', 'student', 'pro', 'max'];
+  function deepAllowed() {
+    const pc = window.RehablixPlanConfig;
+    const need = (pc && pc.aiSettings && pc.aiSettings().deepPlan) || 'max';
+    return ORDER.indexOf(plan()) >= ORDER.indexOf(need);
+  }
+  function deepOn() { try { return localStorage.getItem(DEEP_KEY) === '1'; } catch (e) { return false; } }
+  /** Whether Blix answers on its Deep model now. */
+  function deep() { return id() === 'blix360' && deepAllowed() && deepOn(); }
+  function setDeep(on) {
+    try { if (on) localStorage.setItem(DEEP_KEY, '1'); else localStorage.removeItem(DEEP_KEY); } catch (e) { return false; }
+    announce();
+    return true;
+  }
+  function toggleDeep() { return setDeep(!deepOn()); }
+  /** The Deep switch for a model popup (empty when the plan has no Deep), clicked through [data-rx-deep]. */
+  function deepRowHtml() {
+    const t = tiers();
+    if (!t || !t.isModelUnlocked('blix360', plan()) || !deepAllowed()) return '';
+    const on = deepOn();
+    return `<button type="button" class="model-option rx-deep-option${on ? ' selected' : ''}" data-rx-deep="1" role="switch" aria-checked="${on}">
+      <span class="model-option-rank"><i class="fas fa-${on ? 'toggle-on' : 'toggle-off'}" aria-hidden="true"></i></span>
+      <span class="model-option-text"><span class="model-option-name">Blix 360 Deep</span><span class="model-option-desc">Blix thinks on the full model, for the hardest cases. Uses more of your daily OpenAI allowance.</span></span>
+    </button>`;
+  }
+
+  // Blix 360 has a daily allowance (the server's: appConfig/ai, js/plan-config.js aiLimits). When today's answers
+  // are used, the tools (Project Maker, Humanize, every page's generator) carry on with Medulla 200 instead of failing,
+  // and say so once; the choice itself is kept, so Blix comes back tomorrow. (The server refuses Blix past the limit
+  // whatever the app sends; this only spares the user a failed run.)
+  let blixSeen = { at: 0, left: null, uid: null };
+  let blixNoted = '';
+  async function withBlixLeft(chosen) {
+    const t = tiers();
+    if (chosen !== 'blix360' || !t || !t.aiAllowance || !window.REHABLIX_SERVER_AI) return chosen;
+    let uid = null;
+    try { uid = firebase.auth().currentUser && firebase.auth().currentUser.uid; } catch (e) { uid = null; }
+    if (!uid) return chosen;
+    if (blixSeen.uid !== uid || Date.now() - blixSeen.at > 30000) {
+      try { const a = await t.aiAllowance(uid, plan()); blixSeen = { at: Date.now(), left: a ? a.blix : null, uid }; } catch (e) { return chosen; }
+    }
+    if (blixSeen.left !== 0 || !t.isModelUnlocked('medulla200', plan())) return chosen;
+    const day = new Date().toDateString();
+    if (blixNoted !== day) { blixNoted = day; toast('Today\'s Blix 360 answers are used, so Medulla 200 is writing until midnight. Blix comes back tomorrow.', 'info'); }
+    return 'medulla200';
+  }
+  // (a Blix answer just given, or refused, changes what is left: read again next time)
+  window.addEventListener('rehablix:ai-used', () => { blixSeen.at = 0; });
+  window.addEventListener('rehablix:ai-blocked', e => { if (e.detail && e.detail.code === 'blix_daily') blixSeen = { at: Date.now(), left: 0, uid: blixSeen.uid }; });
 
   function toast(msg, type) {
     if (typeof window.showToast === 'function') { window.showToast(msg, type || 'info', 4500); return; }
@@ -95,6 +149,7 @@
       const opt = e.target.closest('.model-option');
       if (!opt) return;
       e.stopPropagation();
+      if (opt.dataset.rxDeep) { toggleDeep(); return; }
       if (set(opt.dataset.modelId)) close();
     });
     document.addEventListener('click', e => { if (!popup.hidden && !popup.contains(e.target) && !(openFor && openFor.contains(e.target))) close(); });
@@ -115,7 +170,7 @@
         <span class="model-option-text"><span class="model-option-name">${esc(m.label)}${locked ? ' <i class="fas fa-lock" aria-hidden="true"></i>' : ''}</span><span class="model-option-desc">${esc(m.tagline || m.strength)}</span></span>
         <span class="model-option-plan">${esc(t.PLAN_LABELS[m.minPlan])}+</span>
       </button>`;
-    }).join('');
+    }).join('') + deepRowHtml();
   }
   function position() {
     if (!openFor || !popup) return;
@@ -172,7 +227,7 @@
   const PLACEMENTS = [
     { route: 'format', before: '#generateBtn', wrap: true },
     { route: 'standardized', before: '#generateBtn', wrap: true },
-    { route: 'audio', prepend: '#stageSetup', wrap: true, note: 'used to write the session narrative; transcription is always Whisper, and live coaching labels stay on the fast model so they keep up with speech' },
+    { route: 'audio', prepend: '#stageSetup', wrap: true, note: 'used to write the session narrative; transcription uses the server\'s transcription model, and live coaching labels stay on the fast model so they keep up with speech' },
     { route: 'presentation', before: '#generateBtn', wrap: true },
     { route: 'study', before: '#generateSetBtn', wrap: true },
     { route: 'assignment', before: '#generateBtn', wrap: true },
@@ -213,5 +268,5 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 
-  window.RehablixModelChoice = { KEY, FALLBACK, id, model, label, set, onChange, resolve, chip, refreshChips, PLACEMENTS };
+  window.RehablixModelChoice = { KEY, FALLBACK, id, model, label, set, onChange, resolve, chip, refreshChips, PLACEMENTS, deep, setDeep, toggleDeep, deepRowHtml };
 })();

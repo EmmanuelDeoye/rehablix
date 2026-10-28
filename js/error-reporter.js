@@ -134,8 +134,15 @@
    * @param {string} [opts.tool] - Which tool/page this happened in, e.g. 'rom', 'gait', 'ask'
    * @param {string} [opts.context] - Short description of what was being attempted
    */
+  // A limit the server applied on purpose ({ error: { code } }: a plan, a daily allowance, sign in, verify...) is not
+  // a problem to report: js/ai-issues.js has already explained it to the user.
+  function isServerRefusal(bodyText) {
+    try { const d = JSON.parse(bodyText || ''); return !!(d && d.error && typeof d.error.code === 'string'); } catch (e) { return false; }
+  }
+
   window.reportApiError = function (opts) {
     const { status, bodyText, tool, context } = opts || {};
+    if (isServerRefusal(bodyText)) return;
     const fundingIssue = isInsufficientFundsError(status, bodyText);
 
     const payload = {

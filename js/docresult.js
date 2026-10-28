@@ -322,7 +322,7 @@
         }
         const data = await response.json();
         const content = data?.choices?.[0]?.message?.content;
-        if (!content) throw new Error('SI service returned an unexpected response format.');
+        if (!content) { if (window.RehablixAIIssues) window.RehablixAIIssues.report({ feature: 'docresult', kind: 'bad_output' }); throw new Error('SI service returned an unexpected response format.'); }
         if (currentUser && window.RehabPlanTiers) {
             window.RehabPlanTiers.consumeQuota(currentUser.uid, currentPlanId(), window.RehabPlanTiers.estimateTokens(systemPrompt + userPrompt + content), cfg.weight || 1).catch(() => {});
         }

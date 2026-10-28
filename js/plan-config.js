@@ -7,10 +7,26 @@
 //   appConfig/pricing/<CC|DEFAULT> { currency, symbol, flag, name, gateways: [..in order of preference..],
 //                                    student|pro|max: { monthly|yearly: { original, current } } }
 //   appConfig/promo                { active, title, message, percent, startsAt, endsAt, plans: { student, pro, max } }
+//   appConfig/ai                   the AI limits the SERVER enforces (rehablix-android/backend/functions/ai-config.js):
+//                                  { timezone, verifyEmailFrom, plans: { <plan>: { blixDaily, usdDaily, visionDaily,
+//                                    searchDaily, motionMonthly, audioMinutesMonthly } }, models, caps, prices, ... }
+//                                  read here only to show what is left and what is locked (-1 = unlimited).
 //
 // Whatever is missing falls back to the built-in values below (and in plan-tiers.js), so
 // everything works the same with nothing set. Android: data/PlanConfig.kt, the same rules.
 (function () {
+  // ===== AI limits (the server's defaults, functions/ai-config.js DEFAULTS: keep in step) =====
+  const AI_DEFAULTS = {
+    timezone: 'Africa/Lagos',
+    verifyEmailFrom: '2026-10-28T00:00:00Z',
+    plans: {
+      free:    { blixDaily: 0,  usdDaily: 0.03, visionDaily: 2,  searchDaily: 2,   motionMonthly: 5,  audioMinutesMonthly: 10 },
+      student: { blixDaily: 0,  usdDaily: 0.20, visionDaily: -1, searchDaily: 20,  motionMonthly: -1, audioMinutesMonthly: -1 },
+      pro:     { blixDaily: 25, usdDaily: 0.75, visionDaily: -1, searchDaily: 50,  motionMonthly: -1, audioMinutesMonthly: -1 },
+      max:     { blixDaily: 75, usdDaily: 2.00, visionDaily: -1, searchDaily: 100, motionMonthly: -1, audioMinutesMonthly: -1 }
+    }
+  };
+  const AI_KEYS = ['blixDaily', 'usdDaily', 'visionDaily', 'searchDaily', 'motionMonthly', 'audioMinutesMonthly'];
   // ===== Built-in prices (the admin page's starting point) =====
   // "original" = the crossed-out price, "current" = the price paid. Max = 3x Pro unless set.
   // ===== Country-Specific Fixed Prices with "slashed original" illusion =====
@@ -271,7 +287,7 @@
   const MAX_PLAN_MULTIPLIER = 3;
   const READY_TIMEOUT_MS = 6000;
 
-  let limits = {}, live = {}, pricing = {}, promo = null;
+  let limits = {}, live = {}, pricing = {}, promo = null, ai = {};
   let started = false, ready = false;
   const arrived = { plans: false, pricing: false, promo: false };
   const listeners = [];
@@ -293,7 +309,34 @@
     on('appConfig/plans', v => { v = v || {}; limits = v.limits || {}; live = v.live || {}; }, 'plans');
     on('appConfig/pricing', v => { pricing = v || {}; }, 'pricing');
     on('appConfig/promo', v => { promo = parsePromo(v || {}); }, 'promo');
+    // (not waited for: the built-in AI limits are shown until it arrives)
+    db.ref('appConfig/ai').on('value', s => { ai = s.val() || {}; changed(); }, () => {});
   }
+
+  // ===== AI limits (what the server enforces; -1 = unlimited) =====
+  /** { blixDaily, usdDaily, visionDaily, searchDaily, motionMonthly, audioMinutesMonthly } for plan. */
+  function aiLimits(plan) {
+    const d = AI_DEFAULTS.plans[plan] || AI_DEFAULTS.plans.free;
+    const set = (ai.plans && ai.plans[plan]) || {};
+    const out = {};
+    AI_KEYS.forEach(k => {
+      const n = Number(set[k]);
+      out[k] = set[k] != null && set[k] !== '' && isFinite(n) && (n === -1 || n >= 0) ? n : d[k];
+    });
+    return out;
+  }
+  /** The server's clock and the email-verification cutoff. */
+  function aiSettings() {
+    let tz = AI_DEFAULTS.timezone;
+    if (typeof ai.timezone === 'string') { try { new Intl.DateTimeFormat('en-CA', { timeZone: ai.timezone }); tz = ai.timezone; } catch (e) { /* invalid: default */ } }
+    const from = typeof ai.verifyEmailFrom === 'string' && isFinite(Date.parse(ai.verifyEmailFrom)) ? ai.verifyEmailFrom : AI_DEFAULTS.verifyEmailFrom;
+    // the lowest plan with Blix 360's Deep switch (ai-config.js minPlan.blixDeep)
+    const dp = ai.minPlan && ai.minPlan.blixDeep;
+    const deepPlan = ['free', 'student', 'pro', 'max'].includes(dp) ? dp : 'max';
+    return { timezone: tz, verifyEmailFrom: from, deepPlan };
+  }
+  /** appConfig/ai as saved (the admin page edits it). */
+  function aiRaw() { return JSON.parse(JSON.stringify(ai || {})); }
 
   function parsePromo(m) {
     if (m.active !== true) return null;
@@ -371,6 +414,7 @@
     start, isReady: () => ready, whenReady: () => { start(); return readyPromise; },
     onChange(fn) { listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },
     tokenBudget, dailyCap, liveLimits, pricingFor, promoFor, promoPrice, shownPrice, triple,
+    aiLimits, aiSettings, aiRaw, AI_DEFAULTS,
     defaultCountryPricing: () => clone(COUNTRY_PRICING), defaultPricing: () => clone(DEFAULT_PRICING),
     GATEWAYS, MAX_PLAN_MULTIPLIER
   };

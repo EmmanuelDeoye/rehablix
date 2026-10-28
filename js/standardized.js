@@ -543,6 +543,7 @@ async function mount() {
       if (window.reportApiError) {
         window.reportApiError({ status: 200, bodyText: `Empty response after ${attempt} attempts, finish_reason=${finishReason}`, tool: 'standardized', context: `generate "${toolName}"` });
       }
+      if (window.RehablixAIIssues) window.RehablixAIIssues.report({ feature: 'standardized', kind: 'bad_output' });
       throw new Error('The SI returned an empty response after two attempts. Please try again.');
     }
 

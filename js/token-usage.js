@@ -63,13 +63,29 @@
     body.innerHTML = '<p class="tu-note">Loading your usage…</p>';
     const db = firebase.database();
     const get = path => db.ref(path).once('value').then(s => s.val()).catch(() => null);
-    const [quota, daily, live, sub] = await Promise.all([get('users/' + u.uid + '/quota'), get('users/' + u.uid + '/dailyQuota'), get('users/' + u.uid + '/liveUsage'), get('users/' + u.uid + '/subscription')]);
+    let [quota, daily, live, sub] = await Promise.all([get('users/' + u.uid + '/quota'), get('users/' + u.uid + '/dailyQuota'), get('users/' + u.uid + '/liveUsage'), get('users/' + u.uid + '/subscription')]);
     document.getElementById('tuPlan').textContent = (LABELS[p] || p) + ' plan' + (sub && sub.ends ? ' · renews or ends ' + new Date(sub.ends).toLocaleDateString() : '');
     const T = window.RehabPlanTiers;
     const budget = T ? T.PLAN_TOKEN_BUDGET[p] : null;
     const cap = T && T.dailyCap ? T.dailyCap(p) : null;
+    // With the server counting (js/plan-tiers.js aiUsage): its figures, plus Blix 360, web searches and OpenAI features
+    let allowance = null;
+    if (T && T.serverMetered && T.serverMetered()) {
+      allowance = await T.aiAllowance(u.uid, p).catch(() => null);
+      if (allowance) {
+        const w = allowance.usage.window;
+        quota = w.start ? { windowStart: w.start, tokensUsed: w.tokens } : null;
+        daily = { day: today(), tokensUsed: allowance.usage.day.tokens };
+      }
+    }
     const usedToday = cap && daily && daily.day === today() ? Number(daily.tokensUsed) || 0 : 0;
     let html = '';
+    if (allowance) {
+      const L = allowance.limits, U = allowance.usage.day, tomorrow = U.resetAt;
+      if (L.blixDaily > 0) html += card('Blix 360 answers today', U.blix + ' of ' + L.blixDaily, Math.max(0, L.blixDaily - U.blix) + ' left · back at ' + clock(tomorrow), Math.min(1, U.blix / L.blixDaily));
+      if (L.usdDaily > 0) html += card('OpenAI features today', pct(U.usd / L.usdDaily) + ' used', 'Blix 360, images, web search, transcription · resets at ' + clock(tomorrow), Math.min(1, U.usd / L.usdDaily));
+      if (L.searchDaily > 0) html += card('Web searches today', U.search + ' of ' + L.searchDaily, Math.max(0, L.searchDaily - U.search) + ' left', Math.min(1, U.search / L.searchDaily));
+    }
     if (budget == null) html += card('Every 4 hours', 'Unlimited', 'Your plan has no 4-hour token limit.', null);
     else {
       const fresh = !quota || !quota.windowStart || Date.now() - quota.windowStart >= WINDOW_MS;

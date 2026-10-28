@@ -891,7 +891,7 @@
 
                     <div class="settings-card glass-card">
                         <h3>Token limits</h3>
-                        <p class="settings-hint">Tokens every 4 hours, and an optional cap per day (empty = no daily cap; it resets at midnight on the user's device). Leave a box empty to keep the built-in value shown in grey.</p>
+                        <p class="settings-hint">Tokens every 4 hours, and an optional cap per day (empty = no daily cap; it resets at midnight on the server's clock, set under AI limits &amp; costs). The server enforces them. Leave a box empty to keep the built-in value shown in grey.</p>
                         <div class="pp-scroll"><table class="pp-table" id="ppLimits"></table></div>
                     </div>
 
@@ -904,6 +904,27 @@
                             <span class="settings-hint" id="ppLimitsUpdated"></span>
                         </div>
                         <div id="ppLimitsMsg" class="settings-msg"></div>
+                    </div>
+
+                    <div class="settings-card glass-card">
+                        <h3>AI limits &amp; costs</h3>
+                        <p class="settings-hint">Enforced by the server on every SI request from both apps (users cannot get round them). <b>-1 = unlimited, 0 = none.</b> The OpenAI spend cap is in US dollars per user per day and covers Blix 360, image and video analysis, web search, transcription and AI pictures; DeepSeek (Basal, Corpus, Medulla) is limited by the token limits above. Leave a box empty to keep the built-in value shown in grey.</p>
+                        <div class="pp-scroll"><table class="pp-table" id="ppAiPlans"></table></div>
+                        <h4 style="margin:1.2rem 0 0.2rem;">Models</h4>
+                        <p class="settings-hint">The OpenAI model behind each job. After changing one, run <code>npm run smoke -- &lt;model&gt;</code> in backend/functions to check it exists.</p>
+                        <div class="pp-scroll"><table class="pp-table" id="ppAiModels"></table></div>
+                        <h4 style="margin:1.2rem 0 0.2rem;">Output ceilings (tokens)</h4>
+                        <div class="pp-scroll"><table class="pp-table" id="ppAiCaps"></table></div>
+                        <h4 style="margin:1.2rem 0 0.2rem;">Prices (USD)</h4>
+                        <p class="settings-hint">Per 1 million tokens (new input, cached input, output), per call (web search, AI picture) and per audio minute. Used to count each user's daily OpenAI spend: keep them in step with the providers' price pages.</p>
+                        <div class="pp-scroll"><table class="pp-table" id="ppAiPrices"></table></div>
+                        <h4 style="margin:1.2rem 0 0.2rem;">Other</h4>
+                        <div class="pp-scroll"><table class="pp-table" id="ppAiOther"></table></div>
+                        <div class="extra-actions">
+                            <button id="ppSaveAi" class="admin-btn primary">Save AI limits</button>
+                            <span class="settings-hint" id="ppAiUpdated"></span>
+                        </div>
+                        <div id="ppAiMsg" class="settings-msg"></div>
                     </div>
 
                     <div class="settings-card glass-card">
