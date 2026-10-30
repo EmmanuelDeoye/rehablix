@@ -40,10 +40,22 @@
   let currentSubscription = null; // full record: {plan, starts, ends, renewal, ...}
   let subscriptionRef = null; // the live .on('value') ref for whichever user is currently signed in
 
+  // The lowest plan for a feature: the admin's choice (Admin → Plans & Pricing → AI limits & costs → Tool access,
+  // appConfig/ai/toolPlans, keys with '_' for '.'), else the built-in one above. (Android: PlanRepository, the same.)
+  function requiredPlan(feature) {
+    try {
+      const pc = window.RehablixPlanConfig;
+      const tp = pc && pc.aiRaw ? (pc.aiRaw().toolPlans || {}) : {};
+      const set = tp[String(feature).replace(/\./g, '_')];
+      if (set && planLevel.hasOwnProperty(set)) return set;
+    } catch (e) { /* the built-in plan */ }
+    return featureMinPlans[feature];
+  }
+
   // Check whether a feature is allowed
   function isFeatureAllowed(feature) {
     if (!currentPlan) return false;
-    const required = featureMinPlans[feature];
+    const required = requiredPlan(feature);
     if (!required) return false;
     return (planLevel[currentPlan] || 0) >= (planLevel[required] || 0);
   }
@@ -162,10 +174,11 @@
     daysUntilExpiry,
     planLevel,
     featureMinPlans,
+    requiredPlan,
 
     // Default upgrade prompt (can be overridden by page)
     showUpgradePrompt(feature) {
-      const required = featureMinPlans[feature] || 'pro';
+      const required = requiredPlan(feature) || 'pro';
       const names = (window.RehabPlanTiers && window.RehabPlanTiers.PLAN_LABELS) || { free: 'Free', student: 'Basic', pro: 'Pro', max: 'Max' };
       const msg = `This feature requires the ${names[required]} plan. Please upgrade to continue.`;
       // Use a toast if available, otherwise alert

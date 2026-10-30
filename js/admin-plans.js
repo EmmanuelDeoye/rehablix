@@ -115,7 +115,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ['vision', 'Lixa images & video — paid plans', 'gpt-4.1-mini'], ['visionFree', 'Lixa images & video — Free', 'gpt-4.1-mini'],
     ['motion', 'Motion / Gait AI interpretation', 'gpt-4.1-mini'],
     ['openaiText', 'Tools\' long OpenAI text — paid plans', 'gpt-4.1'], ['openaiTextFree', 'Tools\' long OpenAI text — Free', 'gpt-4.1-mini'],
-    ['light', 'Short jobs: titles, suggestions, labels', 'gpt-4.1-nano'],
+    ['light', 'Short jobs: titles, suggestions, labels', 'gpt-5-nano'],
     ['fallback', 'DeepSeek stand-in (paid plans)', 'gpt-4.1-mini'], ['search', 'Web search', 'gpt-5-search-api'],
     ['transcribe', 'Audio tool transcription — paid plans', 'gpt-4o-mini-transcribe'], ['transcribeFree', 'Audio tool transcription — Free trial', 'whisper-1'],
     ['agentTranscribe', 'Lixa agent voice', 'gpt-4o-mini-transcribe']
@@ -137,6 +137,16 @@ document.addEventListener('DOMContentLoaded', () => {
     'whisper-1': { perMinute: 0.006 }, 'gpt-4o-transcribe': { perMinute: 0.006, audioIn: 6, in: 2.5, out: 10 },
     'gpt-4o-mini-transcribe': { perMinute: 0.003, audioIn: 3, in: 1.25, out: 5 }, 'gpt-image-1': { perCall: 0.011 }
   };
+  // Tool access (appConfig/ai/toolPlans): the lowest plan per tool. Defaults: js/plan.js featureMinPlans (Android PlanTiers.FEATURE_MIN_PLANS).
+  const TOOL_ACCESS = [
+    ['assessment', 'Assessment Format', 'free'], ['standardized', 'Standardized Tools', 'free'], ['documentation', 'Smart EMR', 'free'],
+    ['rom', 'Motion & Gait Analyzer', 'free'], ['assignment', 'Assignment Maker', 'student'], ['study', 'Study Buddy', 'student'],
+    ['exam', 'Exam Simulator', 'student'], ['project', 'Project Maker', 'student'],
+    ['project.generateBeyondCh1', 'Project Maker: chapters after Chapter 1', 'student'], ['project.regenerate', 'Project Maker: regenerate a section', 'student'],
+    ['project.aiSupervisor', 'Project Maker: SI supervisor', 'student'], ['project.chapterReview', 'Project Maker: chapter review', 'student'],
+    ['project.resources', 'Project Maker: resources', 'student'], ['project.customOutline', 'Project Maker: custom outline', 'student'],
+    ['project.referenceManager', 'Project Maker: reference manager', 'student'], ['project.deepScan', 'Project Maker: deep scan', 'pro'],
+  ];
   const PRICE_COLS = [['in', 'Input / 1M'], ['cached', 'Cached / 1M'], ['out', 'Output / 1M'], ['audioIn', 'Audio in / 1M'], ['perCall', 'Per call'], ['perMinute', 'Per minute']];
   const AI_OTHER = { timezone: 'Africa/Lagos', verifyEmailFrom: '2026-10-28T00:00:00Z', audioTokensPerMinute: 1000 };
   const dbKey = (model) => model.replace(/\./g, '_');           // (database keys cannot hold '.')
@@ -152,6 +162,11 @@ document.addEventListener('DOMContentLoaded', () => {
         return `<td><input type="number" min="-1" step="${k === 'usdDaily' ? '0.01' : '1'}" data-k="${k}" value="${set[k] != null ? set[k] : ''}" placeholder="${d === -1 ? 'Unlimited' : d}"></td>`;
       }).join('') + '</tr>';
     }).join('');
+    const tp = ai.toolPlans || {};
+    $('ppAiTools') && ($('ppAiTools').innerHTML = '<tr><th>Tool</th><th>Lowest plan</th></tr>' + TOOL_ACCESS.map(([k, label, d]) => {
+      const cur = tp[k.replace(/\./g, '_')] || d;
+      return `<tr><td>${esc(label)}</td><td><select data-k="${esc(k)}">${PLANS.map(([id, pl]) => `<option value="${id}"${cur === id ? ' selected' : ''}>${esc(pl)}${id === d ? ' (default)' : ''}</option>`).join('')}</select></td></tr>`;
+    }).join(''));
     const models = ai.models || {};
     $('ppAiModels').innerHTML = '<tr><th>Job</th><th>Model</th></tr>' + AI_MODELS.map(([k, label, d]) =>
       `<tr><td>${esc(label)}</td><td><input type="text" data-k="${k}" value="${esc(models[k] || '')}" placeholder="${esc(d)}" spellcheck="false" autocomplete="off"></td></tr>`).join('');
@@ -224,6 +239,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (at != null) { if (Number.isNaN(at) || at < 1) { msg($('ppAiMsg'), 'Tokens per audio minute must be 1 or more.', false); return; } cfg.audioTokensPerMinute = Math.floor(at); }
     const deepPlan = $('ppAiDeepPlan') && $('ppAiDeepPlan').value;
     if (deepPlan && deepPlan !== 'max') cfg.minPlan = { blixDeep: deepPlan };
+    // tool access: only what differs from the defaults is saved (database keys cannot hold '.': project_deepScan)
+    const toolPlans = {};
+    TOOL_ACCESS.forEach(([k, , d]) => { const sel = $('ppAiTools') && $('ppAiTools').querySelector(`select[data-k="${k}"]`); if (sel && sel.value !== d) toolPlans[k.replace(/\./g, '_')] = sel.value; });
+    if (Object.keys(toolPlans).length) cfg.toolPlans = toolPlans;
     ['plans', 'models', 'caps', 'prices'].forEach(k => { if (!Object.keys(cfg[k]).length) delete cfg[k]; });
     // the most consequential change gets its own warning
     const free = (cfg.plans && cfg.plans.free) || {};

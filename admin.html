@@ -910,6 +910,9 @@
                         <h3>AI limits &amp; costs</h3>
                         <p class="settings-hint">Enforced by the server on every SI request from both apps (users cannot get round them). <b>-1 = unlimited, 0 = none.</b> The OpenAI spend cap is in US dollars per user per day and covers Blix 360, image and video analysis, web search, transcription and AI pictures; DeepSeek (Basal, Corpus, Medulla) is limited by the token limits above. Leave a box empty to keep the built-in value shown in grey.</p>
                         <div class="pp-scroll"><table class="pp-table" id="ppAiPlans"></table></div>
+                        <h4 style="margin:1.2rem 0 0.2rem;">Tool access</h4>
+                        <p class="settings-hint">The lowest plan that can use each tool (both apps). Set a tool to <b>Free</b> to open it to everyone; how much each plan can use it is still set by the limits above.</p>
+                        <div class="pp-scroll"><table class="pp-table" id="ppAiTools"></table></div>
                         <h4 style="margin:1.2rem 0 0.2rem;">Models</h4>
                         <p class="settings-hint">The OpenAI model behind each job. After changing one, run <code>npm run smoke -- &lt;model&gt;</code> in backend/functions to check it exists.</p>
                         <div class="pp-scroll"><table class="pp-table" id="ppAiModels"></table></div>
