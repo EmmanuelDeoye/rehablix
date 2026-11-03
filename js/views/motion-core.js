@@ -194,7 +194,7 @@
   // Real-time tracking uses the FULL model (the heavy model cannot keep up on
   // phones/tablets); heavy is requested first on capable devices via preferHeavy.
   function loadLiveLandmarker(preferHeavy) { return loadLandmarker('VIDEO', preferHeavy ? 'heavy' : 'full'); }
-  function warmUpPoseModel() { return loadLiveLandmarker(false); }
+  function warmUpPoseModel(preferHeavy) { return loadLiveLandmarker(!!preferHeavy); }
 
   function resultToSample(res, tSec, aspect) {
     const lm = res && res.landmarks && res.landmarks[0];

@@ -27,12 +27,12 @@ LIXA (this chat)
 
 WORKSPACE TOOLS
 - Smart EMR: patient records with registration numbers, intake, SI clinical summaries, treatment plans, session notes, progress notes and discharge summaries. Patient details are sent to the SI so it can help in full; each user is responsible for their own patients' privacy.
-- Motion & Gait Analyzer: camera-based, voice-guided joint range-of-motion, gait and assistive-device assessment with a report.
+- Motion & Gait Analyzer: camera-based, voice-guided joint range-of-motion, gait and assistive-device assessment with a report. For range of motion: film side-on for flexion/extension and facing the camera for abduction, side bending and rotation (the tracking chip says if the view is wrong); the live chip shows the angle and the end range reached so far. The user taps Capture at each position; Auto-capture (hands-free) is off by default and can be switched on in the sliders (Preferences), as can Voice guidance. Fingers and thumb are not measurable from video.
 - Audio Transcription: "Record live" or "Upload Audio". Two modes: Transcribe (plain transcript and session narrative) and Coach (for a live session: needs patient/caregiver consent, labels therapist and patient automatically and suggests one follow-up question). Session details (patient, session type, profession) are under the sliders icon. A transcript can be linked to an EMR patient.
 - Deck Studio: designed PowerPoint decks from a topic or notes; choose audience, slide count and style, preview, restyle for free, ask for changes, download .pptx.
 - Presentation Maker: case presentations, clinical reports and documentation from notes.
 - Assessment Format Generator and Standardized Tools: printable assessment forms and full standardized outcome measures.
-- Assignment Maker: referenced academic write-ups. Project Maker: a full research project, chapters 1 to 5, with Project SI, review and export. Study Buddy: flashcards, summaries and quizzes from notes. Exam Simulator: timed SI exams with analytics.
+- Assignment Maker: referenced academic write-ups. Project Maker: a full research project, chapters 1 to 5, with Project SI, review and export. In Setup > Research Setup, "Draft with SI" fills the empty fields (problem, aim, objectives, questions, hypotheses, variables, population, setting, key concepts) from the title for the student to check and save. The project dashboard has Setup, Review and Export shortcuts. Improve writing, Add citations and natural-voice editing save the previous text in Version History first. Study Buddy: flashcards, summaries and quizzes from notes. Exam Simulator: timed SI exams with analytics.
 - Results open in an editor: edit, share a link, print or save as PDF, export to Word or PowerPoint.
 
 CENTERS (teams)

@@ -423,7 +423,7 @@
       navItems.forEach(function (item) { item.classList.toggle('active', item.dataset.screen === name); });
       if (!opts.suppressHistory && screenHistory[screenHistory.length - 1] !== name) screenHistory.push(name);
 
-      if (name === 'projects') { if (projectsLoaded) renderProjectsListScreen(); else renderProjectsShimmer(); }
+      if (name === 'projects') { if (projectsLoaded) renderProjectsListScreen(); else if (signedOut) renderSignedOutProjects(); else renderProjectsShimmer(); }
       if (name === 'dashboard') renderDashboard();
       if (name === 'workspace' && typeof maybeShowCollapseTutorial === 'function') maybeShowCollapseTutorial();
       if (name === 'setup') renderSetupScreen();
@@ -450,6 +450,13 @@
     // loadProjects()'s Firebase read is in flight (see the `projectsLoaded`
     // flag below), and a search bar filters the grid by title.
     let projectsLoaded = false;
+    let signedOut = false; // auth has answered and nobody is signed in
+    function renderSignedOutProjects() {
+      const grid = document.getElementById('projectsListGrid');
+      if (!grid) return;
+      grid.innerHTML = '<div class="emr-empty-state"><i class="bx bx-lock-alt"></i><p>Log in to see your projects</p><small>Your projects are saved to your account, on the web and the Android app.</small><button type="button" class="btn btn-primary" id="projectsLoginBtn" style="margin-top:0.8rem;">Log in</button></div>';
+      document.getElementById('projectsLoginBtn')?.addEventListener('click', function () { document.getElementById('loginBtn')?.click(); });
+    }
     function renderProjectsShimmer() {
       const grid = document.getElementById('projectsListGrid');
       if (!grid) return;
@@ -692,6 +699,22 @@
 
     document.getElementById('dashNewProjectBtn')?.addEventListener('click', function () { createNewProject(); });
 
+    // Dashboard shortcuts: Setup, Review and Export straight from the project's home (they used to be
+    // reachable only from inside the writing screen). Review works on the last section opened.
+    document.querySelectorAll('[data-dash-go]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (!currentProject) { showToast('Select or create a project first', 'error'); return; }
+        const go = btn.dataset.dashGo;
+        if (go === 'review') {
+          const dash = currentProject.dashboard || {};
+          if (dash.lastOpenedChapter) { currentChapter = dash.lastOpenedChapter; currentSection = dash.lastOpenedSection || 0; }
+          if (!currentChapter) currentChapter = 'chapter1';
+          renderChapters(); loadSectionContent();
+        }
+        switchScreen(go);
+      });
+    });
+
     // =========================================================================
     // RESEARCH SETUP — REDESIGN (new data + UI, part of the Setup screen)
     // =========================================================================
@@ -770,6 +793,44 @@
     }
 
     document.getElementById('saveResearchSetupBtn')?.addEventListener('click', saveResearchSetup);
+
+    // "Draft with SI": drafts the Research Setup from the title, department and approach. Fills only the
+    // fields that are still empty (never overwrites the student's own words); nothing is saved until they
+    // press Save Research Setup.
+    async function draftResearchSetup() {
+      if (!currentProject) return;
+      if (!requireSignIn()) return;
+      const btn = document.getElementById('rsDraftBtn');
+      const listIds = { objectives: 'rsObjectives', researchQuestions: 'rsQuestions', hypotheses: 'rsHypotheses', keyConcepts: 'rsKeyConcepts', independent: 'rsVarIndependent', dependent: 'rsVarDependent', confounding: 'rsVarConfounding' };
+      const textIds = { problem: 'rsProblem', aim: 'rsAim', population: 'rsPopulation', setting: 'rsSetting' };
+      const emptyText = Object.keys(textIds).filter(function (k) { return !document.getElementById(textIds[k]).value.trim(); });
+      const emptyList = Object.keys(listIds).filter(function (k) { return !readListField(listIds[k]).length; });
+      if (!emptyText.length && !emptyList.length) { showToast('Every field is filled in already', 'info'); return; }
+      const qual = currentProject.approach === 'qualitative';
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bx bx-loader-alt bx-spin"></i> Drafting…'; }
+      try {
+        const system = 'You help a ' + (currentProject.type || 'undergraduate') + ' student in ' + (currentProject.department || 'rehabilitation') + ' set up a research project. Write realistic, specific, examinable content for THIS title, in plain academic English, British spelling. Do not invent results or statistics. Return ONLY a JSON object, no prose, no code fences.';
+        const user = 'PROJECT TITLE: "' + currentProject.title + '"\nDEPARTMENT: ' + (currentProject.department || '') + '\nAPPROACH: ' + (qual ? 'Qualitative' : 'Quantitative') + '\n\nReturn JSON with these keys:\n' +
+          '{"problem": "2-3 sentences: the gap or problem this study addresses", "aim": "one sentence", "objectives": ["3-4 objectives starting with To ..."], "researchQuestions": ["3-4 questions"], ' +
+          '"hypotheses": [' + (qual ? '] (leave empty for a qualitative study), ' : '"2-3 testable hypotheses, H1: ... and matching H0 where sensible"], ') +
+          '"independent": [' + (qual ? '] (empty for qualitative), ' : '"the independent variable(s)"], ') + '"dependent": [' + (qual ? '] (empty for qualitative), ' : '"the dependent variable(s)"], ') +
+          '"confounding": ["likely confounding variables"' + (qual ? ' (may be empty)' : '') + '], "population": "who is studied", "setting": "where", "keyConcepts": ["4-6 key concepts"]}';
+        const raw = await callProjectAI(PROJECT_AI_ACTIONS.findMissing, system, user);
+        const d = parseJsonLoose(raw);
+        if (!d || typeof d !== 'object' || Array.isArray(d)) throw new Error('The draft could not be read. Please try again.');
+        const asList = function (v) { return (Array.isArray(v) ? v : (v ? [v] : [])).map(function (x) { return String(x || '').trim(); }).filter(Boolean); };
+        let filled = 0;
+        emptyText.forEach(function (k) { const v = String(d[k] || '').trim(); if (v) { document.getElementById(textIds[k]).value = v; filled++; } });
+        const placeholders = { objectives: 'e.g. To assess...', researchQuestions: 'e.g. What is the effect of...', hypotheses: 'e.g. H1: There is a significant...', keyConcepts: 'e.g. Vestibular rehabilitation', independent: 'Independent variable', dependent: 'Dependent variable', confounding: 'Confounding variable' };
+        emptyList.forEach(function (k) { const v = asList(d[k]); if (v.length) { renderListField(listIds[k], v, placeholders[k]); filled++; } });
+        showToast(filled ? 'Draft ready: ' + filled + ' field' + (filled === 1 ? '' : 's') + ' filled in. Check and edit them, then tap Save Research Setup.' : 'No fields could be drafted. Please try again.', filled ? 'success' : 'error', 6000);
+      } catch (err) {
+        reportError(err, 'research setup draft');
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bx bx-bulb"></i> Draft with SI'; }
+      }
+    }
+    document.getElementById('rsDraftBtn')?.addEventListener('click', draftResearchSetup);
 
     // =========================================================================
     // SETUP SCREEN — REDESIGN (new screen; Project Details tab reuses the
@@ -887,6 +948,10 @@
         }).join('\n');
     }
 
+    // Context excerpts are cut to keep requests small; the cut is marked so the SI never mistakes a
+    // shortened excerpt for the student's text being unfinished.
+    function clip(text, n) { text = String(text || ''); return text.length > n ? text.substring(0, n).replace(/\s+\S*$/, '') + ' […excerpt shortened]' : text; }
+
     function buildContextSummary() {
       const summary = [];
       if (currentProject) {
@@ -905,20 +970,20 @@
         const objectives = extractPlainText(ch1.sections ? ch1.sections[2] : '');
         const questions = extractPlainText(ch1.sections ? ch1.sections[3] : '');
         const significance = extractPlainText(ch1.sections ? ch1.sections[4] : '');
-        if (background) summary.push('BACKGROUND: ' + background.substring(0, 800));
-        if (statement) summary.push('PROBLEM STATEMENT: ' + statement.substring(0, 600));
-        if (objectives) summary.push('AIM & OBJECTIVES: ' + objectives.substring(0, 600));
-        if (questions) summary.push('RESEARCH QUESTIONS: ' + questions.substring(0, 500));
-        if (significance) summary.push('SIGNIFICANCE: ' + significance.substring(0, 400));
+        if (background) summary.push('BACKGROUND: ' + clip(background, 800));
+        if (statement) summary.push('PROBLEM STATEMENT: ' + clip(statement, 600));
+        if (objectives) summary.push('AIM & OBJECTIVES: ' + clip(objectives, 600));
+        if (questions) summary.push('RESEARCH QUESTIONS: ' + clip(questions, 500));
+        if (significance) summary.push('SIGNIFICANCE: ' + clip(significance, 400));
       }
       const ch2 = currentProject.chapters.chapter2;
       if (ch2) {
         const framework = extractPlainText(ch2.sections ? ch2.sections[0] : '');
         const empirical = extractPlainText(ch2.sections ? ch2.sections[1] : '');
         const conceptual = extractPlainText(ch2.sections ? ch2.sections[2] : '');
-        if (framework) summary.push('THEORETICAL FRAMEWORK: ' + framework.substring(0, 600));
-        if (empirical) summary.push('EMPIRICAL REVIEW KEY POINTS: ' + empirical.substring(0, 500));
-        if (conceptual) summary.push('CONCEPTUAL FRAMEWORK: ' + conceptual.substring(0, 400));
+        if (framework) summary.push('THEORETICAL FRAMEWORK: ' + clip(framework, 600));
+        if (empirical) summary.push('EMPIRICAL REVIEW KEY POINTS: ' + clip(empirical, 500));
+        if (conceptual) summary.push('CONCEPTUAL FRAMEWORK: ' + clip(conceptual, 400));
       }
       const ch3 = currentProject.chapters.chapter3;
       if (ch3) {
@@ -928,28 +993,34 @@
         const instrument = extractPlainText(ch3.sections ? ch3.sections[3] : '');
         const dataCollect = extractPlainText(ch3.sections ? ch3.sections[4] : '');
         const dataAnalysis = extractPlainText(ch3.sections ? ch3.sections[5] : '');
-        if (design) summary.push('RESEARCH DESIGN (MUST MATCH IN ALL CHAPTERS): ' + design.substring(0, 500));
-        if (population) summary.push('POPULATION & SAMPLE SIZE (USE THESE EXACT NUMBERS IN CHAPTERS 4 & 5): ' + population.substring(0, 600));
-        if (sampling) summary.push('SAMPLING TECHNIQUE: ' + sampling.substring(0, 400));
-        if (instrument) summary.push('INSTRUMENTS/TOOLS (MUST MATCH IN RESULTS & DISCUSSION): ' + instrument.substring(0, 500));
-        if (dataCollect) summary.push('DATA COLLECTION PROCEDURE: ' + dataCollect.substring(0, 400));
-        if (dataAnalysis) summary.push('DATA ANALYSIS METHOD: ' + dataAnalysis.substring(0, 400));
+        if (design) summary.push('RESEARCH DESIGN (MUST MATCH IN ALL CHAPTERS): ' + clip(design, 500));
+        if (population) summary.push('POPULATION & SAMPLE SIZE (USE THESE EXACT NUMBERS IN CHAPTERS 4 & 5): ' + clip(population, 600));
+        if (sampling) summary.push('SAMPLING TECHNIQUE: ' + clip(sampling, 400));
+        if (instrument) summary.push('INSTRUMENTS/TOOLS (MUST MATCH IN RESULTS & DISCUSSION): ' + clip(instrument, 500));
+        if (dataCollect) summary.push('DATA COLLECTION PROCEDURE: ' + clip(dataCollect, 400));
+        if (dataAnalysis) summary.push('DATA ANALYSIS METHOD: ' + clip(dataAnalysis, 400));
       }
       const ch4 = currentProject.chapters.chapter4;
       if (ch4) {
         const dataPres = extractPlainText(ch4.sections ? ch4.sections[0] : (ch4.content || ''));
         const analysis = extractPlainText(ch4.sections ? ch4.sections[1] : '');
         const interp = extractPlainText(ch4.sections ? ch4.sections[2] : '');
-        if (dataPres) summary.push('RESULTS - DATA PRESENTATION (must be consistent with Discussion): ' + dataPres.substring(0, 700));
-        if (analysis) summary.push('RESULTS - ANALYSIS (do not contradict these findings): ' + analysis.substring(0, 500));
-        if (interp) summary.push('RESULTS - INTERPRETATION: ' + interp.substring(0, 400));
+        if (dataPres) summary.push('RESULTS - DATA PRESENTATION (must be consistent with Discussion): ' + clip(dataPres, 700));
+        if (analysis) summary.push('RESULTS - ANALYSIS (do not contradict these findings): ' + clip(analysis, 500));
+        if (interp) summary.push('RESULTS - INTERPRETATION: ' + clip(interp, 400));
       }
       const allText = extractPlainText(JSON.stringify(currentProject.chapters));
       const numberPatterns = allText.match(/\bn\s*=\s*\d+|\d+\s*participants?|\d+\s*patients?|\d+\.\d+\s*\(SD[\s=]*[\d.]+\)|\bp\s*[<=>]\s*[\d.]+|mean\s*(?:score\s*)?(?:was|of|=)\s*[\d.]+/gi) || [];
       const uniqueNumbers = [...new Set(numberPatterns.map(function (s) { return s.trim(); }))].slice(0, 15);
       if (uniqueNumbers.length > 0) summary.push('CONSISTENCY CRITICAL - USE THESE EXACT FIGURES (do not invent or change any): ' + uniqueNumbers.join(' | '));
-      const keyTerms = extractKeyTerms(allText);
-      if (keyTerms.length > 0) summary.push('KEY TERMS (use consistently, same spelling throughout): ' + keyTerms.join(', '));
+      // the student's own key concepts when they set them; otherwise recurring terms from the text
+      // (names of journals, associations and publishers are left out — they are reference-list noise)
+      const ownConcepts = ((currentProject.researchSetup && currentProject.researchSetup.keyConcepts) || []).filter(Boolean);
+      if (ownConcepts.length) summary.push('KEY TERMS (set by the student; use consistently, same spelling throughout): ' + ownConcepts.join(', '));
+      else {
+        const keyTerms = extractKeyTerms(allText).filter(function (t) { return !/\b(Journal|Association|Press|University|Review|Publishing|Publishers|Organization|Organisation|Society|Institute|Programs?)\b/.test(t); });
+        if (keyTerms.length > 0) summary.push('RECURRING TERMS (detected automatically in the draft, not set by the student; keep spelling consistent): ' + keyTerms.join(', '));
+      }
       const resourceContext = buildResourceContext();
       if (resourceContext) summary.push(resourceContext);
       return summary.join('\n\n');
@@ -962,7 +1033,7 @@
       const parts = [buildResearchSetupContext(), buildContextSummary()];
       if (includeCurrentDraft && sectionEditor) {
         const draft = extractPlainText(sectionEditor.innerHTML);
-        if (draft.trim()) parts.push('CURRENT DRAFT (what is already written in this section — build on this, do not repeat it):\n' + draft.substring(0, 3000));
+        if (draft.trim()) parts.push('CURRENT DRAFT (what is already written in this section — build on this, do not repeat it):\n' + clip(draft, 3000));
       }
       const refs = buildReferencesContext();
       if (refs) parts.push(refs);
@@ -1202,11 +1273,11 @@
       if (ch.sections && ch.sections.length) {
         ch.sections.forEach(function (sec, i) {
           const text = extractPlainText(getSectionContent(chapterKey, i)).replace(/\n{3,}/g, '\n\n').trim();
-          out += '\n\n### [' + i + '] ' + sec + '\n' + (text ? text.substring(0, cap) : '(this section is empty)');
+          out += '\n\n### [' + i + '] ' + sec + '\n' + (text ? clip(text, cap) : '(this section is empty)');
         });
       } else {
         const text = extractPlainText(getSectionContent(chapterKey, 0)).trim();
-        out += '\n\n### [0] ' + ch.title + '\n' + (text ? text.substring(0, cap * 3) : '(empty)');
+        out += '\n\n### [0] ' + ch.title + '\n' + (text ? clip(text, cap * 3) : '(empty)');
       }
       return out;
     }
@@ -1264,7 +1335,7 @@
     async function requestFixEdits(problem, targets) {
       const system = 'You are Project SI\'s fix engine for a student\'s academic project. You receive one specific problem and the FULL text of the sections involved (each tagged [chapterKey|sectionIndex]). Locate the exact passage(s) responsible and write corrected text.\n\nRules:\n- "original" MUST be copied VERBATIM, character-for-character, from the section text given (a whole sentence or a few sentences). Never paraphrase it.\n- "replacement" is the corrected text that replaces "original" exactly — same language, voice and citation style, no markdown.\n- For something MISSING, set "original" to "" and give "insertAfter": a verbatim sentence from that section after which the new text belongs (or "" to add it at the end of the section); "replacement" is the new text to insert.\n- Treat the Research Setup and the Methodology chapter as the source of truth for figures, design and instruments. Never invent sources, statistics or sample sizes that are not already established.\n- Keep edits minimal: change only what fixes the problem.\n\nReturn ONLY JSON (no code fences): {"summary":"<one or two sentences: what is wrong and exactly where>","edits":[{"chapterKey":"...","sectionIndex":0,"original":"...","insertAfter":"...","replacement":"...","reason":"<why this edit fixes it>"}]}';
       const blocks = targets.map(function (t) {
-        return '### [' + t.chapterKey + '|' + t.sectionIndex + '] ' + locationLabel(t.chapterKey, t.sectionIndex) + '\n' + (sectionText(t.chapterKey, t.sectionIndex) || '(this section is empty)').substring(0, 6000);
+        return '### [' + t.chapterKey + '|' + t.sectionIndex + '] ' + locationLabel(t.chapterKey, t.sectionIndex) + '\n' + clip(sectionText(t.chapterKey, t.sectionIndex) || '(this section is empty)', 6000);
       }).join('\n\n');
       const user = buildResearchSetupContext() + '\n\nPROJECT: "' + currentProject.title + '" (' + (currentProject.approach === 'qualitative' ? 'qualitative' : 'quantitative') + ', reference style ' + getReferenceStyle() + ')\n\nPROBLEM TO FIX:\n' + problem + '\n\nSECTIONS INVOLVED:\n' + blocks;
       const raw = await callProjectAI(FIX_ACTION, system, user);
@@ -1474,14 +1545,14 @@
         const ch = chStruct[currentChapter];
         const secName = ch && ch.sections ? ch.sections[currentSection] : (ch ? ch.title : '');
         chapterTitle = ch ? ch.title : '';
-        bodyHtml = '<h2>' + escapeHtml(secName) + '</h2>\n' + getSectionContent(currentChapter, currentSection);
+        bodyHtml = '<h2>' + escapeHtml(secName) + '</h2>\n' + stripLeadingTitle(getSectionContent(currentChapter, currentSection), secName);
       } else if (scope === 'chapter') {
         const ch = chStruct[currentChapter];
         chapterTitle = ch ? ch.title : '';
         bodyHtml = '<h2>' + escapeHtml(chapterTitle) + '</h2>\n';
         if (ch && ch.sections && ch.sections.length) {
           ch.sections.forEach(function (sec, i) {
-            const content = getSectionContent(currentChapter, i);
+            const content = stripLeadingTitle(getSectionContent(currentChapter, i), sec);
             if (content && content.trim().length > 10) bodyHtml += '<h3>' + escapeHtml(sec) + '</h3>\n' + content + '\n';
           });
         } else bodyHtml += getSectionContent(currentChapter, 0);
@@ -1498,7 +1569,7 @@
           } else {
             let hasContent = false, sectionHtml = '';
             ch.sections.forEach(function (sec, i) {
-              const content = getSectionContent(key, i);
+              const content = stripLeadingTitle(getSectionContent(key, i), sec);
               if (content && content.trim().length > 10) { sectionHtml += '<h3>' + escapeHtml(sec) + '</h3>\n' + content + '\n'; hasContent = true; }
             });
             if (hasContent) bodyHtml += '<h2>' + escapeHtml(ch.title) + '</h2>\n' + sectionHtml;
@@ -1551,12 +1622,12 @@
       if (scope === 'section') {
         const ch = chStruct[currentChapter];
         const secName = ch && ch.sections && ch.sections.length ? ch.sections[currentSection] : (ch ? ch.title : '');
-        parts.push({ html: '<h2>' + escapeHtml(secName) + '</h2>' + getSectionContent(currentChapter, currentSection), pageBreakBefore: false });
+        parts.push({ html: '<h2>' + escapeHtml(secName) + '</h2>' + stripLeadingTitle(getSectionContent(currentChapter, currentSection), secName), pageBreakBefore: false });
       } else if (scope === 'chapter') {
         const ch = chStruct[currentChapter];
         let html = '<h1>' + escapeHtml(ch ? ch.title : '') + '</h1>';
         if (ch && ch.sections && ch.sections.length) {
-          ch.sections.forEach(function (sec, i) { const c = getSectionContent(currentChapter, i); if (c && c.trim().length > 10) html += '<h2>' + escapeHtml(sec) + '</h2>' + c; });
+          ch.sections.forEach(function (sec, i) { const c = stripLeadingTitle(getSectionContent(currentChapter, i), sec); if (c && c.trim().length > 10) html += '<h2>' + escapeHtml(sec) + '</h2>' + c; });
         } else html += getSectionContent(currentChapter, 0);
         parts.push({ html: html, pageBreakBefore: false });
         toc = ch ? [{ title: ch.title, sections: ch.sections || [] }] : null;
@@ -1578,7 +1649,7 @@
             const c = getSectionContent(key, 0);
             if (c && c.trim().length > 10) html = '<h1>' + escapeHtml(ch.title) + '</h1>' + c;
           } else {
-            ch.sections.forEach(function (sec, i) { const c = getSectionContent(key, i); if (c && c.trim().length > 10) html += '<h2>' + escapeHtml(sec) + '</h2>' + c; });
+            ch.sections.forEach(function (sec, i) { const c = stripLeadingTitle(getSectionContent(key, i), sec); if (c && c.trim().length > 10) html += '<h2>' + escapeHtml(sec) + '</h2>' + c; });
             if (html) html = '<h1>' + escapeHtml(ch.title) + '</h1>' + html;
           }
           if (html) parts.push({ html: html, pageBreakBefore: true }); // each chapter starts on a new page
@@ -1903,6 +1974,10 @@
     }
 
     async function callProjectAI(action, systemPrompt, userPrompt) {
+      return (await callProjectAIReply(action, systemPrompt, userPrompt)).text;
+    }
+    // The reply with its finish_reason, so a reply that ran out of room is never mistaken for a whole one.
+    async function callProjectAIReply(action, systemPrompt, userPrompt) {
       const config = await chosenModelConfig(action.model);
       if (!config) throw new Error('SI service not configured');
       if (currentUser) await window.RehablixAIQuotaCore.checkQuotaOrThrow(currentUser.uid, currentPlan);
@@ -1911,10 +1986,22 @@
         body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: config.maxTokens, temperature: config.temperature, top_p: config.top_p })
       });
       if (!response.ok) { const err = await response.json().catch(function () { return {}; }); throw new Error((err.error && err.error.message) || 'SI service error'); }
-      const data = await response.json();
-      const content = data.choices && data.choices[0] && data.choices[0].message.content;
-      if (currentUser) window.RehablixAIQuotaCore.reportTokenUsage(currentUser.uid, currentPlan, systemPrompt + userPrompt + (content || ''), config.weight);
-      return content || '';
+      const reply = replyOf(await response.json());
+      if (currentUser) window.RehablixAIQuotaCore.reportTokenUsage(currentUser.uid, currentPlan, systemPrompt + userPrompt + reply.text, config.weight);
+      return reply;
+    }
+    // Improve writing / Add citations rewrite the section in place: a version is saved first (Version History
+    // can undo it), and the section is rewritten part by part so its end is never lost.
+    async function rewriteSectionWith(action, systemPrompt, buildUserPrompt) {
+      if (extractPlainText(sectionEditor.innerHTML).trim().length < 50) throw new Error('Write some content in this section first.');
+      await saveVersion();
+      const res = await rewriteInPieces(sectionEditor.innerHTML, function (piece, i, n) {
+        return callProjectAIReply(action, systemPrompt + partNote(i, n).replace(/^\n/, ' '), buildUserPrompt(piece));
+      });
+      if (res.kept === res.pieces) throw new Error('No usable rewrite came back, so your section was left as it was.');
+      sectionEditor.innerHTML = res.html;
+      saveCurrentSection(); await saveToFirebase(); updateVersionList();
+      return res;
     }
 
     // Lixa's message structure (.message > .message-bubble + .message-time) so
@@ -1972,17 +2059,14 @@
         if (actionKey === 'continueWriting') {
           systemPrompt += ' Continue the student\'s own draft naturally from where it stops. Do not repeat what is already written. Match the existing voice and tense. Return ONLY the continuation text (plain HTML paragraphs), no preamble.';
           userPrompt = context + '\n\nContinue the "' + sectionName + '" section from where the current draft leaves off.';
-          const result = await callProjectAI(action, systemPrompt, userPrompt);
+          const result = cleanAIResponse(await callProjectAI(action, systemPrompt, userPrompt));
           sectionEditor.innerHTML += (sectionEditor.innerHTML.trim() ? ' ' : '') + result;
           saveCurrentSection(); await saveToFirebase();
           hideTypingIndicator(); appendAIChatMessage('assistant', 'Added a continuation to your draft.');
         } else if (actionKey === 'improveWriting') {
-          systemPrompt += ' Rewrite the given text for clarity and academic flow. Do NOT change any facts, numbers, statistics, sample sizes, or citations. Return ONLY the rewritten HTML.';
-          userPrompt = 'TEXT TO IMPROVE:\n' + sectionEditor.innerHTML;
-          const result = await callProjectAI(action, systemPrompt, userPrompt);
-          sectionEditor.innerHTML = result;
-          saveCurrentSection(); await saveToFirebase();
-          hideTypingIndicator(); appendAIChatMessage('assistant', 'Improved the writing in this section.');
+          systemPrompt += ' Rewrite the given text for clarity and academic flow. Do NOT change any facts, numbers, statistics, sample sizes, or citations. Keep about the same length. Return ONLY the rewritten HTML.';
+          const res = await rewriteSectionWith(action, systemPrompt, function (piece) { return 'TEXT TO IMPROVE:\n' + piece; });
+          hideTypingIndicator(); appendAIChatMessage('assistant', 'Improved the writing in this section' + (res.kept ? ' (' + res.kept + ' of ' + res.pieces + ' parts kept as they were)' : '') + '. Your previous text is saved in Version History.');
         } else if (actionKey === 'explain') {
           systemPrompt += ' Explain in plain language what the given passage argues or means, in the context of this specific study. Keep it brief.';
           userPrompt = context + '\n\nExplain this passage:\n' + (currentDraft || '(the section is currently empty)');
@@ -2007,12 +2091,9 @@
           appendAIChatMessage('assistant', (regexFindings.length ? regexFindings.map(function (f) { return '- ' + f.note; }).join('\n') + '\n\n' : '') + result, { openFindings: regexFindings.length > 0 });
           renderConsistencyFindings(regexFindings);
         } else if (actionKey === 'addCitations') {
-          systemPrompt += ' Find claims in this section that need a citation. If a matching source exists in AVAILABLE SOURCES, insert an in-text citation for it. If no matching source exists, flag the claim as needing one instead of a citation. NEVER invent a source that is not in AVAILABLE SOURCES. Return ONLY the updated section HTML.';
-          userPrompt = context + '\n\nSECTION TO ADD CITATIONS TO:\n' + sectionEditor.innerHTML;
-          const result = await callProjectAI(action, systemPrompt, userPrompt);
-          sectionEditor.innerHTML = result;
-          saveCurrentSection(); await saveToFirebase();
-          hideTypingIndicator(); appendAIChatMessage('assistant', 'Checked this section for citations — review the changes in the editor.');
+          systemPrompt += ' Find claims in this section that need a citation. If a matching source exists in AVAILABLE SOURCES, insert an in-text citation for it. If no matching source exists, flag the claim as needing one instead of a citation. NEVER invent a source that is not in AVAILABLE SOURCES. Keep all the existing text. Return ONLY the updated section HTML.';
+          const res = await rewriteSectionWith(action, systemPrompt, function (piece) { return context + '\n\nSECTION TO ADD CITATIONS TO:\n' + piece; });
+          hideTypingIndicator(); appendAIChatMessage('assistant', 'Checked this section for citations' + (res.kept ? ' (' + res.kept + ' of ' + res.pieces + ' parts kept as they were)' : '') + ' — review the changes in the editor. Your previous text is saved in Version History.');
         } else if (actionKey === 'reviewChapter') {
           const reviewEl = document.getElementById('reviewChapterFindings');
           if (reviewEl) reviewEl.innerHTML = '<div class="review-finding review-empty"><i class="bx bx-loader-alt bx-spin"></i> Reviewing ' + escapeHtml(ch ? ch.title : 'this chapter') + ' — reading every section in full…</div>';
@@ -2266,27 +2347,29 @@
       const referenceStyle = getReferenceStyle();
       const humanizationRules = buildHumanizationPrompt();
       const systemPrompt = 'You are an expert at rewriting academic text to sound naturally human-written.\nYour job is to change STYLE and VOICE only, never change facts, numbers, sample sizes, statistics, or citations.\nWrite in first-person student voice.\n' + PUNCTUATION_RULES;
-      const userPrompt = 'REWRITE the text below to sound like a real ' + profile + ' healthcare student wrote it.\nThe project is about: "' + currentProject.title + '"\n\nSTRICT RULES:\n- Change ONLY the writing style, voice, and phrasing.\n- Do NOT change any numbers, statistics, sample sizes, participant counts, or citations.\n- Preserve all ' + referenceStyle + ' citations exactly as written.\n\nWRITING PROFILE:\n' + profileGuidance + '\n\n' + humanizationRules + '\n\nTEXT TO REWRITE:\n' + sourceHtml.substring(0, 6000) + '\n\nReturn ONLY the rewritten HTML. No markdown fences. If the source text is empty, respond with "EMPTY_SOURCE".';
       showToast('Applying natural voice editing...', 'info', 2500);
       try {
         // (Student plan or higher, as before; it writes with the model chosen on any page)
         const config = await chosenModelConfig(modelId);
         if (!config) throw new Error('SI service not configured');
         if (currentUser) await window.RehablixAIQuotaCore.checkQuotaOrThrow(currentUser.uid, currentPlan);
-        const response = await fetch(config.endpoint + '/chat/completions', {
-          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token },
-          body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: config.maxTokens, temperature: config.temperature, top_p: config.top_p })
+        // the whole section, part by part (it used to rewrite only the first 6,000 characters and drop the rest)
+        const res = await rewriteInPieces(sourceHtml, async function (piece, i, n) {
+          const userPrompt = 'REWRITE the text below to sound like a real ' + profile + ' healthcare student wrote it.\nThe project is about: "' + currentProject.title + '"\n\nSTRICT RULES:\n- Change ONLY the writing style, voice, and phrasing.\n- Do NOT change any numbers, statistics, sample sizes, participant counts, or citations.\n- Preserve all ' + referenceStyle + ' citations exactly as written.\n- Keep about the same length.\n\nWRITING PROFILE:\n' + profileGuidance + '\n\n' + humanizationRules + partNote(i, n) + '\n\nTEXT TO REWRITE:\n' + piece + '\n\nReturn ONLY the rewritten HTML. No markdown fences. If the source text is empty, respond with "EMPTY_SOURCE".';
+          const response = await fetch(config.endpoint + '/chat/completions', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token },
+            body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: Math.min(config.maxTokens || 6000, 6000), temperature: config.temperature, top_p: config.top_p })
+          });
+          if (!response.ok) { const err = await response.json().catch(function () { return {}; }); throw new Error((err.error && err.error.message) || 'SI service error'); }
+          const reply = replyOf(await response.json());
+          if (currentUser) window.RehablixAIQuotaCore.reportTokenUsage(currentUser.uid, currentPlan, systemPrompt + userPrompt + reply.text, config.weight);
+          return reply;
         });
-        if (!response.ok) { const err = await response.json().catch(function () { return {}; }); throw new Error((err.error && err.error.message) || 'SI service error'); }
-        const data = await response.json();
-        const raw = data.choices && data.choices[0] && data.choices[0].message.content;
-        const cleaned = raw ? cleanAIResponse(raw) : '';
-        if (!cleaned || cleaned.includes('EMPTY_SOURCE') || cleaned.length < 50) throw new Error('Natural voice editing produced no usable output');
-        if (currentUser) window.RehablixAIQuotaCore.reportTokenUsage(currentUser.uid, currentPlan, systemPrompt + userPrompt + cleaned, config.weight);
-        sectionEditor.innerHTML = cleaned;
+        if (res.kept === res.pieces) throw new Error('Natural voice editing produced no usable output');
+        sectionEditor.innerHTML = res.html;
         saveCurrentSection(); await saveToFirebase();
         displayHumanizationScore(); updateVersionList();
-        showToast('Natural voice editing applied', 'success');
+        showToast(res.kept ? 'Natural voice editing applied (' + res.kept + ' of ' + res.pieces + ' parts kept as they were). The previous text is in Version History.' : 'Natural voice editing applied. The previous text is in Version History.', 'success', 5000);
       } catch (err) {
         reportError(err, 'humanize section');
         showToast('Natural voice editing failed: ' + (err.message || 'Unknown error'), 'error', 5000);
@@ -2491,7 +2574,16 @@
       loadChatHistory();
     }
 
+    // Signed out: ask to log in first, instead of letting the form fail with a permission error.
+    function requireSignIn() {
+      if (currentUser) return true;
+      showToast('Log in to create and save your projects', 'info');
+      document.getElementById('loginBtn')?.click();
+      return false;
+    }
+
     async function createNewProject() {
+      if (!requireSignIn()) return;
       if (!canCreateProject()) {
         const daysLeft = getDaysUntilReset();
         showToast('No active plan: 1 project/month. You have used yours. Resets in ' + daysLeft + ' days. Upgrade for unlimited.', 'error', 6000);
@@ -2580,8 +2672,11 @@
         projectModal.classList.remove('active');
         renderChapters(); loadSectionContent(); updateProjectSelector(); updateModificationArea(); clearChatHistory();
         setProjectActive(true);
+        // the new project's dashboard sits under Setup, so Back leads into the project, not out of it
+        switchScreen('dashboard');
         switchScreen('setup');
-        showToast('Project created. Fill in Research Setup to help Project SI understand your study.', 'success');
+        document.querySelector('.setup-tab[data-setup-tab="Research"]')?.click();
+        showToast('Project created. Fill in Research Setup, or tap "Draft with SI" to start from your title.', 'success', 5000);
       } catch (error) { reportError(error, 'project creation'); }
     }
 
@@ -2968,6 +3063,44 @@
       return cleaned;
     }
 
+    // A generated section often opens with its own title as a heading; the section title is already shown
+    // (and exported) above it, so that first heading is dropped when it just repeats the title.
+    function stripLeadingTitle(html, title) {
+      const m = String(html || '').match(/^\s*<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>\s*/i);
+      // ("Statement of the Problem" = "Statement of Problem": small linking words are ignored)
+      const norm = function (s) { return String(s || '').toLowerCase().replace(/&amp;/g, '&').replace(/[^a-z0-9]+/g, ' ').replace(/\b(the|of|a|an|and|to|for|in)\b/g, ' ').replace(/\s+/g, ' ').trim(); };
+      if (m && title && norm(extractPlainText(m[1])) === norm(title)) return html.slice(m[0].length);
+      return html;
+    }
+
+    // Long sections are rewritten piece by piece (split between paragraphs, headings, lists and tables),
+    // so no rewrite step can drop the end of a section when a reply runs out of room. A piece whose rewrite
+    // comes back cut off, empty, or under half its length is kept exactly as it was.
+    const PIECE_CHARS = 5000;
+    function splitHtmlPieces(html) {
+      const blocks = String(html || '').replace(/(<\/(?:p|h[1-6]|ul|ol|table|blockquote)>)/gi, '$1\u0000').split('\u0000').filter(function (b) { return b.trim(); });
+      const pieces = []; let cur = '';
+      blocks.forEach(function (b) { if (cur && cur.length + b.length > PIECE_CHARS) { pieces.push(cur); cur = ''; } cur += b; });
+      if (cur.trim()) pieces.push(cur);
+      return pieces.length ? pieces : [String(html || '')];
+    }
+    function plainLength(html) { return extractPlainText(html).replace(/\s+/g, ' ').trim().length; }
+    // rewrite(piece, i, n) → { text, finish } (finish = the reply's finish_reason). Returns { html, kept, pieces }.
+    async function rewriteInPieces(html, rewrite) {
+      const pieces = splitHtmlPieces(html), out = [];
+      let kept = 0;
+      for (let i = 0; i < pieces.length; i++) {
+        let r = null;
+        try { r = await rewrite(pieces[i], i, pieces.length); } catch (e) { if (e && e.name === 'AbortError') throw e; console.warn('[project] rewrite of a part failed, kept as it was:', e); }
+        const text = r && r.text ? cleanAIResponse(r.text) : '';
+        const ok = text && !/EMPTY_SOURCE/.test(text) && r.finish !== 'length' && plainLength(text) >= plainLength(pieces[i]) * 0.5;
+        if (ok) out.push(text); else { out.push(pieces[i]); kept++; }
+      }
+      return { html: out.join('\n'), kept: kept, pieces: pieces.length };
+    }
+    const partNote = function (i, n) { return n > 1 ? '\n(This is part ' + (i + 1) + ' of ' + n + ' of a longer section: work on this part only. Do not add an introduction, a summary or a conclusion that is not already in it.)' : ''; };
+    const replyOf = function (json) { const c = json && json.choices && json.choices[0]; return { text: (c && c.message && c.message.content) || '', finish: c && c.finish_reason }; };
+
     async function generateSection(sectionName, chapterKey, sectionIndex) {
       if (!aiConfig.token) { const ok = await fetchTokens(); if (!ok) throw new Error('SI service not configured'); }
       const tone = aiToneSelect ? aiToneSelect.value : 'imperfect';
@@ -2983,10 +3116,14 @@
       let maxTokensPass1 = 10000;
       if (targetWordCount) maxTokensPass1 = tokenMap[targetWordCount] || Math.max(2500, Math.min(18000, Math.round(targetWordCount * 4)));
       let wordInstruction = targetWordCount ? ('TARGET LENGTH: approximately ' + targetWordCount + ' words.') : 'Determine the appropriate length based on the section and context. Write as much as needed to thoroughly cover the topic. No strict word limit.';
+      // Each section stays in its own lane: the other sections of this chapter are named so their content
+      // (e.g. the aim and research questions, which have their own sections) is not written here as well.
+      const chSiblings = ((getChaptersStructure()[chapterKey] || {}).sections || []).filter(function (s) { return s !== sectionName; });
+      const scopeNote = chSiblings.length ? '\nSECTION SCOPE: this chapter also has these separate sections: ' + chSiblings.join('; ') + '. Write ONLY what belongs under "' + sectionName + '". Do not write out the content of those other sections (you may refer to them briefly).' : '';
 
       let content = '';
       const pass1SystemPrompt = 'You are a knowledgeable academic writer specializing in healthcare education.\nWrite well-structured academic content with proper HTML formatting and ' + referenceStyle + ' citations.\nYou MUST stay strictly on the provided project topic and use ONLY the facts, numbers, and methodology details provided in the context.\nNEVER invent sample sizes, participant counts, statistics, or instruments not mentioned in the context.\n' + (resources.length > 0 ? 'Use the uploaded resources as authoritative sources. Cite them where relevant.\n' : '') + PUNCTUATION_RULES + '\nUse ONLY standard punctuation: periods, commas, colons, semicolons, question marks. Never use dashes or special characters.';
-      const pass1UserPrompt = 'CONSISTENCY RULES - NON-NEGOTIABLE:\n- The project title is "' + currentProject.title + '". Every sentence must relate to THIS specific topic.\n- Use ONLY the sample sizes, participant counts, and statistics stated in the context below. Do not invent new ones.\n- If Chapter 3 context specifies a sample of n=X participants, ALL results and discussion must use n=X.\n- Do not introduce new research instruments, designs, or theoretical frameworks not already established.\n- Maintain exactly the same research approach (' + approach + ') throughout.\n\nWrite the "' + sectionName + '" section for:\nPROJECT: "' + currentProject.title + '"\nDEPARTMENT: ' + currentProject.department + '\n\nFULL PROJECT CONTEXT (all established facts, follow exactly):\n' + contextSummary + '\n\nRESEARCH APPROACH: ' + approach + '\nREFERENCE STYLE: ' + referenceStyle + ', use proper in-text citations throughout.\n' + wordInstruction + '\n' + (modification ? '\nSPECIAL INSTRUCTIONS FROM STUDENT: ' + modification + '\n' : '') + '\nWrite comprehensive, well-argued academic content using HTML structure (h2/h3 headings, paragraphs, lists).\nReturn ONLY the HTML. No markdown fences. No preamble. Do not leave the response empty.';
+      const pass1UserPrompt = 'CONSISTENCY RULES - NON-NEGOTIABLE:\n- The project title is "' + currentProject.title + '". Every sentence must relate to THIS specific topic.\n- Use ONLY the sample sizes, participant counts, and statistics stated in the context below. Do not invent new ones.\n- If Chapter 3 context specifies a sample of n=X participants, ALL results and discussion must use n=X.\n- Do not introduce new research instruments, designs, or theoretical frameworks not already established.\n- Maintain exactly the same research approach (' + approach + ') throughout.\n\nWrite the "' + sectionName + '" section for:\nPROJECT: "' + currentProject.title + '"\nDEPARTMENT: ' + currentProject.department + '\n\nFULL PROJECT CONTEXT (all established facts, follow exactly):\n' + contextSummary + '\n\nRESEARCH APPROACH: ' + approach + '\nREFERENCE STYLE: ' + referenceStyle + ', use proper in-text citations throughout.\n' + wordInstruction + scopeNote + '\n' + (modification ? '\nSPECIAL INSTRUCTIONS FROM STUDENT: ' + modification + '\n' : '') + '\nWrite comprehensive, well-argued academic content using HTML structure (h2/h3 headings, paragraphs, lists).\nReturn ONLY the HTML. No markdown fences. No preamble. Do not leave the response empty.';
 
       let attempts = 0;
       while (attempts < 3) {
@@ -2997,23 +3134,24 @@
       }
       if (!content || content.length < 50) throw new Error('SI failed to generate a valid draft after 3 attempts. Please try again.');
 
-      let previousContent = content;
+      // (passes 2 and 3 work on the whole draft, part by part: nothing after a length limit is dropped)
       if (humanizeMode) {
         const pass2SystemPrompt = 'You are an expert at rewriting academic text to sound naturally human-written.\nYour job is to change STYLE and VOICE only, never change facts, numbers, sample sizes, statistics, or citations.\nWrite in first-person student voice.\n' + PUNCTUATION_RULES;
-        const pass2UserPrompt = 'REWRITE the text below to sound like a real ' + profile + ' healthcare student wrote it.\nThe project is about: "' + currentProject.title + '"\n\nSTRICT RULES:\n- Change ONLY the writing style, voice, and phrasing.\n- Do NOT change any numbers, statistics, sample sizes, participant counts, or citations.\n- Preserve all ' + referenceStyle + ' citations exactly as written.\n\nWRITING PROFILE:\n' + profileGuidance + '\n\nWRITING TONE: ' + tone + '\n' + wordInstruction + '\n\n' + humanizationRules + '\n\nTEXT TO REWRITE:\n' + previousContent.substring(0, 4000) + '\n\nReturn ONLY the rewritten HTML. No markdown fences. If you see the text is empty, respond with "EMPTY_SOURCE".';
-        const pass2Response = await callAIWithCancel(pass2SystemPrompt, pass2UserPrompt, maxTokensPass1 + 1000, 0.75, 0.92, 0.25, 0.2);
-        const newContent = cleanAIResponse(pass2Response.choices[0].message.content);
-        if (!newContent || newContent.includes('EMPTY_SOURCE') || newContent.includes('source text') || newContent.length < 100) {
-          console.warn('Pass 2 produced low-quality output, keeping Pass 1 draft.');
-        } else { content = newContent; previousContent = content; }
+        const pass2 = await rewriteInPieces(content, async function (piece, i, n) {
+          const pass2UserPrompt = 'REWRITE the text below to sound like a real ' + profile + ' healthcare student wrote it.\nThe project is about: "' + currentProject.title + '"\n\nSTRICT RULES:\n- Change ONLY the writing style, voice, and phrasing.\n- Do NOT change any numbers, statistics, sample sizes, participant counts, or citations.\n- Preserve all ' + referenceStyle + ' citations exactly as written.\n- Keep about the same length.\n\nWRITING PROFILE:\n' + profileGuidance + '\n\nWRITING TONE: ' + tone + '\n\n' + humanizationRules + partNote(i, n) + '\n\nTEXT TO REWRITE:\n' + piece + '\n\nReturn ONLY the rewritten HTML. No markdown fences. If you see the text is empty, respond with "EMPTY_SOURCE".';
+          return replyOf(await callAIWithCancel(pass2SystemPrompt, pass2UserPrompt, 4000, 0.75, 0.92, 0.25, 0.2));
+        });
+        if (pass2.kept) console.warn('[project] natural-voice pass: ' + pass2.kept + ' of ' + pass2.pieces + ' parts kept as drafted');
+        content = pass2.html;
       }
 
       const pass3SystemPrompt = 'You are a careful academic editor. Polish text for quality while preserving all facts, numbers, and the natural human voice.\n' + PUNCTUATION_RULES + '\nEnsure all punctuation is natural. Remove any dashes or special characters.';
-      const pass3UserPrompt = 'POLISH the text below. Fix grammar and formatting. Preserve all facts and tone.\n\nRULES:\n- Fix any awkward sentences or unclear transitions.\n- Ensure proper HTML heading structure (h2 for main sections, h3 for subsections).\n- Do NOT increase formality.\n- Do NOT change any numbers, sample sizes, statistics, or citations.\n- Remove any repeated phrases.\n- Use only natural punctuation.\n' + wordInstruction + '\n- All ' + referenceStyle + ' citations must be correctly formatted.\n\nTEXT TO POLISH:\n' + previousContent + '\n\nReturn ONLY the polished HTML. If the text appears empty, reply with "EMPTY_SOURCE".';
-      const pass3Response = await callAIWithCancel(pass3SystemPrompt, pass3UserPrompt, 2000, 0.4, 0.9, 0.1, 0.1);
-      let finalContent = cleanAIResponse(pass3Response.choices[0].message.content);
-      if (!finalContent || finalContent.includes('EMPTY_SOURCE') || finalContent.includes('source text') || finalContent.length < 100) finalContent = previousContent;
-      return finalContent;
+      const pass3 = await rewriteInPieces(content, async function (piece, i, n) {
+        const pass3UserPrompt = 'POLISH the text below. Fix grammar and formatting. Preserve all facts and tone.\n\nRULES:\n- Fix any awkward sentences or unclear transitions.\n- Ensure proper HTML heading structure (h2 for main sections, h3 for subsections).\n- Do NOT increase formality.\n- Do NOT change any numbers, sample sizes, statistics, or citations.\n- Remove any repeated phrases.\n- Use only natural punctuation.\n- Keep about the same length: do not shorten or summarise.\n- All ' + referenceStyle + ' citations must be correctly formatted.' + partNote(i, n) + '\n\nTEXT TO POLISH:\n' + piece + '\n\nReturn ONLY the polished HTML. If the text appears empty, reply with "EMPTY_SOURCE".';
+        return replyOf(await callAIWithCancel(pass3SystemPrompt, pass3UserPrompt, 4000, 0.4, 0.9, 0.1, 0.1));
+      });
+      if (pass3.kept) console.warn('[project] polish pass: ' + pass3.kept + ' of ' + pass3.pieces + ' parts kept as drafted');
+      return stripLeadingTitle(pass3.html, sectionName);
     }
 
     // REDESIGN (item 7): a lightweight "any instructions?" prompt shown
@@ -3255,11 +3393,11 @@
         if (ch.sections && ch.sections.length > 0) {
           ch.sections.forEach(function (sec, i) {
             const content = getSectionContent(key, i);
-            if (content && content.trim().length > 50) summary += '\n\n[' + ch.title + ' - ' + sec + ']:\n' + extractPlainText(content).substring(0, 500);
+            if (content && content.trim().length > 50) summary += '\n\n[' + ch.title + ' - ' + sec + ']:\n' + clip(extractPlainText(content), 500);
           });
         } else if (ch) {
           const content = getSectionContent(key, 0);
-          if (content && content.trim().length > 50) summary += '\n\n[' + ch.title + ']:\n' + extractPlainText(content).substring(0, 500);
+          if (content && content.trim().length > 50) summary += '\n\n[' + ch.title + ']:\n' + clip(extractPlainText(content), 500);
         }
       }
       return summary;
@@ -3470,6 +3608,8 @@
       currentUser = user;
 
       if (user) {
+        signedOut = false;
+        if (!projectsLoaded) renderProjectsShimmer();
         if (window.RehablixCenter && typeof window.RehablixCenter.getEffectiveScopeUid === 'function') {
           try { scopeUid = await window.RehablixCenter.getEffectiveScopeUid('project'); } catch (err) { scopeUid = user.uid; }
         } else scopeUid = user.uid;
@@ -3501,6 +3641,8 @@
         // makes, above).
         if (wasLoggedIn) clearActiveState();
         currentProjectId = null; currentProject = null;
+        signedOut = true; projectsLoaded = false; projects = {};
+        renderSignedOutProjects(); // say so on the projects list instead of loading forever
         if (chaptersList) chaptersList.innerHTML = '';
         if (sectionEditor) sectionEditor.innerHTML = '';
         if (currentSectionTitle) currentSectionTitle.textContent = 'Select a section';

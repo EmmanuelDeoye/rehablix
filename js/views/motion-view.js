@@ -59,6 +59,7 @@
     const gaitNotesWrap = $('motionGaitNotesField');
     const gaitNotesInput = $('motionGaitNotes');
     const autoGuidedCheckbox = $('motionAutoGuided');
+    const voiceGuideCheckbox = $('motionVoiceGuide');
     const autoGuidedGroup = autoGuidedCheckbox.closest('.form-group');
 
     const cameraModal = $('motionCameraModal');
@@ -96,7 +97,12 @@
     let emrScopeUid = null;
     let emrPatients = [];
     let analysisType = 'rom'; // 'rom' | 'gait' | 'assistive'
-    let prefs = { patientName: '', emrPatientId: null, assessmentMode: 'isolate', movementKey: '', side: 'auto', gaitView: gaitViewSelect.options[0].value, gaitNotes: '', autoGuided: true, heightCm: null, wbStatus: 'unknown', wbSide: '', ueFunction: 'unknown' };
+    // autoGuided = auto-capture: OFF until the user turns it on (then remembered on this device).
+    // voiceGuide = spoken position prompts: on by default.
+    const storedFlag = (k, dflt) => { try { const v = localStorage.getItem(k); return v == null ? dflt : v === '1'; } catch (e) { return dflt; } };
+    const storeFlag = (k, on) => { try { localStorage.setItem(k, on ? '1' : '0'); } catch (e) {} };
+    const AUTO_KEY = 'rehab-motion-auto-capture', VOICE_KEY = 'rehab-motion-voice';
+    let prefs = { patientName: '', emrPatientId: null, assessmentMode: 'isolate', movementKey: '', side: 'auto', gaitView: gaitViewSelect.options[0].value, gaitNotes: '', autoGuided: storedFlag(AUTO_KEY, false), voiceGuide: storedFlag(VOICE_KEY, true), heightCm: null, wbStatus: 'unknown', wbSide: '', ueFunction: 'unknown' };
     let prefsOpenedFromRecordTap = false;
 
     let sessionState = 'idle'; // idle | capturing | analyzing | results
@@ -122,6 +128,7 @@
     let movementStartT = 0;
     let captureBusy = false;
     let liveCtx = null, liveBase = null, liveSide = null;
+    let liveShown = null, livePeak = null, livePeakBuf = []; // steadied on-screen reading + the end range reached so far
     let autoBuffer = [], autoCooldownUntil = 0, autoLastSpoken = null;
 
     // Gait / assistive session
@@ -130,6 +137,8 @@
     const MIN_RECORD_SEC = { gait: 5, assistive: 12 };
 
     const kindLabel = (k) => (MR.KIND_LABEL[k] || k);
+    // Laptops/desktops with enough cores run the most accurate (heavy) pose model in real time; phones keep the full model.
+    const capableDevice = !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') && (navigator.hardwareConcurrency || 4) >= 8;
 
     // ---- Toast (reuse the shared #toast-container) ----
     function showToast(message, type = 'success', duration = 3500) {
@@ -213,7 +222,7 @@
     }
 
     const PROTOCOL_HINT = {
-      rom: 'Camera level, whole body in frame. Film SIDE-ON for flexion/extension, FRONT-ON for abduction/adduction and rotation. Press Capture at the start position, then at each end-range position — the whole movement is tracked between presses. Movements the pose model cannot see (fingers, thumb) are flagged for manual goniometry.',
+      rom: '1) Phone steady at hip height, 2–3 m away, the whole body in frame, good light. 2) Film SIDE-ON for bending forward/back (flexion/extension); FACING the camera for lifting sideways (abduction), side bending and rotation. The tracking chip tells you if the view is wrong. 3) Tap Capture at each position read out on screen (or switch on Auto-capture below). The whole movement is tracked between taps. Fingers and thumb cannot be seen by the camera and are flagged for manual measurement.',
       gait: 'Camera level at hip height, 3–4 m away, whole body in frame. SIDE view gives step length, stance/swing, knee and hip motion; FRONT/BACK view gives step width, pelvic and trunk sway. Have the patient walk at least 6–8 steps at their normal pace. Press Stop when done (minimum 5 s).',
       assistive: 'One continuous recording of about 30 s: (1) patient stands still for ~10 s, (2) then walks at least 6–8 steps across the frame at their normal pace with their current support if any. Enter height, weight-bearing status and arm function below — the recommendation is far stronger with them. Press Stop when done (minimum 12 s).'
     };
@@ -244,6 +253,7 @@
       heightInput.value = prefs.heightCm || '';
       wbStatusSelect.value = prefs.wbStatus; wbSideSelect.value = prefs.wbSide; ueSelect.value = prefs.ueFunction;
       autoGuidedCheckbox.checked = prefs.autoGuided;
+      voiceGuideCheckbox.checked = prefs.voiceGuide;
       if (analysisType === 'rom' && prefs.movementKey) movementSelect.value = prefs.movementKey;
       refreshPatientHint();
     }
@@ -281,7 +291,9 @@
       prefs.heightCm = h >= 50 && h <= 230 ? Math.round(h) : null;
       prefs.wbStatus = wbStatusSelect.value; prefs.wbSide = wbSideSelect.value; prefs.ueFunction = ueSelect.value;
       prefs.autoGuided = autoGuidedCheckbox.checked;
-      const emr = emrPatients.find(p => p.name.toLowerCase() === prefs.patientName.toLowerCase());
+      prefs.voiceGuide = voiceGuideCheckbox.checked;
+      storeFlag(AUTO_KEY, prefs.autoGuided); storeFlag(VOICE_KEY, prefs.voiceGuide);
+      const emr =emrPatients.find(p => p.name.toLowerCase() === prefs.patientName.toLowerCase());
       prefs.emrPatientId = emr ? emr.id : null;
       prefs.regNumber = emr ? emr.regNumber : null; // EMR UPGRADE (item 4)
       if (emr && !prefs.heightCm && emr.heightCm) prefs.heightCm = emr.heightCm;
@@ -359,12 +371,22 @@
     // =====================================================================
     // Prompt / HUD helpers
     // =====================================================================
+    // Where the camera must be for a movement, in plain words (the in-plane measurement needs it).
+    const VIEW_WORDS = { sagittal: 'film side-on', frontal: 'patient facing the camera', transverse: 'patient facing the camera' };
+    function viewHintFor(key) {
+      const d = ME.MOVEMENTS[key];
+      if (!d) return '';
+      return d.measurable === false ? 'measure by hand' : (VIEW_WORDS[d.plane] || '');
+    }
+
     function updatePromptChip(text) {
       if (text) { promptChip.textContent = text; promptChip.hidden = false; return; }
       if (sessionState === 'capturing') return;
       if (analysisType === 'rom' && prefs.movementKey) {
-        const name = prefs.assessmentMode === 'isolate' ? core.movementPrompts[prefs.movementKey]?.name : core.JOINT_GROUP_LABELS.find(g => g.value === prefs.movementKey)?.label;
-        promptChip.textContent = name ? `Ready: ${name}` : '';
+        const isolate = prefs.assessmentMode === 'isolate';
+        const name = isolate ? core.movementPrompts[prefs.movementKey]?.name : core.JOINT_GROUP_LABELS.find(g => g.value === prefs.movementKey)?.label;
+        const hint = isolate ? viewHintFor(prefs.movementKey) : '';
+        promptChip.textContent = name ? `Ready: ${name}${hint ? ' · ' + hint : ''}` : '';
         promptChip.hidden = !name;
       } else if (analysisType === 'gait') {
         promptChip.textContent = `Ready: Gait Analysis (${prefs.gaitView})`; promptChip.hidden = false;
@@ -409,7 +431,7 @@
 
       qualityChip.hidden = false; qualityChip.className = 'motion-quality-chip'; qualityChip.textContent = 'Loading body tracker…';
       updatePromptChip('Loading body tracker…');
-      sampler = core.createSampler(video, {});
+      sampler = core.createSampler(video, { preferHeavy: capableDevice });
       const ok = await sampler.start();
       if (token !== sessionToken) { if (sampler) sampler.stop(); return; }
       if (!ok) {
@@ -440,6 +462,7 @@
     function resetCaptureData() {
       capturedFrames = []; keyframesByMovement = {}; movementWindow = {}; snapshots = [];
       movementStartT = 0; captureBusy = false; liveCtx = null; liveBase = null; liveSide = null; autoBuffer = []; autoLastSpoken = null;
+      liveShown = null; livePeak = null; livePeakBuf = [];
     }
 
     // X button: cancel NOW — stop tracking + camera, discard the unfinished capture, restore Preferences/Record.
@@ -465,8 +488,16 @@
       if (paused) return;
       if (latest) {
         const q = ME.frameQuality(latest);
-        qualityChip.className = 'motion-quality-chip q-' + q.label.toLowerCase().replace('no body', 'poor');
-        const why = q.flags.includes('NO_BODY') ? ' — body not detected' : q.flags.includes('PARTIAL_BODY') ? ' — step back, body partly out of frame' : q.flags.includes('OCCLUSION') ? ' — limbs hidden/low visibility' : '';
+        let cls = q.label.toLowerCase().replace('no body', 'poor');
+        let why = q.flags.includes('NO_BODY') ? ' — body not detected' : q.flags.includes('PARTIAL_BODY') ? ' — step back, body partly out of frame' : q.flags.includes('OCCLUSION') ? ' — limbs hidden/low visibility' : '';
+        // ROM: is the camera square to this movement's plane? (accuracy depends on it)
+        if (analysisType === 'rom' && latest.world && !why) {
+          const d = ME.MOVEMENTS[movementQueue[currentQueueIndex]];
+          const advice = d && d.measurable !== false ? ME.viewAdvice(d.plane, liveCtx && liveCtx.yaw != null ? liveCtx.yaw : ME.viewYaw(latest)) : null;
+          if (advice) { why = ' — ' + advice.toLowerCase(); if (cls === 'good') cls = 'fair'; }
+          else if (d && d.measurable !== false && cls === 'good') why = ' — camera view ✓';
+        }
+        qualityChip.className = 'motion-quality-chip q-' + cls;
         qualityChip.textContent = `Tracking: ${q.label}${why}`;
       }
       if (analysisType === 'rom') romTick(latest);
@@ -493,15 +524,16 @@
       movementStartT = 0;
       updateRomPromptDisplay();
       autoCooldownUntil = Date.now() + 1500;
-      core.speak(`Let's begin. ${currentMovement.prompts[0]}`);
+      if (prefs.voiceGuide) core.speak(`Let's begin. ${currentMovement.prompts[0]}`);
       autoLastSpoken = currentMovement.prompts[0];
     }
 
+    // "Shoulder Flexion · step 2/4 — tap Capture at: Raise arm forward to 90°"
     function updateRomPromptDisplay() {
-      const stepLabel = movementQueue.length > 1
-        ? `${currentMovement.name} (${currentQueueIndex + 1}/${movementQueue.length}) — ${capturedFrames.length}/${currentMovement.requiredFrames}: ${currentMovement.prompts[capturedFrames.length] || 'Hold'}`
-        : `${currentMovement.name} — ${capturedFrames.length}/${currentMovement.requiredFrames}: ${currentMovement.prompts[capturedFrames.length] || 'Hold'}`;
-      updatePromptChip(stepLabel);
+      const n = capturedFrames.length;
+      const pos = (currentMovement.prompts[n] || 'Hold').replace(/^Position \d+:\s*/, '');
+      const head = movementQueue.length > 1 ? `${currentMovement.name} (${currentQueueIndex + 1}/${movementQueue.length})` : currentMovement.name;
+      updatePromptChip(`${head} · step ${Math.min(n + 1, currentMovement.requiredFrames)}/${currentMovement.requiredFrames} — ${prefs.autoGuided ? 'hold still at' : 'tap Capture at'}: ${pos}`);
     }
 
     // Live joint angle (anatomical, 3D) for the current movement + steady-hold detection for auto-capture.
@@ -513,8 +545,8 @@
       if (!liveCtx) {
         const tracked = sampler.samples.filter(s => s.world).slice(0, 30);
         const hand = ME.resolveHandedness(tracked.length ? tracked : [latest]);
-        liveCtx = { hand, ref: ME.bodyFrame(latest, hand) };
-      }
+        liveCtx = { hand, ref: ME.bodyFrame(latest, hand), refSample: latest, yaw: ME.viewYaw(latest) };
+      } else liveCtx.yaw = liveCtx.yaw * 0.8 + ME.viewYaw(latest) * 0.2; // steadied view angle
       const sides = def.bilateral ? ['left'] : (prefs.side === 'left' || prefs.side === 'right') ? [prefs.side] : ['left', 'right'];
       const vals = {}; sides.forEach(s => { vals[s] = ME.liveSignal(latest, key, s, liveCtx); });
       if (sides.length === 2 && vals.left != null && vals.right != null) {
@@ -528,11 +560,19 @@
       const angle = vals[liveSide];
       if (angle == null) { angleValue.textContent = '—'; angleChip.classList.add('visible'); angleChip.classList.remove('motion-angle-stable'); return; }
       angleChip.classList.add('visible');
-      angleValue.textContent = Math.round(angle) + '°' + (def.bilateral ? '' : ' ' + liveSide[0].toUpperCase());
+      // Steadied reading (like a goniometer needle): follows real movement at once, ignores tracker shimmer.
+      liveShown = liveShown == null ? angle : liveShown + ME.clamp(0.3 + Math.abs(angle - liveShown) / 25, 0.3, 1) * (angle - liveShown);
+      // End range reached so far in this movement (median of the last 5 readings, so a single glitch can't set it).
+      livePeakBuf.push(angle); if (livePeakBuf.length > 5) livePeakBuf.shift();
+      const med = ME.median(livePeakBuf);
+      const wantMax = def.flip || def.dir > 0;
+      if (!def.bidirectional && livePeakBuf.length >= 5 && med != null) livePeak = livePeak == null ? med : (wantMax ? Math.max(livePeak, med) : Math.min(livePeak, med));
+      angleValue.textContent = Math.round(liveShown) + '°' + (def.bilateral ? '' : ' ' + liveSide[0].toUpperCase())
+        + (livePeak != null ? ` · ${wantMax ? 'max' : 'min'} ${Math.round(livePeak)}°` : '');
 
-      // speak the next prompt (auto-guided voice)
+      // speak the next prompt (voice guidance)
       const promptNow = currentMovement.prompts[capturedFrames.length];
-      if (prefs.autoGuided && promptNow && promptNow !== autoLastSpoken) { core.speak(promptNow); autoLastSpoken = promptNow; }
+      if (prefs.voiceGuide && promptNow && promptNow !== autoLastSpoken) { core.speak(promptNow); autoLastSpoken = promptNow; }
 
       autoBuffer.push({ a: angle, t: Date.now() });
       autoBuffer = autoBuffer.filter(s => Date.now() - s.t < 800);
@@ -574,9 +614,11 @@
           currentQueueIndex++;
           currentMovement = core.movementPrompts[movementQueue[currentQueueIndex]];
           capturedFrames = []; movementStartT = t; liveCtx = null; liveBase = null; liveSide = null; autoLastSpoken = null;
+          liveShown = null; livePeak = null; livePeakBuf = [];
           updateRomPromptDisplay();
-          showToast(`✓ Movement complete. Next: ${currentMovement.name}`, 'success');
-          if (!prefs.autoGuided) core.speak(`Next. ${currentMovement.prompts[0]}`);
+          const hint = viewHintFor(movementQueue[currentQueueIndex]);
+          showToast(`✓ Movement complete. Next: ${currentMovement.name}${hint ? ' (' + hint + ')' : ''}`, 'success');
+          if (prefs.voiceGuide) { core.speak(`Next. ${currentMovement.prompts[0]}`); autoLastSpoken = currentMovement.prompts[0]; }
         } else {
           finishRomSession(token);
         }
@@ -1034,7 +1076,7 @@
     cleanupFns.push(unsubAuth);
 
     // ---- Init ----
-    core.warmUpPoseModel(); // start downloading the tracker while the user sets up
+    core.warmUpPoseModel(capableDevice); // start downloading the tracker while the user sets up
     updatePromptChip();
     renderControls();
     // Test/automation hook (also lets other tools ask "is a session running?")

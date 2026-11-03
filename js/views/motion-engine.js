@@ -298,6 +298,85 @@
   }
   ME.MOVEMENTS = MOVEMENTS;
 
+  // ------------------------------------------------------------------ in-plane (camera) measurement
+  // When the camera looks squarely at the plane a movement happens in (side-on for flexion/extension,
+  // front-on for abduction/lateral flexion), the image itself shows the true angle, exactly what a
+  // goniometer reads. The model's depth (z) estimate is its weakest axis, so in that view the 2D
+  // image angle is the more accurate one. It is blended with the 3D angle by how squarely the
+  // camera faces the movement plane and how well the limb stays in that plane; with a poor view
+  // the 3D angle is used alone. Image x is scaled by the aspect ratio so angles are true in pixels.
+  const ip = (f, i) => ({ x: f.img[i].x * (f.aspect || 1), y: f.img[i].y });
+  const ipn = (f, name, s) => ip(f, idx(name, s));
+  const s2 = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
+  const d2 = (a, b) => a.x * b.x + a.y * b.y;
+  const m2 = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const neg2 = (a) => ({ x: -a.x, y: -a.y });
+  const u2 = (a) => { const l = Math.hypot(a.x, a.y) || 1; return { x: a.x / l, y: a.y / l }; };
+  function ang2(a, b) {
+    const la = Math.hypot(a.x, a.y), lb = Math.hypot(b.x, b.y);
+    if (!la || !lb) return null;
+    return Math.acos(clamp(d2(a, b) / (la * lb), -1, 1)) * RAD;
+  }
+  // The body frame in the image: trunk axis from the pixels, anterior/lateral directions taken from
+  // the 3D frame's on-screen direction (so the sign convention matches the 3D angles exactly).
+  function imgFrame(f, fr) {
+    if (!f || !f.img || !fr) return null;
+    const midSh = m2(ip(f, LM.L_SHOULDER), ip(f, LM.R_SHOULDER)), midHip = m2(ip(f, LM.L_HIP), ip(f, LM.R_HIP));
+    const down = u2(s2(midHip, midSh));
+    const perp = { x: -down.y, y: down.x };
+    const orient = (v3) => (d2({ x: v3.x, y: v3.y }, perp) >= 0 ? perp : neg2(perp));
+    return { down, up: neg2(down), ant: orient(fr.ant), lat: orient(fr.lat), midSh, midHip };
+  }
+  ME.imgFrame = imgFrame;
+  const sagLimb2 = (a, b) => (f, s, c) => { const v = s2(ipn(f, b, s), ipn(f, a, s)); return Math.atan2(d2(v, c.i.ant), d2(v, c.i.down)) * RAD; };
+  const frontLimb2 = (a, b) => (f, s, c) => { const v = s2(ipn(f, b, s), ipn(f, a, s)); const out = s === 'left' ? c.i.lat : neg2(c.i.lat); return Math.atan2(d2(v, out), d2(v, c.i.down)) * RAD; };
+  const three2 = (a, b, cc) => (f, s) => { const r = ang2(s2(ipn(f, a, s), ipn(f, b, s)), s2(ipn(f, cc, s), ipn(f, b, s))); return r == null ? null : 180 - r; };
+  const ankle2 = (f, s) => { const r = ang2(s2(ipn(f, 'KNEE', s), ipn(f, 'ANKLE', s)), s2(ipn(f, 'FOOT', s), ipn(f, 'HEEL', s))); return r == null ? null : 90 - r; };
+  const head2 = (axis) => (f, s, c) => { const e = s2(m2(ip(f, LM.L_EAR), ip(f, LM.R_EAR)), c.i.midSh); return Math.atan2(d2(e, c.i[axis]), d2(e, c.i.up)) * RAD; };
+  const trunk2 = (axis) => (f, s, c) => { if (!c.i0) return null; const u = s2(c.i.midSh, c.i.midHip); return Math.atan2(d2(u, c.i0[axis]), d2(u, c.i0.up)) * RAD; };
+  const PLANAR = {
+    shoulder_flexion: sagLimb2('SHOULDER', 'ELBOW'), shoulder_extension: sagLimb2('SHOULDER', 'ELBOW'),
+    shoulder_abduction: frontLimb2('SHOULDER', 'ELBOW'), shoulder_adduction: frontLimb2('SHOULDER', 'ELBOW'),
+    elbow_flexion: three2('SHOULDER', 'ELBOW', 'WRIST'), elbow_extension: three2('SHOULDER', 'ELBOW', 'WRIST'),
+    hip_flexion: sagLimb2('HIP', 'KNEE'), hip_extension: sagLimb2('HIP', 'KNEE'),
+    hip_abduction: frontLimb2('HIP', 'KNEE'), hip_adduction: frontLimb2('HIP', 'KNEE'),
+    knee_flexion: three2('HIP', 'KNEE', 'ANKLE'), knee_extension: three2('HIP', 'KNEE', 'ANKLE'),
+    ankle_dorsiflexion: ankle2, ankle_plantarflexion: ankle2,
+    cervical_flexion: head2('ant'), cervical_extension: head2('ant'), cervical_lateral_flexion: head2('lat'),
+    lumbar_flexion: trunk2('ant'), lumbar_extension: trunk2('ant'), lumbar_lateral_flexion: trunk2('lat')
+  };
+  Object.keys(PLANAR).forEach(k => { MOVEMENTS[k].p2 = PLANAR[k]; });
+
+  // How much the in-plane (camera) angle is trusted for this view: 1 = camera square to the plane.
+  function planarWeight(plane, yaw) {
+    if (yaw == null || !isFinite(yaw)) return 0;
+    if (plane === 'sagittal') return clamp((yaw - 55) / 20, 0, 1);
+    if (plane === 'frontal') return clamp((30 - yaw) / 20, 0, 1);
+    return 0;
+  }
+  ME.planarWeight = planarWeight;
+  // Live setup advice for the camera view, or null when the view suits the movement.
+  function viewAdvice(plane, yaw) {
+    if (yaw == null || !isFinite(yaw)) return null;
+    if (plane === 'sagittal' && yaw < 50) return 'Turn the patient side-on to the camera';
+    if (plane === 'frontal' && yaw > 40) return 'Turn the patient to face the camera';
+    if (plane === 'transverse' && yaw > 40) return 'Turn the patient to face the camera';
+    return null;
+  }
+  ME.viewAdvice = viewAdvice;
+  // 3D angle v3 → the measured angle: the in-plane angle blended in by view fit and plane adherence.
+  function fuse(def, f, side, c, v3, off) {
+    if (!def.p2 || !f.img || !c.i || !(c.w > 0)) return { v: v3, w: 0 };
+    let w = c.w;
+    if (off != null) w *= clamp(1 - (Math.asin(clamp(off, 0, 1)) * RAD - 15) / 20, 0, 1);
+    if (!(w > 0)) return { v: v3, w: 0 };
+    let v2 = def.p2(f, side, c);
+    if (v2 == null || !isFinite(v2)) return { v: v3, w: 0 };
+    while (v2 - v3 > 180) v2 -= 360;
+    while (v3 - v2 > 180) v2 += 360;
+    return { v: w * v2 + (1 - w) * v3, w };
+  }
+
   // Landmark-name list → world/vis indices for one side (or both ears etc.).
   function lmIndices(names, side) {
     const out = [];
@@ -316,7 +395,13 @@
     // torso landmarks are always required to build the body frame
     ['L_SHOULDER', 'R_SHOULDER', 'L_HIP', 'R_HIP'].forEach(k => ids.push(LM[k]));
     let m = 1;
-    ids.forEach(i => { const v = f.vis ? f.vis[i] : 1; if (v == null) return; if (v < m) m = v; });
+    ids.forEach(i => {
+      let v = f.vis ? f.vis[i] : 1;
+      // a landmark outside the picture is the model's guess, not a measurement
+      const p = f.img && f.img[i];
+      if (p && (p.x < -0.02 || p.x > 1.02 || p.y < -0.02 || p.y > 1.02)) v = 0;
+      if (v == null) return; if (v < m) m = v;
+    });
     return m;
   }
   ME.frameVis = frameVis;
@@ -342,9 +427,12 @@
       const vis = frameVis(f, def.lm, def.bilateral ? null : side);
       if (vis < 0.5) return { v: null, vis };
       const fr = bodyFrame(f, ctxBase.hand);
-      let v = def.sig(f, side, { fr, ref: ctxBase.ref });
-      if (v == null || !isFinite(v)) return { v: null, vis };
-      return { v, vis, fr, off: def.off ? def.off(f, side, { fr, ref: ctxBase.ref }) : null };
+      const c = { fr, ref: ctxBase.ref, i: imgFrame(f, fr), i0: ctxBase.ref2, w: ctxBase.w2d };
+      const v3 = def.sig(f, side, c);
+      if (v3 == null || !isFinite(v3)) return { v: null, vis };
+      const off = def.off ? def.off(f, side, c) : null;
+      const fused = fuse(def, f, side, c, v3, off);
+      return { v: fused.v, vis, fr, off, w: fused.w };
     });
   }
 
@@ -390,8 +478,11 @@
     const hand = resolveHandedness(usable);
     const startN = Math.max(3, Math.round(usable.length * 0.12));
     // Reference frame at the start of the movement (median-ish: use the mean-of-first-frames frame nearest the median trunk direction)
-    const ref = bodyFrame(usable[Math.min(startN >> 1, usable.length - 1)], hand);
-    const ctxBase = { hand, ref };
+    const refSample = usable[Math.min(startN >> 1, usable.length - 1)];
+    const ref = bodyFrame(refSample, hand);
+    const yaw = median(usable.slice(0, 40).map(viewYaw));
+    // (opts.planar === false: 3D only — the pre-November method, kept for side-by-side checks)
+    const ctxBase = { hand, ref, ref2: imgFrame(refSample, ref), w2d: opts.planar === false ? 0 : planarWeight(def.plane, yaw) };
     const fps = opts.fps || estimateFps(usable) || 15;
     const win = clamp(Math.round(fps * 0.15) | 1, 3, 9);
 
@@ -456,7 +547,6 @@
       const atPeak = sigs.slice(Math.max(0, peak.index - 2), peak.index + 3).map(s => s.off).filter(v => v != null);
       if (atPeak.length) planeDev = Math.round(Math.asin(clamp(median(atPeak), 0, 1)) * RAD * 10) / 10;
     }
-    const yaw = median(usable.slice(0, 40).map(viewYaw));
     const viewFit = viewSuitability(def.plane, yaw);
     if (viewFit.mismatch > 25) flags.push('POOR_CAMERA_VIEW');
     if (planeDev != null && planeDev > 20) flags.push('OUT_OF_PLANE_MOVEMENT');
@@ -471,6 +561,8 @@
     let confidence = 0.35 * visQ + 0.2 * covQ + 0.2 * viewFit.q + 0.1 * planeQ + 0.05 * rangeQ + 0.1 * noiseQ;
     confidence = Math.min(confidence, def.cap);
     if (flags.includes('OCCLUSION_OR_LOST_TRACKING')) confidence = Math.min(confidence, 0.55);
+    // Tracked in too little of the recording: no number is given (below the reliability threshold).
+    if (coverage < 0.35) { flags.push('TOO_LITTLE_TRACKED'); confidence = Math.min(confidence, 0.35); }
     confidence = Math.round(confidence * 100) / 100;
 
     // Compensations.
@@ -486,8 +578,12 @@
       return out;
     })();
     const reliable = confidence >= RELIABLE_MIN && !flags.includes('LOST_TRACKING');
+    // Share of the measurement taken from the in-plane camera angle (0 = 3D only).
+    const planarShare = Math.round((mean(sigs.filter(s => s.v != null).map(s => s.w || 0)) || 0) * 100) / 100;
+    const inPlane = planarShare >= 0.2;
+    const method = inPlane ? `${def.method}. Measured in the camera plane (camera square to the movement, ${Math.round(planarShare * 100)}% weight), cross-checked with 3D` : def.method;
     const measurements = [];
-    const base = { side: chosen.side === 'n/a' ? 'midline' : chosen.side, sideMethod, plane: def.plane, method: def.method, source: 'pose-3d',
+    const base = { side: chosen.side === 'n/a' ? 'midline' : chosen.side, sideMethod, plane: def.plane, method, source: inPlane ? 'camera-plane + pose-3d' : 'pose-3d',
       reference: { normal: def.norm, source: AAOS }, confidence, confidenceLabel: confLabel(confidence), reliable, flags: flags.slice() };
     const mk = (label, headline, extra) => {
       const norm = def.norm;
@@ -509,18 +605,24 @@
       quality: { hesitations, holdSD, noiseSD: round1(noiseSD || 0), durationSec: round1(Math.max(0, dts)), smoothness: hesitations === 0 ? 'smooth' : hesitations <= 2 ? 'some hesitation' : 'irregular' },
       compensations: comps, planeDeviationDeg: planeDev, viewYaw: round1(yaw), viewMismatchDeg: round1(viewFit.mismatch),
       coverage: Math.round(coverage * 100) / 100, meanVisibility: round1(meanVis * 100) / 100 || meanVis, confidence, confidenceLabel: confLabel(confidence),
-      reliable, flags, series, method: def.method, reference: { normal: def.norm, source: AAOS }
+      reliable, flags, series, method, planarShare, reference: { normal: def.norm, source: AAOS }
     };
   }
   ME.analyzeROM = analyzeROM;
 
-  // The single live number for the on-screen chip + steady-hold detector.
+  // The single live number for the on-screen chip + steady-hold detector. Same fused measurement
+  // as the analysis: ctx = { hand, ref, refSample?, yaw? } (yaw: the smoothed live view angle).
   function liveSignal(f, movementKey, side, ctx) {
     const def = MOVEMENTS[movementKey];
     if (!def || def.measurable === false || !f || !f.world) return null;
     if (frameVis(f, def.lm, def.bilateral ? null : side) < 0.5) return null;
     const fr = bodyFrame(f, ctx.hand);
-    const v = def.sig(f, side, { fr, ref: ctx.ref || fr });
+    const ref = ctx.ref || fr;
+    const i = imgFrame(f, fr);
+    const c = { fr, ref, i, i0: ctx.refSample ? imgFrame(ctx.refSample, ref) : i, w: planarWeight(def.plane, ctx.yaw != null ? ctx.yaw : viewYaw(f)) };
+    const v3 = def.sig(f, side, c);
+    if (v3 == null || !isFinite(v3)) return null;
+    const v = fuse(def, f, side, c, v3, def.off ? def.off(f, side, c) : null).v;
     return v == null || !isFinite(v) ? null : (def.flip ? -v : v);
   }
   ME.liveSignal = liveSignal;
@@ -564,6 +666,7 @@
   ME.FLAG_TEXT = {
     OCCLUSION_OR_LOST_TRACKING: 'The joint was hidden or lost for a large part of the movement.',
     LOST_TRACKING: 'The joint could not be tracked.',
+    TOO_LITTLE_TRACKED: 'The joint was in view for too little of the recording to give a reliable number — film again with the whole body in frame.',
     POOR_CAMERA_VIEW: 'The camera view does not suit this movement plane (side view for flexion/extension; front view for abduction/rotation).',
     OUT_OF_PLANE_MOVEMENT: 'The limb moved substantially out of the intended plane, which under-reads the true range.',
     VERY_SMALL_MOVEMENT: 'Very little movement was detected.',

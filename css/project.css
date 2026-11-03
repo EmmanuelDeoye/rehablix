@@ -794,6 +794,8 @@
 .editor-actions::-webkit-scrollbar { height: 4px; }
 .editor-actions::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 4px; }
 .editor-actions > * { flex-shrink: 0; }
+/* On a phone the row scrolls sideways: Generate, the main action, comes first so it is never off-screen. */
+@media (max-width: 600px) { .editor-actions > #genDropdownWrap { order: -1; } }
 
 .action-btn {
   background: var(--surface);
