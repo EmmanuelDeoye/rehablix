@@ -29,7 +29,7 @@
   // which never set data-route at all) hides the bottom nav in favor of a
   // back button injected into the shared navbar instead.
   function isPrimaryRoute(route) {
-    return route === 'lixa' || route === 'workspace';
+    return route === 'lixa' || route === 'workspace' || route === 'space';
   }
 
   function setActive(nav, route) {
@@ -37,6 +37,8 @@
     const workspaceTab = nav.querySelector('[data-route-tab="workspace"]');
     if (lixaTab) lixaTab.classList.toggle('active', route === 'lixa');
     if (workspaceTab) workspaceTab.classList.toggle('active', route === 'workspace');
+    const spaceTab = nav.querySelector('[data-route-tab="space"]');
+    if (spaceTab) spaceTab.classList.toggle('active', route === 'space');
   }
 
   function goBack() {
@@ -115,6 +117,14 @@
             <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
           </svg>
           <span>Workspace</span>
+        </a>
+        <a href="index.html#/space" data-route-tab="space" class="bottom-nav-tab${route === 'space' ? ' active' : ''}" aria-label="Space">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3.2"></circle>
+            <ellipse cx="12" cy="12" rx="10" ry="4.2" transform="rotate(-30 12 12)"></ellipse>
+            <circle cx="19.4" cy="6.6" r="1.1" fill="currentColor" stroke="none"></circle>
+          </svg>
+          <span>Space</span>
         </a>
       </div>
     `;

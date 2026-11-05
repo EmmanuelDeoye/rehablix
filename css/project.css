@@ -2498,6 +2498,9 @@
 @media (max-width: 640px) {
   .dash-actions-row { flex-direction: column; }
   .dash-actions-row .btn { width: 100%; justify-content: center; }
+  /* Setup / Review / Export: stacked, full width (side by side they squeezed their labels) */
+  .dash-shortcuts { flex-direction: column; }
+  .dash-shortcuts .btn { width: 100%; flex: 0 0 auto !important; justify-content: center; }
   .tools-grid { grid-template-columns: 1fr; }
   .export-actions { flex-direction: column; }
   .export-actions .btn { width: 100%; justify-content: center; }

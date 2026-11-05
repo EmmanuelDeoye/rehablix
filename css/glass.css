@@ -1,0 +1,11 @@
+/* css/glass.css — loaded last. The crystal-glass look needs the ambient light (main.css body::before) to show
+   through every page; these page wrappers used to paint a solid page colour over it, which is what made the glass
+   look flat and grey. They are made clear here; cards and bars stay translucent glass (main.css --card-bg). */
+.ask-main, .ask-container, .chat-messages,
+.wbp-main, .deck-main, .doc-main, .result-main, .presentation-main, .ppt-main,
+.emr-layout, .space-main, #appRoot, #keepAliveHost, #transientHost, .kept-alive-view {
+  background: transparent !important;
+}
+/* the solid page colour stays only on the page itself (under the ambient light) */
+html { background: var(--bg-page); }
+body { background-color: transparent !important; }

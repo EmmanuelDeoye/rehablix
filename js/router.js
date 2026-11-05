@@ -61,7 +61,9 @@
     deck: { template: 'deck', title: 'Deck Studio | rehablix' },
     // Whiteboard — visual, step-by-step explanations (js/views/whiteboard-view.js + js/whiteboard/*).
     whiteboard: { template: 'whiteboard', title: 'Whiteboard | rehablix' },
-    project: { template: 'project', title: 'rehablix · Project Maker' }
+    project: { template: 'project', title: 'rehablix · Project Maker' },
+    // Space — learning games (js/space/space-view.js adds its own template)
+    space: { template: 'space', title: 'Space | rehablix' }
   };
 
   // Lixa/Workspace are kept alive because they're the two primary bottom-nav
@@ -74,7 +76,7 @@
   // those listeners are never double-bound.
   // Settings is kept alive too so it doesn't rebuild and reload on every visit.
   // Study Buddy too: a half-finished review session survives leaving the page.
-  const KEEP_ALIVE = new Set(['lixa', 'workspace', 'emr', 'project', 'settings', 'study']);
+  const KEEP_ALIVE = new Set(['lixa', 'workspace', 'emr', 'project', 'settings', 'study', 'space']);   // (Space: a live room keeps running)
 
   const keepAliveWrappers = {}; // routeName -> wrapper element, once mounted
   let currentView = null;

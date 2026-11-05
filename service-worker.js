@@ -6,7 +6,7 @@
 // Firebase (auth, realtime database, functions), AI providers and proxies,
 // payment gateways, and IP/geo lookups Ã¢â‚¬â€ so no patient data, tokens, AI
 // output or payment state is ever stored by this worker.
-const CACHE_VERSION = 'rehablix-v35';
+const CACHE_VERSION = 'rehablix-v38';
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 

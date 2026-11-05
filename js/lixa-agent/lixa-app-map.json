@@ -199,6 +199,59 @@
       "related": ["result", "deck"],
       "howTo": ["Open a result in the editor and choose export to PowerPoint."],
       "keywords": ["export powerpoint", "pptx export", "slides export"]
+    },
+    {
+      "id": "space",
+      "title": "Space",
+      "logo": "trophy",
+      "route": "#/space",
+      "open": true,
+      "needsLogin": false,
+      "purpose": "Learning games for the rehab team: a Daily Case Challenge scored by Lixa, Goniometer Guess, Muscle Rush, Special Test Showdown (practice or live rooms with friends), Duels, and a weekly XP league.",
+      "inputs": [
+        "an answer typed to the daily case",
+        "a joint angle guess",
+        "quiz answers",
+        "a room or duel code"
+      ],
+      "actions": [
+        "take the Daily Case Challenge",
+        "play Goniometer Guess",
+        "play Muscle Rush",
+        "practise special tests",
+        "host or join a live special-test room",
+        "start or accept a duel",
+        "see the weekly league"
+      ],
+      "related": [
+        "lixa",
+        "workspace",
+        "study",
+        "exam",
+        "motion"
+      ],
+      "howTo": [
+        "Tap Space in the bottom bar.",
+        "Tap the Daily Case to answer today's case, or pick a game.",
+        "Live room: Special Test Showdown → Host a live room, then share the code.",
+        "Duel: Duels → pick a duel, play your 5 questions, then send the code."
+      ],
+      "keywords": [
+        "space",
+        "game",
+        "games",
+        "play",
+        "quiz",
+        "daily case",
+        "goniometer",
+        "muscle",
+        "special test",
+        "duel",
+        "league",
+        "leaderboard",
+        "xp",
+        "streak"
+      ]
     }
   ]
 }
