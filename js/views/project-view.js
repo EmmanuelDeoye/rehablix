@@ -370,8 +370,9 @@
     }
 
     function escapeHtml(str) {
-      if (!str) return '';
-      return str.replace(/[&<>]/g, function (m) { return m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;'; });
+      if (str == null || str === '') return '';
+      // quotes too: tool panes put escaped text inside attributes (data-quote="…", option values)
+      return String(str).replace(/[&<>"]/g, function (m) { return m === '&' ? '&amp;' : m === '<' ? '&lt;' : m === '>' ? '&gt;' : '&quot;'; });
     }
 
     async function fetchTokens() {
@@ -1532,6 +1533,17 @@
     // =========================================================================
     // EXPORT (ported buildExportHtml/export buttons, restyled into a screen)
     // =========================================================================
+    // University Formatting Profiles: a project with a saved profile exports in that layout; one without keeps the original look.
+    function projectFormat() { return currentProject && currentProject.formatProfile && window.RehablixProjectTools ? window.RehablixProjectTools.normalizeFormat(currentProject.formatProfile) : null; }
+    function projectLayout() { const f = projectFormat(); return f ? window.RehablixProjectTools.docxLayout(f) : null; }
+    function pdfMargins() { const f = projectFormat(); return f ? [f.margins.top * 10, f.margins.right * 10, f.margins.bottom * 10 + 3, f.margins.left * 10] : [15, 15, 18, 15]; }
+    function chapterH1(title, tag) {
+      tag = tag || 'h1';
+      const f = projectFormat();
+      if (!f) return '<' + tag + '>' + escapeHtml(title) + '</' + tag + '>';
+      return window.RehablixProjectTools.chapterHeading(title, f).map(function (l) { return '<' + tag + ' class="chapter-title">' + escapeHtml(l) + '</' + tag + '>'; }).join('');
+    }
+
     function buildExportHtml(scope) {
       const title = currentProject ? currentProject.title : 'Academic Project';
       const department = currentProject ? currentProject.department : '';
@@ -1565,14 +1577,14 @@
           const ch = chStruct[key];
           if (!ch.sections || !ch.sections.length) {
             const content = getSectionContent(key, 0);
-            if (content && content.trim().length > 10) bodyHtml += '<h2>' + escapeHtml(ch.title) + '</h2>\n' + content + '\n';
+            if (content && content.trim().length > 10) bodyHtml += chapterH1(ch.title, 'h2') + '\n' + content + '\n';
           } else {
             let hasContent = false, sectionHtml = '';
             ch.sections.forEach(function (sec, i) {
               const content = stripLeadingTitle(getSectionContent(key, i), sec);
               if (content && content.trim().length > 10) { sectionHtml += '<h3>' + escapeHtml(sec) + '</h3>\n' + content + '\n'; hasContent = true; }
             });
-            if (hasContent) bodyHtml += '<h2>' + escapeHtml(ch.title) + '</h2>\n' + sectionHtml;
+            if (hasContent) bodyHtml += chapterH1(ch.title, 'h2') + '\n' + sectionHtml;
           }
         }
         tocHtml = '<h2>Table of Contents</h2><ol>';
@@ -1597,7 +1609,7 @@
         }
       }
 
-      return '<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="UTF-8">\n  <title>' + escapeHtml(title) + '</title>\n  <style>\n    @page { size: A4; margin: 2.5cm 2cm 2.5cm 2cm; }\n    body { font-family: "Times New Roman", Georgia, serif; line-height: 1.8; font-size: 12pt; color: #222; }\n    .cover-page { text-align: center; padding-top: 30%; page-break-after: always; }\n    .cover-page h1 { font-size: 22pt; color: #00695c; margin-bottom: 0.5rem; }\n    .cover-page .subtitle { font-size: 14pt; color: #555; margin-bottom: 2rem; }\n    .cover-page .meta { font-size: 11pt; color: #777; line-height: 2; }\n    .toc-page { page-break-after: always; }\n    .toc-page h2 { color: #00695c; border-bottom: 2px solid #00695c; padding-bottom: 0.3rem; }\n    .content-page { page-break-before: ' + (scope === 'section' ? 'auto' : 'always') + '; }\n    h1, h2, h3 { color: #00695c; }\n    h2 { border-bottom: 1px solid #ddd; padding-bottom: 0.3rem; margin-top: 2rem; }\n    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }\n    th, td { border: 1px solid #666; padding: 8px; text-align: left; }\n    th { background: #f0f0f0; }\n    .reference-note { font-size: 10pt; color: #666; font-style: italic; margin-top: 0.5rem; border-top: 1px solid #ddd; padding-top: 0.5rem; }\n    .resources-note { font-size: 10pt; color: #666; margin-top: 0.5rem; padding: 0.5rem; background: #f9f9f9; border-radius: 0.25rem; }\n    @media print { body { margin: 0; } .no-print { display: none; } }\n  </style>\n</head>\n<body>\n' +
+      return '<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="UTF-8">\n  <title>' + escapeHtml(title) + '</title>\n  <style>\n    @page { size: A4; margin: 2.5cm 2cm 2.5cm 2cm; }\n    body { font-family: "Times New Roman", Georgia, serif; line-height: 1.8; font-size: 12pt; color: #222; }\n    .cover-page { text-align: center; padding-top: 30%; page-break-after: always; }\n    .cover-page h1 { font-size: 22pt; color: #00695c; margin-bottom: 0.5rem; }\n    .cover-page .subtitle { font-size: 14pt; color: #555; margin-bottom: 2rem; }\n    .cover-page .meta { font-size: 11pt; color: #777; line-height: 2; }\n    .toc-page { page-break-after: always; }\n    .toc-page h2 { color: #00695c; border-bottom: 2px solid #00695c; padding-bottom: 0.3rem; }\n    .content-page { page-break-before: ' + (scope === 'section' ? 'auto' : 'always') + '; }\n    h1, h2, h3 { color: #00695c; }\n    h2 { border-bottom: 1px solid #ddd; padding-bottom: 0.3rem; margin-top: 2rem; }\n    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }\n    th, td { border: 1px solid #666; padding: 8px; text-align: left; }\n    th { background: #f0f0f0; }\n    .reference-note { font-size: 10pt; color: #666; font-style: italic; margin-top: 0.5rem; border-top: 1px solid #ddd; padding-top: 0.5rem; }\n    .resources-note { font-size: 10pt; color: #666; margin-top: 0.5rem; padding: 0.5rem; background: #f9f9f9; border-radius: 0.25rem; }\n    @media print { body { margin: 0; } .no-print { display: none; } }\n  </style>\n' + (projectFormat() ? '  <style>\n' + window.RehablixProjectTools.formatCss(projectFormat()) + '    .cover-page h1, .toc-page h2, h1, h2, h3 { color: #111; border: 0; }\n    h2.chapter-title { text-align: center; margin: 0.2em 0; }\n  </style>\n' : '') + '</head>\n<body>\n' +
         (scope === 'project' ? '\n  <div class="cover-page">\n    <h1>' + escapeHtml(title) + '</h1>\n    <p class="subtitle">' + escapeHtml(approach) + '</p>\n    <div class="meta">\n      <p><strong>Department:</strong> ' + escapeHtml(department) + '</p>\n      <p><strong>Type:</strong> ' + escapeHtml(type) + '</p>\n      <p><strong>Date:</strong> ' + new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' }) + '</p>\n      <p><strong>Reference Style:</strong> ' + escapeHtml(refStyle) + '</p>\n      <p style="margin-top: 3rem;"><em>Generated by rehablix Academic Project Maker</em></p>\n    </div>\n  </div>\n  <div class="toc-page">' + tocHtml + '</div>\n  ' : (scope === 'chapter' ? '\n  <div class="toc-page">' + tocHtml + '</div>\n  ' : '')) +
         '\n  <div class="content-page">\n    ' + (scope === 'chapter' ? '<h1>' + escapeHtml(chapterTitle) + '</h1>\n    ' : '') + bodyHtml + '\n    ' + referencesHtml + '\n    ' + (resources.length > 0 ? '<div class="resources-note"><strong>Resources Referenced:</strong> ' + resources.map(function (r) { return r.name; }).join(', ') + '</div>' : '') + '\n    ' + (scope === 'section' ? '<p class="reference-note">Reference Style: ' + escapeHtml(refStyle) + '</p>' : '') + '\n  </div>\n</body>\n</html>';
     }
@@ -1625,7 +1637,7 @@
         parts.push({ html: '<h2>' + escapeHtml(secName) + '</h2>' + stripLeadingTitle(getSectionContent(currentChapter, currentSection), secName), pageBreakBefore: false });
       } else if (scope === 'chapter') {
         const ch = chStruct[currentChapter];
-        let html = '<h1>' + escapeHtml(ch ? ch.title : '') + '</h1>';
+        let html = chapterH1(ch ? ch.title : '');
         if (ch && ch.sections && ch.sections.length) {
           ch.sections.forEach(function (sec, i) { const c = stripLeadingTitle(getSectionContent(currentChapter, i), sec); if (c && c.trim().length > 10) html += '<h2>' + escapeHtml(sec) + '</h2>' + c; });
         } else html += getSectionContent(currentChapter, 0);
@@ -1647,10 +1659,10 @@
           let html = '';
           if (!ch.sections || !ch.sections.length) {
             const c = getSectionContent(key, 0);
-            if (c && c.trim().length > 10) html = '<h1>' + escapeHtml(ch.title) + '</h1>' + c;
+            if (c && c.trim().length > 10) html = chapterH1(ch.title) + c;
           } else {
             ch.sections.forEach(function (sec, i) { const c = stripLeadingTitle(getSectionContent(key, i), sec); if (c && c.trim().length > 10) html += '<h2>' + escapeHtml(sec) + '</h2>' + c; });
-            if (html) html = '<h1>' + escapeHtml(ch.title) + '</h1>' + html;
+            if (html) html = chapterH1(ch.title) + html;
           }
           if (html) parts.push({ html: html, pageBreakBefore: true }); // each chapter starts on a new page
         }
@@ -1673,7 +1685,7 @@
       const scope = exportScopeSelect ? exportScopeSelect.value : 'section';
       try {
         const p = buildExportParts(scope);
-        await window.RehablixDocx.downloadProject(Object.assign({ title: (currentProject && currentProject.title) || 'Academic Project', fileBase: exportFileBase(scope) }, p));
+        await window.RehablixDocx.downloadProject(Object.assign({ title: (currentProject && currentProject.title) || 'Academic Project', fileBase: exportFileBase(scope), layout: projectLayout() }, p));
         logActivity('exported', scope);
         showToast((scope === 'section' ? 'Section' : scope === 'chapter' ? 'Chapter' : 'Project') + ' exported as Word (.docx)', 'success');
       } catch (err) {
@@ -1695,7 +1707,7 @@
       document.body.appendChild(host);
       try {
         await html2pdf().set({
-          margin: [15, 15, 18, 15], filename: exportFileBase(scope) + '.pdf',
+          margin: pdfMargins(), filename: exportFileBase(scope) + '.pdf',
           image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2, useCORS: true },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
           pagebreak: { mode: ['css', 'legacy'], before: '.content-page, .toc-page, .pdf-page-break' }
@@ -1889,43 +1901,48 @@
     // =========================================================================
     // PROJECT TOOLS SCREEN — REDESIGN (new)
     // =========================================================================
-    const DEFERRED_TOOLS = [
-      { id: 'literatureMatrix', name: 'Literature Matrix', icon: 'bx-table', desc: 'Organize studies by author, year, design, population, findings, limitations, and research gap.' },
-      { id: 'gapFinder', name: 'Research Gap Finder', icon: 'bx-search-alt', desc: 'Surfaces gaps in the literature your project could address.' },
-      { id: 'methodologyBuilder', name: 'Methodology Builder', icon: 'bx-flask', desc: 'Step-by-step builder for research design, sampling, and procedure.' },
-      { id: 'instrumentBuilder', name: 'Questionnaire / Instrument Builder', icon: 'bx-list-check', desc: 'Design and validate a data-collection instrument.' },
-      { id: 'sampleSizeCalc', name: 'Sample Size Calculator', icon: 'bx-calculator', desc: 'Compute a justified sample size for your study design.' },
-      { id: 'statsPlanner', name: 'Statistical Analysis Planner', icon: 'bx-line-chart', desc: 'Plan which statistical tests fit your variables and design.' },
-      { id: 'claimChecker', name: 'Claim & Citation Checker', icon: 'bx-shield-quarter', desc: 'Standalone document-wide audit of claims and their citations.' },
-      { id: 'researchAlignment', name: 'Research Alignment', icon: 'bx-git-branch', desc: 'Visualize objectives to research questions to hypotheses to methodology to results.' },
-      { id: 'defensePrep', name: 'Defense Preparation Mode', icon: 'bx-podium', desc: 'Guided Q&A rehearsal for your project defense.' },
-      { id: 'formattingProfiles', name: 'University Formatting Profiles', icon: 'bx-buildings', desc: 'Apply your institution\'s specific formatting requirements.' },
-      { id: 'projectSearch', name: 'Project-wide Search', icon: 'bx-search', desc: 'Search across every chapter, section, and reference in this project.' },
-      { id: 'projectHistory', name: 'Project Activity & History', icon: 'bx-history', desc: 'Full timeline of every change made to this project.' }
+    // Phase 1 tools are built (calculations in js/project-tools-core.js); the rest are still to come.
+    const BUILT_TOOLS = [
+      { id: 'referenceManager', name: 'Reference Manager', icon: 'bx-bookmark', desc: 'Store sources and generate citations in your selected style.' },
+      { id: 'projectSearch', name: 'Project-wide Search', icon: 'bx-search', desc: 'Search every chapter, section and reference, and jump straight to the passage.' },
+      { id: 'sampleSizeCalc', name: 'Sample Size Calculator', icon: 'bx-calculator', desc: 'A justified sample size for your design (Yamane, Cochran, t-tests, proportions, correlation), with a ready-written paragraph.' },
+      { id: 'statsPlanner', name: 'Statistical Analysis Planner', icon: 'bx-line-chart', desc: 'Which test fits each research question, with its non-parametric alternative, and your Data Analysis paragraph.' },
+      { id: 'researchAlignment', name: 'Research Alignment', icon: 'bx-git-branch', desc: 'Objectives → research questions → hypotheses → method → results → discussion, with the gaps shown.' },
+      { id: 'claimChecker', name: 'Claim & Citation Checker', icon: 'bx-shield-quarter', desc: 'Citations missing from your reference lists, references never cited, and claims that need a source.' },
+      { id: 'projectHistory', name: 'Project Activity & History', icon: 'bx-history', desc: 'A timeline of what changed and when, with a way back to any saved version.' },
+      { id: 'methodologyBuilder', name: 'Methodology Builder', icon: 'bx-flask', desc: 'Answer a few questions and get every Chapter 3 section written: design, setting, population, sampling, instrument, procedure, ethics, analysis.' },
+      { id: 'instrumentBuilder', name: 'Questionnaire Builder', icon: 'bx-list-check', desc: 'Build your questionnaire with rating scales, get the layout examiners expect, and the validity and reliability paragraph.' },
+      { id: 'literatureMatrix', name: 'Literature Matrix & Gap Finder', icon: 'bx-table', desc: 'Organise studies by author, design, population and findings, see how recent your evidence is, and find the gaps your study fills.' },
+      { id: 'defensePrep', name: 'Defense Preparation', icon: 'bx-podium', desc: 'Practise the questions examiners ask about your own project, and get each answer scored with feedback.' },
+      { id: 'formattingProfiles', name: 'Formatting Profiles', icon: 'bx-buildings', desc: 'Font, spacing, margins, chapter headings and page numbers for your export, from common university layouts or your own.' }
     ];
+    const DEFERRED_TOOLS = [];
+    const PT = window.RehablixProjectTools;
 
     function renderToolsScreen() {
       if (!currentProject) { setProjectActive(false); switchScreen('projects'); return; }
       renderReferenceList('referenceListTools');
+      document.querySelectorAll('.tool-pane').forEach(function (p) { p.style.display = 'none'; });
       const grid = document.getElementById('toolsGrid');
       if (!grid) return;
-      const builtCard = '<div class="tool-card-item" data-tool="referenceManager">' +
-        '<div class="tool-card-icon"><i class="bx bx-bookmark"></i></div>' +
-        '<div class="tool-card-name">Reference Manager</div>' +
-        '<div class="tool-card-desc">Store sources and generate citations in your selected style.</div>' +
-        '<button class="btn btn-primary tool-card-open" data-tool="referenceManager">Open</button></div>';
-      const deferredCards = DEFERRED_TOOLS.map(function (t) {
-        return '<div class="tool-card-item tool-card-deferred" data-tool="' + t.id + '">' +
+      grid.style.display = '';
+      const card = function (t, built) {
+        return '<div class="tool-card-item' + (built ? '' : ' tool-card-deferred') + '" data-tool="' + t.id + '">' +
           '<div class="tool-card-icon"><i class="bx ' + t.icon + '"></i></div>' +
-          '<div class="tool-card-name">' + t.name + '<span class="tool-card-badge">Coming soon</span></div>' +
+          '<div class="tool-card-name">' + t.name + (built ? '' : '<span class="tool-card-badge">Coming soon</span>') + '</div>' +
           '<div class="tool-card-desc">' + t.desc + '</div>' +
-          '<button class="btn btn-secondary tool-card-open" data-tool="' + t.id + '">Preview</button></div>';
-      }).join('');
-      grid.innerHTML = builtCard + deferredCards;
-
+          '<button class="btn ' + (built ? 'btn-primary' : 'btn-secondary') + ' tool-card-open" data-tool="' + t.id + '">' + (built ? 'Open' : 'Preview') + '</button></div>';
+      };
+      grid.innerHTML = BUILT_TOOLS.map(function (t) { return card(t, true); }).join('') + DEFERRED_TOOLS.map(function (t) { return card(t, false); }).join('');
       grid.querySelectorAll('.tool-card-open').forEach(function (btn) {
         btn.addEventListener('click', function () { openToolPane(btn.dataset.tool); });
       });
+    }
+
+    function closeToolPane() {
+      document.querySelectorAll('.tool-pane').forEach(function (p) { p.style.display = 'none'; });
+      const grid = document.getElementById('toolsGrid'); if (grid) grid.style.display = '';
+      window.scrollTo({ top: 0 });
     }
 
     function openToolPane(toolId) {
@@ -1934,16 +1951,770 @@
         document.getElementById('toolPaneReferenceManager').style.display = 'block';
         return;
       }
-      const tool = DEFERRED_TOOLS.find(function (t) { return t.id === toolId; });
+      const tool = BUILT_TOOLS.concat(DEFERRED_TOOLS).find(function (t) { return t.id === toolId; });
       const pane = document.getElementById('toolPanePlaceholder');
-      if (pane && tool) {
-        pane.style.display = 'block';
-        pane.innerHTML = '<div class="glass-card"><div class="card-header"><div class="card-title"><i class="bx ' + tool.icon + '"></i> ' + tool.name + '</div></div>' +
-          '<div class="card-body"><span class="tool-card-badge" style="position:static;">Coming soon</span><p style="margin-top:0.8rem;">' + tool.desc + '</p>' +
-          (toolId === 'researchAlignment' ? '<button class="btn btn-secondary" id="toolLinkToSetup"><i class="bx bx-cog"></i> Go to Research Setup</button>' : '') +
-          '</div></div>';
-        document.getElementById('toolLinkToSetup')?.addEventListener('click', function () { switchScreen('setup'); });
+      if (!pane || !tool) return;
+      const grid = document.getElementById('toolsGrid'); if (grid) grid.style.display = 'none';
+      pane.style.display = 'block';
+      // (each tool pane has its own Back button: the template's two "toolsBackBtn" shared one id, so this one never worked)
+      const head = '<button class="btn btn-secondary pt-back"><i class="fas fa-arrow-left"></i> Back to Tools</button>' +
+        '<div class="glass-card" style="margin-top:0.8rem;"><div class="card-header"><div class="card-title"><i class="bx ' + tool.icon + '"></i> ' + tool.name + '</div></div><div class="card-body" id="ptBody">';
+      const isBuilt = BUILT_TOOLS.some(function (t) { return t.id === toolId; });
+      pane.innerHTML = head + (isBuilt ? '' : '<span class="tool-card-badge" style="position:static;">Coming soon</span><p style="margin-top:0.8rem;">' + tool.desc + '</p>') + '</div></div>';
+      pane.querySelector('.pt-back').addEventListener('click', closeToolPane);
+      window.scrollTo({ top: 0 });
+      if (!isBuilt) return;
+      if (!PT) { document.getElementById('ptBody').innerHTML = '<p>This tool could not load. Please refresh the page.</p>'; return; }
+      const body = document.getElementById('ptBody');
+      ({ projectSearch: renderSearchTool, projectHistory: renderHistoryTool, sampleSizeCalc: renderSampleSizeTool, statsPlanner: renderStatsTool,
+        researchAlignment: renderAlignmentTool, claimChecker: renderClaimTool, methodologyBuilder: renderMethodologyTool, instrumentBuilder: renderInstrumentTool,
+        literatureMatrix: renderMatrixTool, defensePrep: renderDefenseTool, formattingProfiles: renderFormatTool })[toolId](body);
+    }
+
+    // ----- shared helpers for the tools -----------------------------------------------------
+    // Every section of the project as { chapterKey, sectionIndex, label, html } (the open section's latest edits included).
+    function toolSections() {
+      if (currentChapter && sectionEditor) saveCurrentSection();
+      const out = [];
+      const st = getChaptersStructure();
+      Object.keys(st).forEach(function (key) {
+        const ch = st[key];
+        const secs = ch.sections && ch.sections.length ? ch.sections : [null];
+        secs.forEach(function (sec, i) {
+          out.push({ chapterKey: key, sectionIndex: i, label: sec ? ch.title + ' — ' + sec : ch.title, html: getSectionContent(key, i) || '',
+            isReferenceSection: /^(references?|bibliography|reference list)$/i.test(String(sec || ch.title).trim()) });
+        });
+      });
+      return out;
+    }
+    function managerRefs() {
+      return Object.entries((currentProject && currentProject.references) || {}).map(function (e) {
+        const r = e[1] || {};
+        const first = (r.authors || [])[0] || {};
+        return { id: e[0], author: first.family || '', year: r.year || '', raw: formatReferencePlain(r), text: formatReferencePlain(r) };
+      });
+    }
+    // A <select> of every section, the first one whose name matches `prefer` (a RegExp) chosen.
+    function sectionSelectHtml(id, prefer, fallback) {
+      const secs = toolSections().filter(function (s) { return !s.isReferenceSection; });
+      let chosen = secs.findIndex(function (s) { return prefer && prefer.test(s.label); });
+      if (chosen < 0 && fallback) chosen = secs.findIndex(function (s) { return fallback.test(s.label); });
+      if (chosen < 0) chosen = 0;
+      return '<select id="' + id + '" class="pt-input">' + secs.map(function (s, i) {
+        return '<option value="' + s.chapterKey + '|' + s.sectionIndex + '"' + (i === chosen ? ' selected' : '') + '>' + escapeHtml(s.label) + '</option>';
+      }).join('') + '</select>';
+    }
+    // Tools write their text into a section: the section opens, a version is saved (undo), then the text is added at the end.
+    const textToHtml = function (text) { return String(text || '').split(/\n{2,}/).map(function (p) { return p.trim(); }).filter(Boolean).map(function (p) { return '<p>' + escapeHtml(p).replace(/\n/g, '<br>') + '</p>'; }).join(''); };
+    function parseTarget(target) { const parts = String(target || '').split('|'); return [parts[0], parseInt(parts[1], 10) || 0]; }
+    // Adds HTML to the end of several sections at once: each section's previous text is saved as a version first.
+    // items: [{ target: 'chapterKey|index', html }]. Returns the [chapterKey, index] pairs written.
+    async function appendToSections(items, what) {
+      const st = getChaptersStructure();
+      const list = (items || []).map(function (it) { const t = parseTarget(it.target); return { ch: t[0], sec: t[1], html: it.html }; })
+        .filter(function (it) { return st[it.ch] && String(it.html || '').trim(); });
+      if (!list.length) return [];
+      if (currentChapter) saveCurrentSection();
+      const written = [];
+      for (const it of list) {
+        let existing = getSectionContent(it.ch, it.sec) || '';
+        if (!PT.plain(existing) && !/<(img|table)\b/i.test(existing)) existing = ''; // only an empty line: replaced, not kept
+        if (existing.trim().length >= 50) {
+          const versions = await loadVersions(it.ch, it.sec);
+          if (!versions.length || versions[0].content !== existing) {
+            versions.unshift({ content: existing, timestamp: Date.now(), date: new Date().toLocaleString() });
+            if (versions.length > MAX_VERSIONS) versions.length = MAX_VERSIONS;
+            try { await versionsRef(it.ch, it.sec).set(versions); } catch (e) { reportError(e, 'save'); }
+          }
+        }
+        setSectionHtml(it.ch, it.sec, (existing.trim() ? existing + '\n' : '') + it.html);
+        if (!written.some(function (w) { return w[0] === it.ch && w[1] === it.sec; })) written.push([it.ch, it.sec]);
       }
+      await saveToFirebase({ sections: written });
+      logActivity('section_saved', what || 'Inserted from Project Tools');
+      return written;
+    }
+    // One section: add the text, then open it in the workspace with the new text selected.
+    async function insertIntoSection(target, text, what, isHtml) {
+      const html = isHtml ? text : textToHtml(text);
+      const done = await appendToSections([{ target: target, html: html }], what);
+      if (!done.length) return;
+      currentChapter = done[0][0]; currentSection = done[0][1];
+      loadSectionContent(); renderChapters();
+      switchScreen('workspace'); persistLastOpened(); updateSectionNav(); displayHumanizationScore();
+      if (!isHtml) setTimeout(function () { highlightInEditor(String(text).trim().slice(0, 60)); }, 300);
+      showToast('Added to "' + locationLabel(done[0][0], done[0][1]) + '". The previous text is in Version History.', 'success', 5000);
+    }
+    // Saves one tool's data on the project (history/{scope}/projects/{id}/{field}).
+    function saveProjectField(field, value) {
+      if (!currentProject || !currentProjectId || !scopeUid) return Promise.resolve();
+      currentProject[field] = value;
+      return database.ref('history/' + scopeUid + '/projects/' + currentProjectId + '/' + field).set(value == null ? null : JSON.parse(JSON.stringify(value))).catch(function (e) { reportError(e, 'save'); });
+    }
+    const debounced = function (fn, ms) { let t = null; return function () { clearTimeout(t); t = setTimeout(fn, ms || 800); }; };
+    function copyText(text) {
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () { showToast('Copied', 'success', 1500); }, function () { showToast('Could not copy — select the text and copy it', 'info'); });
+    }
+    // The written-output box every tool ends with: editable text, a section to put it in, Insert and Copy.
+    function outputBoxHtml(prefix, text, prefer) {
+      return '<div class="pt-output"><label class="pt-label">Text for your project (you can edit it)</label>' +
+        '<textarea id="' + prefix + 'Text" class="pt-input" rows="7">' + escapeHtml(text) + '</textarea>' +
+        '<div class="pt-row"><label class="pt-label" style="flex:1 1 100%;">Add it to</label>' + sectionSelectHtml(prefix + 'Target', prefer) + '</div>' +
+        '<div class="pt-row"><button class="btn btn-primary" id="' + prefix + 'Insert"><i class="bx bx-down-arrow-circle"></i> Insert into section</button>' +
+        '<button class="btn btn-secondary" id="' + prefix + 'Copy"><i class="bx bx-copy"></i> Copy</button></div></div>';
+    }
+    function wireOutputBox(prefix, what) {
+      document.getElementById(prefix + 'Insert')?.addEventListener('click', function () { insertIntoSection(document.getElementById(prefix + 'Target').value, document.getElementById(prefix + 'Text').value, what); });
+      document.getElementById(prefix + 'Copy')?.addEventListener('click', function () { copyText(document.getElementById(prefix + 'Text').value); });
+    }
+    function needsSI(feature) {
+      if (isAllowed(feature)) return true;
+      showToast('This check uses Project SI, which needs the Student plan or higher.', 'error', 5000); goToSubscription(); return false;
+    }
+
+    const optsHtml = function (pairs, val) { return pairs.map(function (p) { return '<option value="' + escapeHtml(String(p[0])) + '"' + (String(p[0]) === String(val) ? ' selected' : '') + '>' + escapeHtml(String(p[1])) + '</option>'; }).join(''); };
+    const linesOf = function (s) { return String(s || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean); };
+    const fieldHtml = function (label, inner, hint) { return '<div class="pt-field"><label class="pt-label">' + label + '</label>' + inner + (hint ? '<small class="pt-muted">' + hint + '</small>' : '') + '</div>'; };
+
+    // ----- Methodology Builder ----------------------------------------------------------------
+    function renderMethodologyTool(body) {
+      const rs = currentProject.researchSetup || {};
+      const qual = currentProject.approach === 'qualitative';
+      const a = Object.assign({ design: qual ? 'phenomenology' : 'crossSectional', sampling: qual ? 'purposive' : 'simpleRandom', setting: rs.setting || '', population: rs.population || '',
+        populationSize: '', sampleSize: '', sampleNote: '', inclusion: [], exclusion: [], instrument: '', instrumentNote: '', procedure: '', duration: '', ethicsBody: '', analysis: '' }, currentProject.methodology || {});
+      const save = debounced(function () { saveProjectField('methodology', a); }, 900);
+      const draw = function () {
+        const blocks = PT.methodologyBlocks(a);
+        body.innerHTML = '<p class="pt-muted">Answer what you can; every answer is saved as you type. The text below updates as you go, and you can edit it before inserting.</p>' +
+          '<div class="pt-grid">' +
+          fieldHtml('Research design', '<select class="pt-input" data-m="design">' + optsHtml(Object.keys(PT.STUDY_DESIGNS).map(function (k) { return [k, PT.STUDY_DESIGNS[k].label]; }), a.design) + '</select>') +
+          fieldHtml('Sampling technique', '<select class="pt-input" data-m="sampling">' + optsHtml(Object.keys(PT.SAMPLING).map(function (k) { return [k, PT.SAMPLING[k].label]; }), a.sampling) + '</select>') +
+          fieldHtml('Setting (where the study took place)', '<input class="pt-input" data-m="setting" placeholder="e.g. the Occupational Therapy clinic, ... Teaching Hospital, Ibadan">') +
+          fieldHtml('Population', '<input class="pt-input" data-m="population" placeholder="e.g. adults with stroke attending the OT clinic">') +
+          fieldHtml('Population size (if known)', '<input class="pt-input" type="number" data-m="populationSize">') +
+          fieldHtml('Sample size', '<input class="pt-input" type="number" data-m="sampleSize">', '<a href="#" class="pt-link" id="mbCalc">Work it out with the Sample Size Calculator</a>') +
+          fieldHtml('How the sample size was decided (optional)', '<input class="pt-input" data-m="sampleNote" placeholder="e.g. calculated with Yamane\'s formula at a 5% margin of error">') +
+          fieldHtml('Instrument', '<input class="pt-input" data-m="instrument" placeholder="e.g. a self-structured questionnaire / the Barthel Index">') +
+          fieldHtml('About the instrument (optional)', '<input class="pt-input" data-m="instrumentNote" placeholder="e.g. It has 20 items in 3 sections.">') +
+          fieldHtml('Ethics committee', '<input class="pt-input" data-m="ethicsBody" placeholder="e.g. the Health Research Ethics Committee of ...">') +
+          fieldHtml('Data collection period (optional)', '<input class="pt-input" data-m="duration" placeholder="e.g. six weeks">') +
+          '</div>' +
+          '<div class="pt-grid">' + fieldHtml('Inclusion criteria (one per line)', '<textarea class="pt-input" rows="3" data-m="inclusion" placeholder="were aged 18 years and above"></textarea>') +
+          fieldHtml('Exclusion criteria (one per line)', '<textarea class="pt-input" rows="3" data-m="exclusion" placeholder="had a cognitive impairment"></textarea>') + '</div>' +
+          fieldHtml('Procedure (optional — leave empty for a standard paragraph)', '<textarea class="pt-input" rows="3" data-m="procedure"></textarea>') +
+          fieldHtml('Method of data analysis', '<textarea class="pt-input" rows="3" data-m="analysis"></textarea>', '<a href="#" class="pt-link" id="mbStats">Write it with the Statistical Analysis Planner</a>') +
+          '<h4 class="pt-h">Your Chapter 3 text</h4>' +
+          blocks.map(function (b, i) {
+            return '<div class="pt-analysis" style="margin-bottom:0.6rem;"><strong>' + escapeHtml(b.label) + '</strong>' +
+              '<textarea class="pt-input" rows="4" id="mbText' + i + '" style="margin-top:0.4rem;">' + escapeHtml(b.text) + '</textarea>' +
+              '<div class="pt-row" style="margin-top:0.4rem;"><span class="pt-label" style="margin:0;">Add to</span>' + sectionSelectHtml('mbTarget' + i, new RegExp('method[^—]*—[^—]*(' + b.prefer + ')', 'i'), b.key === 'ethics' ? /method[^—]*—[^—]*(procedure|collection)/i : /method/i) +
+              '<button class="btn btn-secondary pt-small" data-mb-insert="' + i + '">Insert</button></div></div>';
+          }).join('') +
+          '<button class="btn btn-primary" id="mbAll"><i class="bx bx-down-arrow-circle"></i> Insert all ' + blocks.length + ' into their sections</button>';
+        body.querySelectorAll('[data-m]').forEach(function (el) {
+          const k = el.dataset.m;
+          el.value = Array.isArray(a[k]) ? a[k].join('\n') : (a[k] == null ? '' : a[k]);
+          el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', function () {
+            a[k] = (k === 'inclusion' || k === 'exclusion') ? linesOf(el.value) : el.value;
+            save();
+            // refresh only the generated text, so the field being typed in keeps its focus
+            PT.methodologyBlocks(a).forEach(function (b, i) { const t = document.getElementById('mbText' + i); if (t) t.value = b.text; });
+            if (el.tagName === 'SELECT' || PT.methodologyBlocks(a).length !== blocks.length) {
+              const pos = el.selectionStart; draw();
+              const again = body.querySelector('[data-m="' + k + '"]');
+              if (again && el.tagName !== 'SELECT') { again.focus(); try { again.setSelectionRange(pos, pos); } catch (e) { /* number inputs */ } }
+            }
+          });
+        });
+        document.getElementById('mbCalc').addEventListener('click', function (e) { e.preventDefault(); openToolPane('sampleSizeCalc'); });
+        document.getElementById('mbStats').addEventListener('click', function (e) { e.preventDefault(); openToolPane('statsPlanner'); });
+        body.querySelectorAll('[data-mb-insert]').forEach(function (b) {
+          b.addEventListener('click', function () { const i = b.dataset.mbInsert; insertIntoSection(document.getElementById('mbTarget' + i).value, document.getElementById('mbText' + i).value, 'Methodology Builder: ' + blocks[i].label); });
+        });
+        document.getElementById('mbAll').addEventListener('click', async function () {
+          const btn = this; btn.disabled = true;
+          const items = blocks.map(function (b, i) { return { target: document.getElementById('mbTarget' + i).value, html: textToHtml(document.getElementById('mbText' + i).value) }; });
+          const done = await appendToSections(items, 'Methodology Builder: Chapter 3');
+          btn.disabled = false;
+          if (done.length) showToast('Added to ' + done.length + ' section' + (done.length === 1 ? '' : 's') + '. Earlier text is in each section\'s Version History.', 'success', 5000);
+        });
+      };
+      draw();
+    }
+
+    // ----- Questionnaire Builder ----------------------------------------------------------------
+    function renderInstrumentTool(body) {
+      const inst = currentProject.instrument ? JSON.parse(JSON.stringify(currentProject.instrument)) : PT.newInstrument(currentProject);
+      (inst.sections || (inst.sections = [])).forEach(function (s) { s.items = s.items || []; });
+      const save = debounced(function () { saveProjectField('instrument', inst); }, 900);
+      const meta = currentProject.instrumentMeta || { experts: 3, pilotN: '', alpha: '' };
+      const typeOpts = PT.ITEM_TYPES;
+      const scaleOpts = [['', 'No rating scale']].concat(Object.keys(PT.SCALES).map(function (k) { return [k, PT.SCALES[k].label]; }));
+      const draw = function () {
+        const st = PT.instrumentStats(inst);
+        body.innerHTML = '<p class="pt-muted">' + st.items + ' item' + (st.items === 1 ? '' : 's') + ' in ' + st.sections + ' section' + (st.sections === 1 ? '' : 's') + '. Changes are saved as you go.</p>' +
+          fieldHtml('Title', '<input class="pt-input" data-i="title">') + fieldHtml('Introduction / consent note', '<textarea class="pt-input" rows="5" data-i="intro"></textarea>') +
+          inst.sections.map(function (s, si) {
+            return '<div class="pt-analysis" style="margin-bottom:0.8rem;"><div class="pt-row" style="justify-content:space-between;"><strong>Section ' + (si + 1) + '</strong><span class="pt-row">' +
+              (si > 0 ? '<button class="btn btn-secondary pt-small" data-sec-up="' + si + '">Move up</button>' : '') + '<button class="btn btn-secondary pt-small" data-sec-del="' + si + '">Remove section</button></span></div>' +
+              '<div class="pt-grid" style="margin-top:0.4rem;">' + fieldHtml('Section title', '<input class="pt-input" data-s="' + si + '" data-k="title">') +
+              fieldHtml('Rating scale for this section', '<select class="pt-input" data-s="' + si + '" data-k="scale">' + optsHtml(scaleOpts, s.scale || '') + '</select>') + '</div>' +
+              fieldHtml('Instructions', '<input class="pt-input" data-s="' + si + '" data-k="instructions">') +
+              s.items.map(function (it, ii) {
+                return '<div class="pt-row" style="align-items:flex-start;margin-top:0.4rem;"><span class="pt-muted" style="padding-top:0.6rem;min-width:1.5rem;">' + (ii + 1) + '.</span>' +
+                  '<div style="flex:1;min-width:200px;"><input class="pt-input" data-s="' + si + '" data-it="' + ii + '" data-k="text" placeholder="Question or statement">' +
+                  ((it.type === 'choice' || it.type === 'multi') ? '<input class="pt-input" style="margin-top:0.3rem;" data-s="' + si + '" data-it="' + ii + '" data-k="options" placeholder="Options, separated by commas">' : '') + '</div>' +
+                  '<select class="pt-input" style="max-width:190px;" data-s="' + si + '" data-it="' + ii + '" data-k="type">' + optsHtml(typeOpts, it.type) + '</select>' +
+                  '<button class="btn btn-secondary pt-small" data-item-del="' + si + '|' + ii + '" title="Remove">✕</button></div>';
+              }).join('') +
+              '<button class="btn btn-secondary pt-small" style="margin-top:0.5rem;" data-item-add="' + si + '"><i class="bx bx-plus"></i> Add item</button></div>';
+          }).join('') +
+          '<div class="pt-row"><button class="btn btn-secondary" id="ibAddSec"><i class="bx bx-plus"></i> Add section</button>' +
+          '<button class="btn btn-primary" id="ibDraft"><i class="bx bx-bulb"></i> Draft items from my objectives (Project SI)</button></div>' +
+          '<h4 class="pt-h">Preview</h4><div class="pt-preview" id="ibPreview">' + PT.instrumentHtml(inst) + '</div>' +
+          '<div class="pt-row" style="margin-top:0.5rem;"><span class="pt-label" style="margin:0;">Add the questionnaire to</span>' + sectionSelectHtml('ibTarget', /appendi|questionnaire|instrument/i) +
+          '<button class="btn btn-primary" id="ibInsert"><i class="bx bx-down-arrow-circle"></i> Insert questionnaire</button></div>' +
+          '<h4 class="pt-h">Validity and reliability</h4><div class="pt-grid">' +
+          fieldHtml('Experts who reviewed it', '<input class="pt-input" type="number" id="ibExperts">') + fieldHtml('Pilot study respondents', '<input class="pt-input" type="number" id="ibPilot">') +
+          fieldHtml("Cronbach's alpha (after the pilot)", '<input class="pt-input" type="number" step="0.01" id="ibAlpha" placeholder="e.g. 0.82">') + '</div>' +
+          outputBoxHtml('ib', PT.instrumentParagraph(inst, meta), /instrument|validity|reliab/i);
+        body.querySelector('[data-i="title"]').value = inst.title || '';
+        body.querySelector('[data-i="intro"]').value = inst.intro || '';
+        document.getElementById('ibExperts').value = meta.experts; document.getElementById('ibPilot').value = meta.pilotN; document.getElementById('ibAlpha').value = meta.alpha;
+        const refresh = function () { document.getElementById('ibPreview').innerHTML = PT.instrumentHtml(inst); document.getElementById('ibText').value = PT.instrumentParagraph(inst, meta); save(); };
+        body.querySelectorAll('[data-i]').forEach(function (el) { el.addEventListener('input', function () { inst[el.dataset.i] = el.value; refresh(); }); });
+        body.querySelectorAll('[data-s]').forEach(function (el) {
+          const s = inst.sections[el.dataset.s], k = el.dataset.k;
+          const target = el.dataset.it != null ? s.items[el.dataset.it] : s;
+          el.value = k === 'options' ? (target.options || []).join(', ') : (target[k] || '');
+          el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', function () {
+            target[k] = k === 'options' ? el.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean) : el.value;
+            if (k === 'type' && (el.value === 'choice' || el.value === 'multi') && !target.options) target.options = [];
+            if (el.tagName === 'SELECT') { save(); draw(); } else refresh();
+          });
+        });
+        ['ibExperts', 'ibPilot', 'ibAlpha'].forEach(function (id, i) {
+          document.getElementById(id).addEventListener('input', function (e) { meta[['experts', 'pilotN', 'alpha'][i]] = e.target.value; document.getElementById('ibText').value = PT.instrumentParagraph(inst, meta); saveProjectField('instrumentMeta', meta); });
+        });
+        body.querySelectorAll('[data-item-add]').forEach(function (b) { b.addEventListener('click', function () { const s = inst.sections[b.dataset.itemAdd]; s.items.push({ text: '', type: s.scale ? 'scale' : 'choice', options: s.scale ? undefined : [] }); save(); draw(); }); });
+        body.querySelectorAll('[data-item-del]').forEach(function (b) { b.addEventListener('click', function () { const p = b.dataset.itemDel.split('|'); inst.sections[p[0]].items.splice(p[1], 1); save(); draw(); }); });
+        body.querySelectorAll('[data-sec-del]').forEach(function (b) { b.addEventListener('click', function () { if (!confirm('Remove this section and its items?')) return; inst.sections.splice(b.dataset.secDel, 1); save(); draw(); }); });
+        body.querySelectorAll('[data-sec-up]').forEach(function (b) { b.addEventListener('click', function () { const i = +b.dataset.secUp; const x = inst.sections.splice(i, 1)[0]; inst.sections.splice(i - 1, 0, x); save(); draw(); }); });
+        document.getElementById('ibAddSec').addEventListener('click', function () {
+          const letter = String.fromCharCode(65 + inst.sections.length);
+          inst.sections.push({ title: 'Section ' + letter + ': ', instructions: 'Please tick (✓) the option that best describes your view.', scale: 'agree5', items: [{ text: '', type: 'scale' }] }); save(); draw();
+        });
+        document.getElementById('ibInsert').addEventListener('click', function () { insertIntoSection(document.getElementById('ibTarget').value, PT.instrumentHtml(inst), 'Questionnaire Builder', true); });
+        wireOutputBox('ib', 'Validity and reliability of the instrument');
+        document.getElementById('ibDraft').addEventListener('click', async function () {
+          if (!needsSI('project.instrumentDraft')) return;
+          const objs = (rs().objectives || []).filter(Boolean), qs = (rs().researchQuestions || []).filter(Boolean);
+          if (!objs.length && !qs.length) { showToast('Add your objectives or research questions in Setup → Research Setup first.', 'info', 5000); return; }
+          const btn = this; btn.disabled = true; btn.innerHTML = '<i class="bx bx-loader-alt bx-spin"></i> Drafting items…';
+          try {
+            const vars = (rs().variables || {});
+            const system = 'You design data-collection questionnaires for student health research projects. Return ONLY JSON, no prose. Items must be short, clear, neutral (not leading), one idea per item, suitable for the population. Do not include demographic questions.';
+            const user = 'TITLE: ' + (currentProject.title || '') + '\nPOPULATION: ' + (rs().population || '') + '\nOBJECTIVES:\n' + (objs.length ? objs : qs).map(function (o, i) { return (i + 1) + '. ' + o; }).join('\n') +
+              (vars.dependent && vars.dependent.filter(Boolean).length ? '\nOUTCOME VARIABLES: ' + vars.dependent.filter(Boolean).join(', ') : '') +
+              '\n\nReturn {"sections":[{"title":"Section B: <topic of objective 1>","instructions":"<one line>","scale":"agree5|agree4|freq5|sat5|know3|","items":[{"text":"<item>","type":"scale|choice|multi|yesno|number|open","options":["only for choice/multi"]}]}]}. One section per objective, 5 to 8 items each. Use "scale" items with a scale for attitudes, practice frequency or knowledge.';
+            const d = parseJsonLoose(await callProjectAI(PROJECT_AI_ACTIONS.findMissing, system, user));
+            const secs = d && Array.isArray(d.sections) ? d.sections : null;
+            if (!secs || !secs.length) throw new Error('The draft could not be read. Please try again.');
+            secs.forEach(function (s) {
+              const scale = PT.SCALES[s.scale] ? s.scale : '';
+              inst.sections.push({ title: String(s.title || 'Section'), instructions: String(s.instructions || ''), scale: scale,
+                items: (s.items || []).filter(function (it) { return it && it.text; }).map(function (it) {
+                  const type = PT.ITEM_TYPES.some(function (t) { return t[0] === it.type; }) ? it.type : 'open';
+                  return { text: String(it.text), type: type === 'scale' && !scale ? 'open' : type, options: Array.isArray(it.options) ? it.options.map(String) : undefined };
+                }) });
+            });
+            save(); draw();
+            showToast('Added ' + secs.length + ' drafted section' + (secs.length === 1 ? '' : 's') + '. Check every item with your supervisor before use.', 'success', 6000);
+          } catch (err) { reportError(err, 'questionnaire draft'); btn.disabled = false; btn.innerHTML = '<i class="bx bx-bulb"></i> Draft items from my objectives (Project SI)'; }
+        });
+      };
+      const rs = function () { return currentProject.researchSetup || {}; };
+      draw();
+    }
+
+    // ----- Literature Matrix & Gap Finder ---------------------------------------------------------
+    function renderMatrixTool(body) {
+      const rows = (Array.isArray(currentProject.litMatrix) ? currentProject.litMatrix : Object.values(currentProject.litMatrix || {})).filter(Boolean).map(function (r) { return Object.assign({}, r); });
+      const save = debounced(function () { saveProjectField('litMatrix', rows); }, 900);
+      const fields = PT.MATRIX_FIELDS;
+      const draw = function () {
+        const sum = PT.matrixSummary(rows);
+        const gaps = currentProject.litGaps || null;
+        body.innerHTML = '<div class="pt-row"><button class="btn btn-secondary" id="lmAdd"><i class="bx bx-plus"></i> Add study</button>' +
+          '<button class="btn btn-secondary" id="lmFromRefs"><i class="bx bx-bookmark"></i> Add from Reference Manager</button>' +
+          '<button class="btn btn-primary" id="lmFill"><i class="bx bx-bulb"></i> Fill from my Chapter 2 (Project SI)</button></div>' +
+          (sum.total ? '<div class="pt-stats" style="margin-top:0.6rem;"><div><strong>' + sum.total + '</strong><span>studies</span></div><div><strong>' + sum.recent + '</strong><span>from the last 5 years</span></div>' +
+            '<div class="' + (sum.old ? 'pt-warn' : '') + '"><strong>' + sum.old + '</strong><span>older than 10 years</span></div><div><strong>' + Object.keys(sum.byDesign).length + '</strong><span>kinds of design</span></div></div>' +
+            '<p class="pt-muted">' + Object.keys(sum.byDesign).map(function (k) { return escapeHtml(k) + ': ' + sum.byDesign[k]; }).join(' · ') + '</p>' +
+            (sum.notes.length ? '<div class="pt-note">' + sum.notes.map(function (n) { return '<p>• ' + escapeHtml(n) + '</p>'; }).join('') + '</div>' : '') : '<p class="pt-muted">No studies yet. Add the empirical studies you reviewed; the matrix becomes the "Summary of empirical studies" table examiners like, and the basis for your research gap.</p>') +
+          rows.map(function (r, i) {
+            return '<details class="pt-analysis" style="margin-top:0.5rem;"' + (r._open ? ' open' : '') + '><summary><strong>' + (i + 1) + '. ' + escapeHtml((r.author || 'New study') + (r.year ? ' (' + r.year + ')' : '')) + '</strong>' +
+              (r.design ? ' <span class="pt-muted">· ' + escapeHtml(r.design) + '</span>' : '') + '</summary><div class="pt-grid" style="margin-top:0.5rem;">' +
+              fields.map(function (f) {
+                const long = f[0] === 'findings' || f[0] === 'limitations' || f[0] === 'gap' || f[0] === 'title';
+                return fieldHtml(f[1], (long ? '<textarea class="pt-input" rows="2"' : '<input class="pt-input"' + (f[0] === 'design' ? ' list="lmDesigns"' : '')) + ' data-r="' + i + '" data-f="' + f[0] + '">' + (long ? '</textarea>' : ''));
+              }).join('') + '</div><button class="btn btn-secondary pt-small" data-lm-del="' + i + '">Remove study</button></details>';
+          }).join('') +
+          '<datalist id="lmDesigns">' + PT.DESIGNS.map(function (d) { return '<option value="' + escapeHtml(d) + '">'; }).join('') + '</datalist>' +
+          (sum.total ? '<div class="pt-row" style="margin-top:0.8rem;"><span class="pt-label" style="margin:0;">Add the summary table to</span>' + sectionSelectHtml('lmTarget', /empirical|review of related/i, /literature/i) +
+            '<button class="btn btn-primary" id="lmInsert"><i class="bx bx-down-arrow-circle"></i> Insert table</button></div>' : '') +
+          '<h4 class="pt-h" style="margin-top:1.2rem;">Research gaps (Project SI)</h4>' +
+          '<p class="pt-muted">Reads the matrix and suggests the gaps your study fills, in the words you can use in your Statement of the Problem and the end of Chapter 2.</p>' +
+          '<button class="btn btn-primary" id="lmGaps"' + (sum.total < 3 ? ' disabled title="Add at least 3 studies first"' : '') + '><i class="bx bx-search-alt"></i> Find the gaps</button>' +
+          (gaps ? '<ul class="pt-list" style="margin-top:0.6rem;">' + (gaps.gaps || []).map(function (g) { return '<li><strong>' + escapeHtml(g.gap) + '</strong>' + (g.evidence ? '<div class="pt-muted">' + escapeHtml(g.evidence) + '</div>' : '') + '</li>'; }).join('') + '</ul>' +
+            (gaps.paragraph ? outputBoxHtml('lg', gaps.paragraph, /gap|summary of (the )?review|appraisal/i) : '') : '');
+        body.querySelectorAll('[data-r]').forEach(function (el) {
+          const r = rows[el.dataset.r];
+          el.value = r[el.dataset.f] || '';
+          el.addEventListener('input', function () { r[el.dataset.f] = el.value; save(); });
+          el.addEventListener('change', function () { r._open = true; draw(); });
+        });
+        body.querySelectorAll('details').forEach(function (d, i) { d.addEventListener('toggle', function () { if (rows[i]) rows[i]._open = d.open; }); });
+        body.querySelectorAll('[data-lm-del]').forEach(function (b) { b.addEventListener('click', function () { rows.splice(+b.dataset.lmDel, 1); save(); draw(); }); });
+        document.getElementById('lmAdd').addEventListener('click', function () { rows.push({ author: '', year: '', _open: true }); save(); draw(); });
+        document.getElementById('lmFromRefs').addEventListener('click', function () {
+          const have = new Set(rows.map(function (r) { return (r.author + '|' + r.year).toLowerCase(); }));
+          let added = 0;
+          Object.values(currentProject.references || {}).forEach(function (ref) { const r = PT.matrixRowFromReference(ref); if (r.author && !have.has((r.author + '|' + r.year).toLowerCase())) { rows.push(r); added++; } });
+          save(); draw(); showToast(added ? 'Added ' + added + ' stud' + (added === 1 ? 'y' : 'ies') + '. Fill in the design, population and findings.' : 'Every Reference Manager entry is already in the matrix.', added ? 'success' : 'info');
+        });
+        document.getElementById('lmInsert')?.addEventListener('click', function () { insertIntoSection(document.getElementById('lmTarget').value, PT.matrixHtml(rows), 'Literature Matrix table', true); });
+        wireOutputBox('lg', 'Research gap');
+        document.getElementById('lmFill').addEventListener('click', async function () {
+          if (!needsSI('project.literatureMatrix')) return;
+          const ch2 = chapterKeyLike(/literature/i);
+          if (!ch2) { showToast('No Literature Review chapter found.', 'info'); return; }
+          const btn = this; btn.disabled = true; btn.innerHTML = '<i class="bx bx-loader-alt bx-spin"></i> Reading Chapter 2…';
+          try {
+            const system = 'You extract empirical studies a student has reviewed in their literature review. Use ONLY what the chapter text says about each study; never invent details. Return ONLY a JSON array, no prose.';
+            const user = buildChapterFullText(ch2, 4000) + '\n\nReturn [{"author":"<as cited, e.g. Smith et al.>","year":"<yyyy>","design":"<design if stated, else empty>","population":"<sample if stated>","setting":"<country/setting if stated>","findings":"<what the chapter says they found>","limitations":"<if stated>"}]. Only primary studies and reviews cited with a year. At most 25.';
+            const list = parseJsonLoose(await callProjectAI(PROJECT_AI_ACTIONS.reviewChapter, system, user));
+            if (!Array.isArray(list)) throw new Error('The chapter could not be read. Please try again.');
+            const have = new Set(rows.map(function (r) { return (String(r.author).split(/\s/)[0] + '|' + r.year).toLowerCase(); }));
+            let added = 0;
+            list.forEach(function (s) {
+              if (!s || !s.author) return;
+              const k = (String(s.author).split(/\s/)[0] + '|' + (s.year || '')).toLowerCase();
+              if (have.has(k)) return; have.add(k);
+              rows.push({ author: String(s.author), year: String(s.year || ''), title: '', design: String(s.design || ''), population: String(s.population || ''), setting: String(s.setting || ''), findings: String(s.findings || ''), limitations: String(s.limitations || ''), gap: '' });
+              added++;
+            });
+            save(); draw();
+            showToast(added ? 'Added ' + added + ' stud' + (added === 1 ? 'y' : 'ies') + ' from Chapter 2. Check each against the original paper.' : 'No new studies found in Chapter 2.', added ? 'success' : 'info', 6000);
+          } catch (err) { reportError(err, 'literature matrix fill'); btn.disabled = false; btn.innerHTML = '<i class="bx bx-bulb"></i> Fill from my Chapter 2 (Project SI)'; }
+        });
+        document.getElementById('lmGaps').addEventListener('click', async function () {
+          if (!needsSI('project.literatureMatrix')) return;
+          const btn = this; btn.disabled = true; btn.innerHTML = '<i class="bx bx-loader-alt bx-spin"></i> Finding gaps…';
+          try {
+            const system = 'You are an academic supervisor identifying research gaps from a student\'s literature matrix. Base every gap ONLY on the studies listed (what is missing across them: population, setting, design, outcome, recency). Return ONLY JSON, no prose.';
+            const user = 'STUDY TITLE: ' + (currentProject.title || '') + '\nSTUDY POPULATION/SETTING: ' + ((currentProject.researchSetup || {}).population || '') + ' ' + ((currentProject.researchSetup || {}).setting || '') +
+              '\n\nMATRIX:\n' + rows.map(function (r, i) { return (i + 1) + '. ' + [r.author + ' (' + r.year + ')', r.design, r.population, r.setting, r.findings, r.limitations].filter(Boolean).join(' | '); }).join('\n') +
+              '\n\nReturn {"gaps":[{"gap":"<one sentence>","evidence":"<which studies show it, by author and year>"}],"paragraph":"<a 120-180 word paragraph for the end of the literature review stating the gaps and how this study addresses them, citing the studies by author and year>"}. 2 to 4 gaps.';
+            const d = parseJsonLoose(await callProjectAI(PROJECT_AI_ACTIONS.reviewChapter, system, user));
+            if (!d || !Array.isArray(d.gaps)) throw new Error('The gaps could not be read. Please try again.');
+            await saveProjectField('litGaps', { gaps: d.gaps.map(function (g) { return { gap: String(g.gap || ''), evidence: String(g.evidence || '') }; }), paragraph: String(d.paragraph || ''), at: Date.now() });
+            draw();
+          } catch (err) { reportError(err, 'gap finder'); btn.disabled = false; btn.innerHTML = '<i class="bx bx-search-alt"></i> Find the gaps'; }
+        });
+      };
+      draw();
+    }
+
+    // ----- Defense Preparation -------------------------------------------------------------------
+    function renderDefenseTool(body) {
+      const answers = Object.assign({}, currentProject.defensePrep || {});
+      const extra = (Array.isArray(currentProject.defenseExtra) ? currentProject.defenseExtra : Object.values(currentProject.defenseExtra || {})).filter(Boolean);
+      let filter = 'all', open = null;
+      const draw = function () {
+        const questions = PT.defenseQuestions(currentProject).concat(extra);
+        const r = PT.defenseReadiness(questions, answers);
+        const cats = Object.keys(r.categories);
+        body.innerHTML = '<div class="pt-stats"><div><strong>' + r.readiness + '%</strong><span>readiness</span></div><div><strong>' + r.answered + ' / ' + r.total + '</strong><span>questions practised</span></div>' +
+          '<div><strong>' + (r.average == null ? '—' : r.average + '/10') + '</strong><span>average score</span></div></div>' +
+          '<p class="pt-muted">Answer out loud first, then type your answer. Project SI scores it like an examiner and shows a stronger answer. Questions come from your own project.</p>' +
+          '<div class="pt-row"><select class="pt-input" id="dpFilter" style="max-width:240px;">' + optsHtml([['all', 'All categories']].concat(cats.map(function (c) { return [c, c + ' (' + r.categories[c].answered + '/' + r.categories[c].total + ')']; })), filter) + '</select>' +
+          '<button class="btn btn-secondary" id="dpMore"><i class="bx bx-bulb"></i> Tougher questions on my chapters (Project SI)</button></div>' +
+          questions.filter(function (q) { return filter === 'all' || q.category === filter; }).map(function (q) {
+            const a = answers[q.id];
+            return '<div class="pt-analysis" style="margin-top:0.5rem;"><div class="pt-row" style="justify-content:space-between;align-items:flex-start;"><div style="flex:1;min-width:0;"><span class="pt-muted">' + escapeHtml(q.category) + '</span><div><strong>' + escapeHtml(q.q) + '</strong></div></div>' +
+              (a && a.score != null ? '<span class="pt-score ' + (a.score >= 7 ? 'pt-good' : a.score >= 5 ? 'pt-warn' : 'pt-bad') + '">' + a.score + '/10</span>' : '') + '</div>' +
+              (open === q.id ? '<p class="pt-muted" style="margin:0.4rem 0;">Tip: ' + escapeHtml(q.tip || '') + '</p>' +
+                '<textarea class="pt-input" rows="5" id="dpAnswer" placeholder="Your answer…">' + escapeHtml((a && a.answer) || '') + '</textarea>' +
+                '<div class="pt-row" style="margin-top:0.4rem;"><button class="btn btn-primary" id="dpScore" data-q="' + q.id + '"><i class="bx bx-check-circle"></i> Score my answer</button><button class="btn btn-secondary" id="dpClose">Close</button></div>' +
+                (a && a.feedback ? '<div class="pt-note" style="margin-top:0.6rem;"><p><strong>Feedback:</strong> ' + escapeHtml(a.feedback) + '</p>' + (a.better ? '<p><strong>A stronger answer:</strong> ' + escapeHtml(a.better) + '</p>' : '') + '</div>' : '')
+                : '<button class="btn btn-secondary pt-small" style="margin-top:0.4rem;" data-dp-open="' + q.id + '">' + (a ? 'Practise again' : 'Practise') + '</button>') + '</div>';
+          }).join('');
+        document.getElementById('dpFilter').addEventListener('change', function (e) { filter = e.target.value; draw(); });
+        body.querySelectorAll('[data-dp-open]').forEach(function (b) { b.addEventListener('click', function () { open = b.dataset.dpOpen; draw(); document.getElementById('dpAnswer')?.focus(); }); });
+        document.getElementById('dpClose')?.addEventListener('click', function () { open = null; draw(); });
+        document.getElementById('dpScore')?.addEventListener('click', async function () {
+          const q = questions.find(function (x) { return x.id === this.dataset.q; }, this);
+          const ans = document.getElementById('dpAnswer').value.trim();
+          if (ans.length < 20) { showToast('Write a fuller answer first (a few sentences).', 'info'); return; }
+          if (!needsSI('project.defensePrep')) return;
+          const btn = this; btn.disabled = true; btn.innerHTML = '<i class="bx bx-loader-alt bx-spin"></i> Scoring…';
+          try {
+            const system = 'You are a fair but demanding external examiner at a student\'s ' + (currentProject.type || 'project') + ' defense in ' + (currentProject.department || 'a health profession') + '. Judge the answer against the student\'s own project summary. Return ONLY JSON.';
+            const user = 'PROJECT SUMMARY:\n' + clip(fullProjectSummaryForTools(), 6000) + '\n\nQUESTION: ' + q.q + '\nSTUDENT\'S ANSWER: ' + ans +
+              '\n\nReturn {"score":<0-10 integer>,"feedback":"<2-3 sentences: what was good, what was missing or wrong>","better":"<a model answer of 60-120 words, in the first person, consistent with the project; never invent results the project does not contain>"}';
+            const d = parseJsonLoose(await callProjectAI(PROJECT_AI_ACTIONS.checkSection, system, user));
+            if (!d || !isFinite(Number(d.score))) throw new Error('The score could not be read. Please try again.');
+            answers[q.id] = { answer: ans, score: Math.max(0, Math.min(10, Math.round(Number(d.score)))), feedback: String(d.feedback || ''), better: String(d.better || ''), at: Date.now() };
+            await saveProjectField('defensePrep', answers);
+            draw();
+          } catch (err) { reportError(err, 'defense practice'); btn.disabled = false; btn.innerHTML = '<i class="bx bx-check-circle"></i> Score my answer'; }
+        });
+        document.getElementById('dpMore').addEventListener('click', async function () {
+          if (!needsSI('project.defensePrep')) return;
+          const btn = this; btn.disabled = true; btn.innerHTML = '<i class="bx bx-loader-alt bx-spin"></i> Reading your project…';
+          try {
+            const system = 'You are an external examiner preparing questions for a student\'s project defense. Ask about weaknesses, choices and specific claims IN THIS PROJECT. Return ONLY a JSON array.';
+            const user = clip(fullProjectSummaryForTools(), 8000) + '\n\nReturn [{"category":"Methodology|Results|Discussion|Literature|Background","q":"<a pointed question about something specific in this project>","tip":"<what a strong answer should cover>"}]. 6 questions, the hardest first.';
+            const list = parseJsonLoose(await callProjectAI(PROJECT_AI_ACTIONS.reviewChapter, system, user));
+            if (!Array.isArray(list)) throw new Error('The questions could not be read. Please try again.');
+            const have = new Set(questions.map(function (q) { return q.q; }));
+            list.forEach(function (x) { if (x && x.q && !have.has(x.q)) extra.push({ id: PT.questionId(x.q), category: String(x.category || 'Examiner'), q: String(x.q), tip: String(x.tip || '') }); });
+            await saveProjectField('defenseExtra', extra);
+            filter = 'all'; draw();
+          } catch (err) { reportError(err, 'defense questions'); btn.disabled = false; btn.innerHTML = '<i class="bx bx-bulb"></i> Tougher questions on my chapters (Project SI)'; }
+        });
+      };
+      draw();
+    }
+    // A compact project summary for the tools: research setup, then each section's opening.
+    function fullProjectSummaryForTools() {
+      const rs = currentProject.researchSetup || {};
+      const lines = ['TITLE: ' + (currentProject.title || ''), 'APPROACH: ' + (currentProject.approach || 'quantitative')];
+      if (rs.aim) lines.push('AIM: ' + rs.aim);
+      (rs.objectives || []).filter(Boolean).forEach(function (o, i) { lines.push('OBJECTIVE ' + (i + 1) + ': ' + o); });
+      (rs.hypotheses || []).filter(Boolean).forEach(function (h, i) { lines.push('HYPOTHESIS ' + (i + 1) + ': ' + h); });
+      toolSections().forEach(function (s) { const t = PT.plain(s.html); if (t.length > 40) lines.push('\n[' + s.label + ']\n' + clip(t, 700)); });
+      return lines.join('\n');
+    }
+
+    // ----- Formatting Profiles -------------------------------------------------------------------
+    function renderFormatTool(body) {
+      let f = currentProject.formatProfile ? PT.normalizeFormat(currentProject.formatProfile) : PT.formatFromPreset('nigerian');
+      const using = !!currentProject.formatProfile;
+      const draw = function () {
+        const m = f.margins;
+        const num = function (k, v, step, min, max) { return '<input class="pt-input" type="number" step="' + step + '" min="' + min + '" max="' + max + '" data-fm="' + k + '" value="' + v + '">'; };
+        const lines = PT.chapterHeading('Chapter 1: Introduction', f);
+        const scale = 0.32;
+        const fam = '"' + f.font + '", ' + (/Arial|Calibri/.test(f.font) ? 'sans-serif' : 'serif');
+        body.innerHTML = '<p class="pt-note">' + (using ? 'Your Word, PDF and Print exports use this layout: ' + escapeHtml(PT.formatSummary(currentProject.formatProfile)) + '.' : 'Exports currently use the standard Rehablix layout. Choose a profile and save it to export in your institution\'s layout.') +
+          ' Always check your department\'s handbook: requirements differ between universities.</p>' +
+          fieldHtml('Start from', '<select class="pt-input" id="fmPreset">' + optsHtml(Object.keys(PT.FORMAT_PRESETS).map(function (k) { return [k, PT.FORMAT_PRESETS[k].name]; }).concat([['custom', 'Custom']]), f.preset) + '</select>') +
+          '<div class="pt-grid">' +
+          fieldHtml('Font', '<select class="pt-input" data-fm="font">' + optsHtml(PT.FORMAT_FONTS.map(function (x) { return [x, x]; }), f.font) + '</select>') +
+          fieldHtml('Font size (pt)', num('size', f.size, 1, 10, 14)) +
+          fieldHtml('Line spacing', '<select class="pt-input" data-fm="lineSpacing">' + optsHtml([[1, 'Single'], [1.15, '1.15'], [1.5, '1.5'], [2, 'Double']], f.lineSpacing) + '</select>') +
+          fieldHtml('Text alignment', '<select class="pt-input" data-fm="align">' + optsHtml([['justify', 'Justified'], ['left', 'Left']], f.align) + '</select>') +
+          fieldHtml('Top margin (cm)', num('m.top', m.top, 0.01, 1, 5)) + fieldHtml('Bottom margin (cm)', num('m.bottom', m.bottom, 0.01, 1, 5)) +
+          fieldHtml('Left margin (cm)', num('m.left', m.left, 0.01, 1, 5), '1.5 inches = 3.81 cm (binding side)') + fieldHtml('Right margin (cm)', num('m.right', m.right, 0.01, 1, 5)) +
+          fieldHtml('First-line indent (cm)', num('firstLineIndent', f.firstLineIndent, 0.01, 0, 3)) +
+          fieldHtml('Chapter headings', '<select class="pt-input" data-fm="chapterStyle">' + optsHtml([['words', 'CHAPTER ONE / INTRODUCTION'], ['numbers', 'CHAPTER 1 / Introduction'], ['title', 'Chapter 1: Introduction']], f.chapterStyle) + '</select>') +
+          fieldHtml('Heading capitals', '<select class="pt-input" data-fm="headingCase">' + optsHtml([['upper', 'ALL CAPITALS'], ['title', 'As written']], f.headingCase) + '</select>') +
+          fieldHtml('Section headings', '<select class="pt-input" data-fm="headingAlign">' + optsHtml([['left', 'Left'], ['center', 'Centred']], f.headingAlign) + '</select>') +
+          fieldHtml('Page numbers', '<select class="pt-input" data-fm="pageNumbers">' + optsHtml([['bottom-center', 'Bottom centre'], ['bottom-right', 'Bottom right'], ['top-right', 'Top right']], f.pageNumbers) + '</select>') +
+          fieldHtml('Page number style', '<select class="pt-input" data-fm="pageFormat">' + optsHtml([['n', '1'], ['of', 'Page 1 of 20']], f.pageFormat) + '</select>') +
+          '</div>' +
+          '<h4 class="pt-h">Preview</h4><div class="pt-page" style="padding:' + (m.top * 10 * scale * 3.78).toFixed(0) + 'px ' + (m.right * 10 * scale * 3.78).toFixed(0) + 'px ' + (m.bottom * 10 * scale * 3.78).toFixed(0) + 'px ' + (m.left * 10 * scale * 3.78).toFixed(0) + 'px;font-family:' + escapeHtml(fam) + ';">' +
+          '<div class="pt-page-num" style="' + (f.pageNumbers === 'top-right' ? 'top:6px;right:10px;' : 'bottom:6px;' + (f.pageNumbers === 'bottom-right' ? 'right:10px;' : 'left:0;right:0;text-align:center;')) + '">' + (f.pageFormat === 'of' ? 'Page 1 of 20' : '1') + '</div>' +
+          lines.map(function (l) { return '<div style="text-align:center;font-weight:700;font-size:' + ((f.size + 2) * 0.62).toFixed(1) + 'px;">' + escapeHtml(l) + '</div>'; }).join('') +
+          '<div style="font-weight:700;margin-top:6px;text-align:' + (f.headingAlign === 'center' ? 'center' : 'left') + ';font-size:' + (f.size * 0.62).toFixed(1) + 'px;">' + escapeHtml(f.headingCase === 'upper' ? '1.1 BACKGROUND OF THE STUDY' : '1.1 Background of the Study') + '</div>' +
+          [0, 1].map(function () { return '<p style="margin:4px 0;text-align:' + f.align + ';text-indent:' + (f.firstLineIndent * 10 * scale * 3.78).toFixed(0) + 'px;font-size:' + (f.size * 0.62).toFixed(1) + 'px;line-height:' + (f.lineSpacing * 1.15).toFixed(2) + ';">Occupational therapy supports people to take part in the everyday activities that matter to them. This preview shows your chosen font, spacing, margins and alignment on an A4 page, at about a third of the real size.</p>'; }).join('') +
+          '</div>' +
+          '<div class="pt-row" style="margin-top:0.8rem;"><button class="btn btn-primary" id="fmSave"><i class="bx bx-save"></i> Use this layout for exports</button>' +
+          (using ? '<button class="btn btn-secondary" id="fmOff">Go back to the standard layout</button>' : '') + '<button class="btn btn-secondary" id="fmExport"><i class="bx bx-export"></i> Go to Export</button></div>';
+        document.getElementById('fmPreset').addEventListener('change', function (e) { if (e.target.value !== 'custom') f = PT.formatFromPreset(e.target.value); else f.preset = 'custom'; draw(); });
+        body.querySelectorAll('[data-fm]').forEach(function (el) {
+          el.addEventListener('change', function () {
+            const k = el.dataset.fm, v = el.type === 'number' || k === 'lineSpacing' ? Number(el.value) : el.value;
+            if (k.indexOf('m.') === 0) f.margins[k.slice(2)] = v; else f[k] = v;
+            f.preset = 'custom'; f = PT.normalizeFormat(f); f.preset = 'custom'; draw();
+          });
+        });
+        document.getElementById('fmSave').addEventListener('click', async function () { await saveProjectField('formatProfile', f); showToast('Saved. Word, PDF and Print exports now use this layout.', 'success'); renderFormatTool(body); });
+        document.getElementById('fmOff')?.addEventListener('click', async function () { await saveProjectField('formatProfile', null); delete currentProject.formatProfile; showToast('Exports are back to the standard layout.', 'info'); renderFormatTool(body); });
+        document.getElementById('fmExport').addEventListener('click', function () { switchScreen('export'); });
+      };
+      draw();
+    }
+
+    // ----- Project-wide Search ---------------------------------------------------------------
+    function renderSearchTool(body) {
+      body.innerHTML = '<input id="ptSearchInput" class="pt-input" type="search" placeholder="Search every chapter, section and reference…" autocomplete="off">' +
+        '<div id="ptSearchCount" class="pt-muted" style="margin:0.6rem 0;"></div><div id="ptSearchResults"></div>';
+      const input = document.getElementById('ptSearchInput');
+      let timer = null;
+      const run = function () {
+        const q = input.value.trim();
+        const resEl = document.getElementById('ptSearchResults'), countEl = document.getElementById('ptSearchCount');
+        if (q.length < 2) { resEl.innerHTML = ''; countEl.textContent = 'Type at least 2 letters.'; return; }
+        const hits = PT.searchProject(toolSections(), managerRefs(), q, 150);
+        const places = new Set(hits.map(function (h) { return h.kind === 'section' ? h.chapterKey + '|' + h.sectionIndex : 'refs'; }));
+        countEl.textContent = hits.length ? hits.length + (hits.length >= 150 ? '+' : '') + ' match' + (hits.length === 1 ? '' : 'es') + ' in ' + places.size + ' place' + (places.size === 1 ? '' : 's') : 'No matches.';
+        resEl.innerHTML = hits.map(function (h, i) {
+          return '<button class="pt-hit" data-i="' + i + '"><span class="pt-hit-where">' + escapeHtml(h.label) + '</span>' +
+            '<span class="pt-hit-text">' + escapeHtml(h.before) + '<mark>' + escapeHtml(h.match) + '</mark>' + escapeHtml(h.after) + '</span></button>';
+        }).join('');
+        resEl.querySelectorAll('.pt-hit').forEach(function (b) {
+          b.addEventListener('click', function () {
+            const h = hits[parseInt(b.dataset.i, 10)];
+            if (h.kind === 'reference') openToolPane('referenceManager');
+            else goToPassage(h.chapterKey, h.sectionIndex, h.quote);
+          });
+        });
+      };
+      input.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(run, 200); });
+      input.focus();
+    }
+
+    // ----- Project Activity & History ---------------------------------------------------------
+    async function renderHistoryTool(body) {
+      body.innerHTML = '<p class="pt-muted"><i class="bx bx-loader-alt bx-spin"></i> Loading the timeline…</p>';
+      let entries = [];
+      try {
+        const snap = await database.ref('history/' + scopeUid + '/projects/' + currentProjectId + '/activity').limitToLast(400).once('value');
+        entries = Object.values(snap.val() || {});
+      } catch (e) { reportError(e, 'project history load'); }
+      const rows = PT.groupActivity(entries);
+      if (!rows.length) { body.innerHTML = '<p class="pt-muted">Nothing recorded yet. Every save, SI generation, review and export will appear here.</p>'; return; }
+      const verb = { section_saved: 'Edited', section_generated: 'SI generated', chapter_reviewed: 'Reviewed', reference_added: 'Added reference', exported: 'Exported' };
+      let day = '';
+      body.innerHTML = '<p class="pt-muted">Autosaves of the same section are grouped. Each section keeps its last ' + MAX_VERSIONS + ' saved versions — open one to restore it.</p>' +
+        rows.map(function (r, i) {
+          const d = new Date(r.lastAt), dayStr = d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+          const head = dayStr !== day ? '<div class="pt-day">' + escapeHtml(dayStr) + '</div>' : '';
+          day = dayStr;
+          const hasSection = r.chapterKey && getChaptersStructure()[r.chapterKey] && (r.type === 'section_saved' || r.type === 'section_generated');
+          const where = hasSection ? locationLabel(r.chapterKey, r.sectionIndex || 0) : '';
+          const what = r.type === 'section_saved' ? (where || r.summary) : (r.summary || where);
+          const times = r.count > 1 ? new Date(r.firstAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '–' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          return head + '<div class="pt-event"><span class="pt-event-time">' + times + '</span><div class="pt-event-main"><strong>' + escapeHtml(verb[r.type] || r.type) + '</strong> ' + escapeHtml(what || '') +
+            (r.count > 1 ? ' <span class="pt-muted">(' + r.count + ' saves)</span>' : '') +
+            (hasSection ? '<div class="pt-row" style="margin-top:0.35rem;"><button class="btn btn-secondary pt-small" data-open="' + i + '">Open</button><button class="btn btn-secondary pt-small" data-versions="' + i + '"><i class="bx bx-history"></i> Versions</button></div>' : '') +
+            '</div></div>';
+        }).join('');
+      body.addEventListener('click', function (e) {
+        const o = e.target.closest('[data-open]'), v = e.target.closest('[data-versions]');
+        if (!o && !v) return;
+        const r = rows[parseInt(o ? o.dataset.open : v.dataset.versions, 10)];
+        if (!r) return;
+        goToPassage(r.chapterKey, r.sectionIndex || 0, '');
+        if (v) setTimeout(function () { document.getElementById('versionHistoryIconBtn')?.click(); }, 400);
+      });
+    }
+
+    // ----- Sample Size Calculator -------------------------------------------------------------
+    function renderSampleSizeTool(body) {
+      const qual = currentProject.approach === 'qualitative';
+      const methods = PT.SAMPLE_METHODS.map(function (m) { return '<option value="' + m.id + '">' + escapeHtml(m.label) + '</option>'; }).join('');
+      const num = function (id, label, value, hint) { return '<div class="pt-field" data-for="' + id + '"><label class="pt-label">' + label + '</label><input id="' + id + '" class="pt-input" type="number" step="any" value="' + value + '">' + (hint ? '<small class="pt-muted">' + hint + '</small>' : '') + '</div>'; };
+      const sel = function (id, label, opts, value) { return '<div class="pt-field" data-for="' + id + '"><label class="pt-label">' + label + '</label><select id="' + id + '" class="pt-input">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (String(o[0]) === String(value) ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>'; };
+      body.innerHTML = (qual ? '<p class="pt-note">Qualitative studies usually justify their sample by <strong>data saturation</strong> (interviewing until no new themes appear), not a formula. Use this only if your supervisor asks for a calculated number.</p>' : '') +
+        '<div class="pt-field"><label class="pt-label">What is your study doing?</label><select id="ssMethod" class="pt-input">' + methods + '</select></div>' +
+        '<div class="pt-grid">' +
+        num('ssPopulation', 'Population size (N)', '', 'How many people the sample is drawn from. Optional for Cochran.') +
+        num('ssMargin', 'Margin of error (%)', 5) +
+        num('ssProportion', 'Expected proportion (%)', 50, 'Use 50% if unknown: it gives the largest, safest sample.') +
+        sel('ssConfidence', 'Confidence level', [[90, '90%'], [95, '95% (usual)'], [99, '99%']], 95) +
+        sel('ssPower', 'Power', [[80, '80% (usual)'], [85, '85%'], [90, '90%'], [95, '95%']], 80) +
+        sel('ssEffect', "Expected effect size (Cohen's d)", [[0.2, '0.2 — small'], [0.5, '0.5 — medium (usual)'], [0.8, '0.8 — large']], 0.5) +
+        num('ssP1', 'Proportion in group 1 (%)', 60) + num('ssP2', 'Proportion in group 2 (%)', 40) +
+        num('ssR', 'Expected correlation (r)', 0.3, '0.1 small, 0.3 medium, 0.5 large') +
+        num('ssAttrition', 'Expected drop-out / non-response (%)', 10) +
+        '</div><button class="btn btn-primary" id="ssCalc" style="margin-top:0.6rem;"><i class="bx bx-calculator"></i> Calculate</button><div id="ssResult"></div>';
+      const visible = { yamane: ['ssPopulation', 'ssMargin'], cochran: ['ssProportion', 'ssMargin', 'ssConfidence', 'ssPopulation'], twoMeans: ['ssEffect', 'ssConfidence', 'ssPower'], paired: ['ssEffect', 'ssConfidence', 'ssPower'],
+        twoProportions: ['ssP1', 'ssP2', 'ssConfidence', 'ssPower'], correlation: ['ssR', 'ssConfidence', 'ssPower'] };
+      const methodSel = document.getElementById('ssMethod');
+      // a sensible starting method from the design
+      const rs = currentProject.researchSetup || {};
+      const setupText = [rs.aim, rs.problem].concat(rs.researchQuestions || []).join(' ').toLowerCase();
+      methodSel.value = /before|after|pre-?test|post-?test|change over/.test(setupText) ? 'paired' : /compar|differen|versus|vs\.?|control group|effect of/.test(setupText) ? 'twoMeans' : /relationship|correlat|associat/.test(setupText) ? 'correlation' : 'yamane';
+      const sync = function () {
+        const show = visible[methodSel.value] || [];
+        body.querySelectorAll('.pt-field[data-for]').forEach(function (f) { f.style.display = show.indexOf(f.dataset.for) >= 0 || f.dataset.for === 'ssAttrition' ? '' : 'none'; });
+        document.getElementById('ssResult').innerHTML = '';
+      };
+      methodSel.addEventListener('change', sync); sync();
+      document.getElementById('ssCalc').addEventListener('click', function () {
+        const v = function (id) { const el = document.getElementById(id); return el ? el.value : ''; };
+        const r = PT.sampleSize({ method: methodSel.value, population: v('ssPopulation'), margin: v('ssMargin'), proportion: v('ssProportion'), confidence: v('ssConfidence'), power: v('ssPower'),
+          effect: v('ssEffect'), p1: v('ssP1'), p2: v('ssP2'), r: v('ssR'), attrition: v('ssAttrition') });
+        const out = document.getElementById('ssResult');
+        if (!r.ok) { out.innerHTML = '<p class="pt-bad">' + escapeHtml(r.error) + '</p>'; return; }
+        out.innerHTML = '<div class="pt-big">' + r.finalN + ' <span>participants' + (r.finalPerGroup ? ' (' + r.finalPerGroup + ' per group)' : '') + '</span></div>' +
+          (r.attrition ? '<p class="pt-muted">' + r.n + (r.perGroup ? ' (' + r.perGroup + ' per group)' : '') + ' before adding ' + r.attrition + '% for drop-out.</p>' : '') +
+          '<p class="pt-formula">' + escapeHtml(r.formula) + '<br>' + escapeHtml(r.steps) + '</p>' +
+          outputBoxHtml('ss', r.paragraph, /sampl/i);
+        wireOutputBox('ss', 'Sample size justification');
+      });
+    }
+
+    // ----- Statistical Analysis Planner ---------------------------------------------------------
+    function renderStatsTool(body) {
+      const rs = currentProject.researchSetup || {};
+      if (currentProject.approach === 'qualitative') {
+        const para = 'Data will be analysed using reflexive thematic analysis following Braun and Clarke\'s (2006) six phases: familiarisation with the data, generating initial codes, searching for themes, reviewing themes, defining and naming themes, and producing the report. Interviews will be transcribed verbatim and coded with the support of NVivo. Trustworthiness will be enhanced through member checking, an audit trail and reflexive notes (Lincoln and Guba, 1985).';
+        body.innerHTML = '<p class="pt-note">This is a <strong>qualitative</strong> project, so statistical tests do not apply. The usual approach is <strong>thematic analysis</strong> (Braun and Clarke, 2006).</p>' + outputBoxHtml('st', para, /analysis/i);
+        wireOutputBox('st', 'Data analysis plan'); return;
+      }
+      const questions = (rs.researchQuestions || []).filter(Boolean);
+      const hyps = (rs.hypotheses || []).filter(Boolean);
+      const labels = questions.map(function (q, i) { return { text: q, short: 'research question ' + (i + 1) }; }).concat(hyps.map(function (h, i) { return { text: h, short: 'hypothesis ' + (i + 1) }; }));
+      const guess = function (t) {
+        t = String(t || '').toLowerCase();
+        return { goal: /predict|factors? (that|which)|determinant/.test(t) ? 'predict' : /relationship|correlat|associat/.test(t) ? 'relate' : /differ|compar|effect|improv|reduc|increase|change|versus|than/.test(t) ? 'compare' : 'describe',
+          design: /before|after|pre-?test|post-?test|baseline|follow-?up|over time|change/.test(t) ? 'paired' : 'independent', groups: /three|3 groups|groups? \(|among the groups/.test(t) ? 3 : 2, outcome: 'continuous', normal: 'unsure' };
+      };
+      let rows = (labels.length ? labels.slice(0, 4) : [{ text: '', short: '' }]).map(function (l) { return Object.assign({ label: l.short, text: l.text }, guess(l.text)); });
+      const opt = function (pairs, val) { return pairs.map(function (p) { return '<option value="' + p[0] + '"' + (String(p[0]) === String(val) ? ' selected' : '') + '>' + p[1] + '</option>'; }).join(''); };
+      const draw = function () {
+        body.innerHTML = (labels.length ? '' : '<p class="pt-note">Tip: fill in your research questions in <strong>Setup → Research Setup</strong> (or tap Draft with SI) and they will appear here.</p>') +
+          rows.map(function (r, i) {
+            const plan = PT.planTest(r);
+            return '<div class="pt-analysis" data-i="' + i + '">' +
+              '<div class="pt-row" style="justify-content:space-between;"><strong>Analysis ' + (i + 1) + (r.label ? ' — ' + escapeHtml(r.label) : '') + '</strong>' + (rows.length > 1 ? '<button class="btn btn-secondary pt-small" data-remove="' + i + '">Remove</button>' : '') + '</div>' +
+              (r.text ? '<p class="pt-muted" style="margin:0.2rem 0 0.5rem;">' + escapeHtml(r.text) + '</p>' : '') +
+              '<div class="pt-grid">' +
+              '<div><label class="pt-label">What does it ask?</label><select class="pt-input" data-k="goal">' + opt([['describe', 'Describe a level or extent'], ['compare', 'Compare groups or time points'], ['relate', 'A relationship between two variables'], ['predict', 'What predicts an outcome']], r.goal) + '</select></div>' +
+              (r.goal === 'compare' ? '<div><label class="pt-label">Who is compared?</label><select class="pt-input" data-k="design">' + opt([['independent', 'Different people in each group'], ['paired', 'The same people measured again (before/after)']], r.design) + '</select></div>' +
+                '<div><label class="pt-label">How many groups / time points?</label><select class="pt-input" data-k="groups">' + opt([[2, 'Two'], [3, 'Three or more']], r.groups) + '</select></div>' : '') +
+              '<div><label class="pt-label">The outcome is measured as</label><select class="pt-input" data-k="outcome">' + opt([['continuous', 'A score or measurement (e.g. ROM, BBS score)'], ['ordinal', 'A rating or Likert scale'], ['categorical', 'Categories (yes/no, groups)']], r.outcome) + '</select></div>' +
+              (r.outcome === 'continuous' && r.goal !== 'describe' && r.goal !== 'predict' ? '<div><label class="pt-label">Normally distributed?</label><select class="pt-input" data-k="normal">' + opt([['unsure', "Don't know yet"], ['yes', 'Yes'], ['no', 'No']], r.normal) + '</select></div>' : '') +
+              '</div><div class="pt-plan"><div><span class="pt-label">Use</span> <strong>' + escapeHtml(plan.primary) + '</strong></div>' +
+              (plan.alternative ? '<div><span class="pt-label">Alternative</span> ' + escapeHtml(plan.alternative) + '</div>' : '') +
+              (plan.posthoc ? '<div><span class="pt-label">Post hoc</span> ' + escapeHtml(plan.posthoc) + '</div>' : '') +
+              (plan.effectSize ? '<div><span class="pt-label">Effect size</span> ' + escapeHtml(plan.effectSize) + '</div>' : '') +
+              '<div><span class="pt-label">Describe with</span> ' + escapeHtml(plan.descriptive) + '</div>' +
+              (plan.reason ? '<div class="pt-muted">' + escapeHtml(plan.reason) + '</div>' : '') +
+              (plan.assumptions.length ? '<ul class="pt-list">' + plan.assumptions.map(function (a) { return '<li>' + escapeHtml(a) + '</li>'; }).join('') + '</ul>' : '') + '</div></div>';
+          }).join('') +
+          '<button class="btn btn-secondary" id="stAdd"><i class="bx bx-plus"></i> Add another analysis</button>' +
+          '<div class="pt-row" style="margin-top:0.8rem;"><label class="pt-label">Software</label><select id="stSoftware" class="pt-input" style="max-width:260px;">' + opt([['IBM SPSS Statistics', 'SPSS'], ['R', 'R'], ['Stata', 'Stata'], ['JASP', 'JASP'], ['Microsoft Excel', 'Excel']], 'IBM SPSS Statistics') + '</select></div>' +
+          outputBoxHtml('st', PT.analysisParagraph(rows.map(function (r) { return { label: r.label, plan: PT.planTest(r) }; })), /data analysis|analysis/i);
+        wireOutputBox('st', 'Data analysis plan');
+        body.querySelectorAll('.pt-analysis select').forEach(function (s) {
+          s.addEventListener('change', function () { const i = parseInt(s.closest('.pt-analysis').dataset.i, 10); rows[i][s.dataset.k] = s.dataset.k === 'groups' ? parseInt(s.value, 10) : s.value; draw(); });
+        });
+        body.querySelectorAll('[data-remove]').forEach(function (b) { b.addEventListener('click', function () { rows.splice(parseInt(b.dataset.remove, 10), 1); draw(); }); });
+        document.getElementById('stAdd').addEventListener('click', function () { rows.push(Object.assign({ label: 'analysis ' + (rows.length + 1), text: '' }, guess(''))); draw(); });
+        document.getElementById('stSoftware').addEventListener('change', function (e) {
+          document.getElementById('stText').value = PT.analysisParagraph(rows.map(function (r) { return { label: r.label, plan: PT.planTest(r) }; }), { software: e.target.value });
+        });
+      };
+      draw();
+    }
+
+    // ----- Research Alignment ---------------------------------------------------------------
+    function chapterKeyLike(re) { const st = getChaptersStructure(); return Object.keys(st).find(function (k) { return re.test(st[k].title); }) || null; }
+    function renderAlignmentTool(body) {
+      const rs = currentProject.researchSetup || {};
+      const objs = (rs.objectives || []).filter(Boolean), qs = (rs.researchQuestions || []).filter(Boolean), hs = (rs.hypotheses || []).filter(Boolean);
+      const quant = currentProject.approach !== 'qualitative';
+      if (!objs.length && !qs.length) {
+        body.innerHTML = '<p class="pt-note">Alignment starts from your objectives and research questions. Add them in <strong>Setup → Research Setup</strong> (Draft with SI can fill them from your title).</p><button class="btn btn-primary" id="alGoSetup"><i class="bx bx-cog"></i> Go to Research Setup</button>';
+        document.getElementById('alGoSetup').addEventListener('click', function () { switchScreen('setup'); document.querySelector('.setup-tab[data-setup-tab="Research"]')?.click(); });
+        return;
+      }
+      const flags = [];
+      if (qs.length !== objs.length) flags.push('You have ' + objs.length + ' objective' + (objs.length === 1 ? '' : 's') + ' and ' + qs.length + ' research question' + (qs.length === 1 ? '' : 's') + '. Examiners usually expect one question per objective.');
+      if (quant && hs.length && hs.length < qs.length) flags.push('Only ' + hs.length + ' hypothes' + (hs.length === 1 ? 'is' : 'es') + ' for ' + qs.length + ' research questions. Descriptive questions need none; every comparison or relationship question needs one.');
+      if (quant && !hs.length) flags.push('No hypotheses yet. Quantitative studies that compare groups or test relationships should state them.');
+      const saved = currentProject.alignmentCheck || null;
+      const n = Math.max(objs.length, qs.length);
+      const cell = function (v) { return v ? escapeHtml(v) : '<span class="pt-bad">Missing</span>'; };
+      const found = function (row, part) {
+        if (!saved || !saved.rows) return '<span class="pt-muted">Not checked</span>';
+        const r = saved.rows[row]; const f = r && r[part];
+        if (!f || !f.section) return '<span class="pt-bad">Not found</span>';
+        return '<button class="pt-link" data-ch="' + escapeHtml(f.chapterKey) + '" data-sec="' + f.sectionIndex + '" data-quote="' + escapeHtml(f.quote || '') + '">✓ ' + escapeHtml(f.section) + '</button>';
+      };
+      body.innerHTML = (flags.length ? '<div class="pt-note">' + flags.map(function (f) { return '<p>• ' + escapeHtml(f) + '</p>'; }).join('') + '</div>' : '<p class="pt-good">Objectives, questions' + (quant ? ' and hypotheses' : '') + ' line up one to one.</p>') +
+        '<div class="pt-table-wrap"><table class="pt-table"><thead><tr><th>#</th><th>Objective</th><th>Research question</th>' + (quant ? '<th>Hypothesis</th>' : '') + '<th>Method (Ch 3)</th><th>Result (Ch 4)</th><th>Discussion (Ch 5)</th></tr></thead><tbody>' +
+        Array.from({ length: n }).map(function (_, i) {
+          return '<tr><td>' + (i + 1) + '</td><td>' + cell(objs[i]) + '</td><td>' + cell(qs[i]) + '</td>' + (quant ? '<td>' + (hs[i] ? escapeHtml(hs[i]) : '<span class="pt-muted">—</span>') + '</td>' : '') +
+            '<td>' + found(i, 'method') + '</td><td>' + found(i, 'result') + '</td><td>' + found(i, 'discussion') + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        (saved && saved.note ? '<p class="pt-muted">' + escapeHtml(saved.note) + '</p>' : '') +
+        '<div class="pt-row" style="margin-top:0.8rem;"><button class="btn btn-primary" id="alCheck"><i class="bx bx-search-alt"></i> ' + (saved ? 'Check the chapters again' : 'Check the chapters with Project SI') + '</button>' +
+        '<span class="pt-muted">Finds where each objective is handled in your Methodology, Results and Discussion.' + (saved && saved.at ? ' Last checked ' + new Date(saved.at).toLocaleString() + '.' : '') + '</span></div>';
+      body.querySelectorAll('.pt-link').forEach(function (b) { b.addEventListener('click', function () { goToPassage(b.dataset.ch, parseInt(b.dataset.sec, 10) || 0, b.dataset.quote || ''); }); });
+      document.getElementById('alCheck').addEventListener('click', async function () {
+        if (!needsSI('project.alignmentCheck')) return;
+        const btn = this; btn.disabled = true; btn.innerHTML = '<i class="bx bx-loader-alt bx-spin"></i> Reading your chapters…';
+        try {
+          const parts = { method: chapterKeyLike(/method/i), result: chapterKeyLike(/result|finding/i), discussion: chapterKeyLike(/discussion|conclusion/i) };
+          const text = ['method', 'result', 'discussion'].filter(function (p) { return parts[p]; }).map(function (p) { return buildChapterFullText(parts[p], 2500); }).join('\n\n');
+          const system = 'You check the alignment of a student research project. For each objective, find the section of the Methodology, Results and Discussion chapters that addresses it. Use ONLY the chapter text given. Return ONLY JSON, no prose.';
+          const user = 'OBJECTIVES:\n' + Array.from({ length: n }).map(function (_, i) { return (i + 1) + '. ' + (objs[i] || qs[i] || ''); }).join('\n') +
+            '\n\nCHAPTERS (each section is marked "### [index] title"):\n' + text +
+            '\n\nReturn {"rows":[{"objective":1,"method":{"chapter":"method","section":"<exact section title>","quote":"<verbatim sentence from that section>"}|null,"result":{...}|null,"discussion":{...}|null}],"note":"<one sentence on the biggest gap, or empty>"}. Use null when an objective is not addressed in that chapter or the chapter is empty. Never invent a quote.';
+          const raw = await callProjectAI(PROJECT_AI_ACTIONS.reviewChapter, system, user);
+          const d = parseJsonLoose(raw);
+          if (!d || !Array.isArray(d.rows)) throw new Error('The check could not be read. Please try again.');
+          const st = getChaptersStructure();
+          const locate = function (part, v) {
+            if (!v || !v.section || !parts[part]) return null;
+            const ch = st[parts[part]]; const idx = sectionIndexByName(ch, v.section);
+            return { chapterKey: parts[part], sectionIndex: idx, section: (ch.sections && ch.sections[idx]) || ch.title, quote: String(v.quote || '').slice(0, 200) };
+          };
+          const rowsOut = Array.from({ length: n }).map(function (_, i) {
+            const r = d.rows.find(function (x) { return Number(x.objective) === i + 1; }) || d.rows[i] || {};
+            return { method: locate('method', r.method), result: locate('result', r.result), discussion: locate('discussion', r.discussion) };
+          });
+          currentProject.alignmentCheck = { rows: rowsOut, note: String(d.note || ''), at: Date.now() };
+          await database.ref('history/' + scopeUid + '/projects/' + currentProjectId + '/alignmentCheck').set(JSON.parse(JSON.stringify(currentProject.alignmentCheck)));
+          renderAlignmentTool(body);
+        } catch (err) { reportError(err, 'research alignment check'); btn.disabled = false; btn.innerHTML = '<i class="bx bx-search-alt"></i> Check the chapters with Project SI'; }
+      });
+    }
+
+    // ----- Claim & Citation Checker -------------------------------------------------------------
+    function renderClaimTool(body) {
+      const style = currentProject.referenceStyle || 'APA 7th';
+      const audit = PT.auditCitations(toolSections(), managerRefs(), style);
+      const st = getChaptersStructure();
+      const chapterOpts = Object.keys(st).filter(function (k) { return !/^(references?|questionnaire|appendix|abstract|defen[cs]e)/i.test(st[k].title); })
+        .map(function (k) { return '<option value="' + k + '"' + (k === currentChapter ? ' selected' : '') + '>' + escapeHtml(st[k].title) + '</option>'; }).join('');
+      const where = function (x) { return '<button class="pt-link" data-ch="' + escapeHtml(x.chapterKey) + '" data-sec="' + x.sectionIndex + '" data-quote="' + escapeHtml((x.raw || '').slice(0, 60)) + '">' + escapeHtml(x.label || x.source || '') + '</button>'; };
+      body.innerHTML = (audit.supported
+        ? '<div class="pt-stats"><div><strong>' + audit.citations.length + '</strong><span>citations in your text</span></div><div><strong>' + audit.references.length + '</strong><span>reference entries</span></div>' +
+          '<div class="' + (audit.missing.length ? 'pt-bad' : 'pt-good') + '"><strong>' + audit.missing.length + '</strong><span>cited but not listed</span></div><div class="' + (audit.uncited.length ? 'pt-warn' : 'pt-good') + '"><strong>' + audit.uncited.length + '</strong><span>listed but never cited</span></div></div>' +
+          '<h4 class="pt-h">Cited but missing from every reference list</h4>' + (audit.missing.length ? '<ul class="pt-list">' + audit.missing.map(function (m) { return '<li><strong>' + escapeHtml(m.author + ' (' + m.year + ')') + '</strong> in ' + where(m) + '</li>'; }).join('') + '</ul>' : '<p class="pt-good">None — every citation has a reference entry.</p>') +
+          '<h4 class="pt-h">In a reference list but never cited</h4>' + (audit.uncited.length ? '<ul class="pt-list">' + audit.uncited.map(function (u) { return '<li>' + escapeHtml(u.raw.slice(0, 160)) + (u.chapterKey ? ' <span class="pt-muted">— listed in</span> ' + where(u) : ' <span class="pt-muted">— Reference Manager</span>') + '</li>'; }).join('') + '</ul>' : '<p class="pt-good">None.</p>') +
+          '<p class="pt-muted">Matching uses the first author\'s surname and the year, as in ' + escapeHtml(style) + '. Reference lists are read from your Reference Manager and from any "References" heading inside your sections.</p>'
+        : '<p class="pt-note">Your reference style (' + escapeHtml(style) + ') uses numbers, so author–year matching does not apply. The claim check below still works.</p>') +
+        '<h4 class="pt-h" style="margin-top:1.2rem;">Claims that need a source (Project SI)</h4>' +
+        '<div class="pt-row"><select id="ccChapter" class="pt-input" style="max-width:320px;">' + chapterOpts + '</select><button class="btn btn-primary" id="ccRun"><i class="bx bx-shield-quarter"></i> Find unsupported claims</button></div><div id="ccClaims"></div>';
+      body.querySelectorAll('.pt-link').forEach(function (b) { b.addEventListener('click', function () { goToPassage(b.dataset.ch, parseInt(b.dataset.sec, 10) || 0, b.dataset.quote || ''); }); });
+      document.getElementById('ccRun').addEventListener('click', async function () {
+        if (!needsSI('project.claimCheck')) return;
+        const chKey = document.getElementById('ccChapter').value, ch = st[chKey];
+        const out = document.getElementById('ccClaims'), btn = this;
+        btn.disabled = true; out.innerHTML = '<p class="pt-muted"><i class="bx bx-loader-alt bx-spin"></i> Reading ' + escapeHtml(ch.title) + '…</p>';
+        try {
+          const system = 'You audit a student\'s academic chapter for claims that need evidence. Return ONLY a JSON array, no prose. Include ONLY sentences that state a fact, statistic, prevalence, effect or established finding AND have no in-text citation in or right after them. Do not include the student\'s own aims, plans, opinions, definitions of their own study, or sentences that already carry a citation. Copy each sentence VERBATIM.';
+          const user = buildChapterFullText(chKey, 4000) + '\n\nReturn [{"section":"<exact section title>","excerpt":"<verbatim sentence>","why":"<what kind of source it needs>"}]. At most 15, most important first. Return [] if every claim is supported.';
+          const raw = await callProjectAI(PROJECT_AI_ACTIONS.reviewChapter, system, user);
+          const list = parseJsonLoose(raw);
+          if (!Array.isArray(list)) throw new Error('The check could not be read. Please try again.');
+          out.innerHTML = list.length ? '<ul class="pt-list">' + list.map(function (c, i) {
+            const idx = sectionIndexByName(ch, c.section);
+            return '<li><button class="pt-link" data-ch="' + chKey + '" data-sec="' + idx + '" data-quote="' + escapeHtml(String(c.excerpt || '').slice(0, 80)) + '">“' + escapeHtml(c.excerpt || '') + '”</button><div class="pt-muted">' + escapeHtml((ch.sections && ch.sections[idx]) || ch.title) + (c.why ? ' · needs ' + escapeHtml(c.why) : '') + '</div></li>';
+          }).join('') + '</ul><p class="pt-muted">Add a citation from a real source you have read. Project SI never invents references.</p>' : '<p class="pt-good">No unsupported claims found in this chapter.</p>';
+          out.querySelectorAll('.pt-link').forEach(function (b) { b.addEventListener('click', function () { goToPassage(b.dataset.ch, parseInt(b.dataset.sec, 10) || 0, b.dataset.quote || ''); }); });
+        } catch (err) { reportError(err, 'claim checker'); out.innerHTML = ''; }
+        finally { btn.disabled = false; }
+      });
     }
 
     document.getElementById('toolsBackBtn')?.addEventListener('click', function () {

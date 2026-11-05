@@ -146,6 +146,9 @@ document.addEventListener('DOMContentLoaded', () => {
     ['project.aiSupervisor', 'Project Maker: SI supervisor', 'student'], ['project.chapterReview', 'Project Maker: chapter review', 'student'],
     ['project.resources', 'Project Maker: resources', 'student'], ['project.customOutline', 'Project Maker: custom outline', 'student'],
     ['project.referenceManager', 'Project Maker: reference manager', 'student'], ['project.deepScan', 'Project Maker: deep scan', 'pro'],
+    ['project.alignmentCheck', 'Project Tools: SI alignment check', 'student'], ['project.claimCheck', 'Project Tools: SI claim check', 'student'],
+    ['project.instrumentDraft', 'Project Tools: SI questionnaire draft', 'student'], ['project.literatureMatrix', 'Project Tools: SI literature matrix & gaps', 'student'],
+    ['project.defensePrep', 'Project Tools: SI defense practice', 'student'],
   ];
   const PRICE_COLS = [['in', 'Input / 1M'], ['cached', 'Cached / 1M'], ['out', 'Output / 1M'], ['audioIn', 'Audio in / 1M'], ['perCall', 'Per call'], ['perMinute', 'Per minute']];
   const AI_OTHER = { timezone: 'Africa/Lagos', verifyEmailFrom: '2026-10-28T00:00:00Z', audioTokensPerMinute: 1000 };

@@ -29,6 +29,12 @@
     'project.customOutline': 'student',
     'project.referenceManager': 'student',
     'project.chapterReview': 'student',
+    // Project Tools: the SI checks (the calculators, search and history are open to every plan)
+    'project.alignmentCheck': 'student',
+    'project.claimCheck': 'student',
+    'project.instrumentDraft': 'student',
+    'project.literatureMatrix': 'student',
+    'project.defensePrep': 'student',
   };
 
   // Numeric level for comparison — single source of truth in plan-tiers.js

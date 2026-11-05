@@ -103,7 +103,7 @@
       return;
     }
     if (plan() === 'free' && !ss.get(KEY.pro)) {
-      paint('pro', '✨', '<b>Get more with Rehablix Pro</b> <span>— Blix 360, unlimited image analysis, Medulla 200, more web search and transcription.</span>', [{ label: 'See Pro', run: goPlans }]);
+      paint('pro', '✨', '<b>Get more with Rehablix Pro</b>', [{ label: 'See Pro', run: goPlans }]);
       return;
     }
     hide();

@@ -193,7 +193,28 @@
   // page numbers in the footer.
   // opts: { title, coverLines:[str], toc:[{title, sections:[str]}]|null,
   //         parts:[{ html, pageBreakBefore }], references:[str], fileBase }
+  // opts.layout (optional, from RehablixProjectTools.docxLayout): the project's formatting profile —
+  // { font, size (half-points), line (240ths), align, firstLine, margins (twips), headingUpper, headingCenter, pageNumbers, pageFormat }.
+  // Applied through the document's default and heading styles, so every paragraph follows it.
+  function layoutStyles(L) {
+    if (!L) return { default: { document: { run: { font: 'Times New Roman', size: 24 } } } };
+    const heading = (size) => ({ run: { font: L.font, size, bold: true, color: '000000', allCaps: !!L.headingUpper },
+      paragraph: { alignment: L.headingCenter ? docx.AlignmentType.CENTER : docx.AlignmentType.LEFT, spacing: { line: L.line, before: 240, after: 240 } } });
+    return { default: {
+      document: { run: { font: L.font, size: L.size }, paragraph: { spacing: { line: L.line }, alignment: L.align === 'justify' ? docx.AlignmentType.JUSTIFIED : docx.AlignmentType.LEFT, indent: L.firstLine ? { firstLine: L.firstLine } : undefined } },
+      title: { run: { font: L.font, size: L.size + 8, bold: true, color: '000000', allCaps: !!L.headingUpper } },
+      heading1: Object.assign(heading(L.size + 4), { paragraph: { alignment: docx.AlignmentType.CENTER, spacing: { line: L.line, before: 240, after: 240 } } }),
+      heading2: heading(L.size), heading3: heading(L.size), heading4: heading(L.size),
+    } };
+  }
+  function pageNumberParts(L) {
+    const runs = !L || L.pageFormat === 'of' ? ['Page ', docx.PageNumber.CURRENT, ' of ', docx.PageNumber.TOTAL_PAGES] : [docx.PageNumber.CURRENT];
+    const align = L && L.pageNumbers !== 'bottom-center' ? docx.AlignmentType.RIGHT : docx.AlignmentType.CENTER;
+    const box = (Kind) => new Kind({ children: [new docx.Paragraph({ alignment: align, indent: { firstLine: 0 }, children: [new docx.TextRun({ children: runs, size: L ? L.size - 2 : 18 })] })] });
+    return L && L.pageNumbers === 'top-right' ? { headers: { default: box(docx.Header) } } : { footers: { default: box(docx.Footer) } };
+  }
   function buildProjectDocument(opts) {
+    const L = opts.layout || null;
     const children = [];
     if (opts.coverLines) {
       children.push(new docx.Paragraph({ text: '', spacing: { before: 2400 } }));
@@ -222,16 +243,11 @@
     }
     return new docx.Document({
       numbering: { config: [{ reference: 'docx-export-numbering', levels: [{ level: 0, format: 'decimal', text: '%1.', alignment: docx.AlignmentType.START }] }] },
-      styles: { default: { document: { run: { font: 'Times New Roman', size: 24 } } } },
-      sections: [{
-        properties: { page: { margin: { top: 1418, bottom: 1418, left: 1134, right: 1134 } } },
-        footers: {
-          default: new docx.Footer({
-            children: [new docx.Paragraph({ alignment: docx.AlignmentType.CENTER, children: [new docx.TextRun({ children: ['Page ', docx.PageNumber.CURRENT, ' of ', docx.PageNumber.TOTAL_PAGES], size: 18 })] })]
-          })
-        },
+      styles: layoutStyles(L),
+      sections: [Object.assign({
+        properties: { page: { margin: L ? L.margins : { top: 1418, bottom: 1418, left: 1134, right: 1134 } } },
         children
-      }]
+      }, pageNumberParts(L))]
     });
   }
 
