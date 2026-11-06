@@ -36,7 +36,8 @@ body.has-bottom-nav {
   backdrop-filter: blur(18px) saturate(1.6);
   -webkit-backdrop-filter: blur(18px) saturate(1.6);
   border: 1px solid rgba(255, 255, 255, 0.55);
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  /* a clear lift, so the pill stays obvious over whatever scrolls beneath it */
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.2), 0 3px 8px rgba(15, 23, 42, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
 .app-bottom-nav-inner {
@@ -87,13 +88,35 @@ body.has-bottom-nav {
 [data-theme="dark"] .app-bottom-nav {
   background: rgba(22, 30, 36, 0.62);
   border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6), 0 3px 8px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 [data-theme="dark"] .bottom-nav-tab.active { background: rgba(77, 182, 172, 0.16); }
 
 /* Lixa: the message box floats just above the nav, a little wider than it, on a clear background. */
 /* Lixa: the message box keeps its own width (ask.css) and floats above the nav as glass, on a clear background */
 body.has-bottom-nav[data-route="lixa"] .chat-input-area { background: transparent; }
+
+/* (2026-11-06) Lixa: the message box and the nav truly float OVER the conversation.
+   No strip is kept for them at the bottom: the chat runs to the screen's edge and
+   scrolls beneath both; its last message can still scroll clear of them, because the
+   chat keeps bottom room equal to the box (--composer-h, measured by js/bottom-nav.js)
+   plus the nav. */
+body.has-bottom-nav[data-route="lixa"] { padding-bottom: 0; }
+body.has-bottom-nav[data-route="lixa"] .ask-container { position: relative; }
+body.has-bottom-nav[data-route="lixa"] .chat-input-area {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--bottom-nav-h);
+  margin: 0;
+  z-index: 5;
+  pointer-events: none;            /* the clear margin around the box lets taps reach the chat */
+}
+body.has-bottom-nav[data-route="lixa"] .chat-input-area > * { pointer-events: auto; }
+body.has-bottom-nav[data-route="lixa"] .chat-messages {
+  padding-bottom: calc(var(--composer-h, 96px) + var(--bottom-nav-h) + 16px);
+  scroll-padding-bottom: calc(var(--composer-h, 96px) + var(--bottom-nav-h) + 16px);
+}
 body.has-bottom-nav[data-route="lixa"] .composer {
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(18px) saturate(1.5);

@@ -931,6 +931,14 @@
     }
     try { localStorage.clear(); } catch (e) {}
   }
+  // Log Out (the profile menu no longer has it; auth.js owns the sign-out itself)
+  const settingsLogoutBtn = document.getElementById('settingsLogoutBtn');
+  if (settingsLogoutBtn) {
+    settingsLogoutBtn.addEventListener('click', () => {
+      if (typeof window.rehablixLogout === 'function') window.rehablixLogout();
+      else auth.signOut();
+    });
+  }
   if (deleteAccountBtn) {
     deleteAccountBtn.addEventListener('click', () => {
       openConfirmModal(
@@ -1011,6 +1019,9 @@
       if (document.body.dataset.route === 'settings') window.location.hash = '#/lixa';
       return;
     }
+
+    const signedInAs = document.getElementById('settingsSignedInAs');
+    if (signedInAs) signedInAs.textContent = user.email ? `Signed in as ${user.email}` : '';
 
     // Small delay to ensure Firebase is ready
     setTimeout(async () => {

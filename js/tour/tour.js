@@ -4,8 +4,11 @@
 // Tours: js/tour/tour-steps.js (shared with Android).
 (function () {
   'use strict';
-  const TOURS = window.RehablixTourSteps || [];
+  // the web shows only the what's-new highlights; the app has the full page tours (tour-steps.js `on`)
+  const TOURS = (window.RehablixTourSteps || []).filter((t) => !t.on || t.on === 'web');
   const SEEN = 'rx-tour-';
+  const OFF = 'rx-tour-off';   // "Don't show tips again"
+  const tipsOff = () => { try { return localStorage.getItem(OFF) === '1'; } catch (e) { return true; } };
   const seen = (id) => { try { return localStorage.getItem(SEEN + id) === '1'; } catch (e) { return true; } };
   const markSeen = (id) => { try { localStorage.setItem(SEEN + id, '1'); } catch (e) { /* storage blocked */ } };
   let active = null, timer = null;
@@ -42,6 +45,7 @@
       '[data-theme="dark"] .rx-tour-card{background:rgba(30,42,50,.88);border-color:rgba(255,255,255,.1);color:#eef2f6}' +
       '.rx-tour-card h4{margin:0 0 4px;font-size:15px;font-weight:700}.rx-tour-card p{margin:0 0 10px}' +
       '.rx-tour-row{display:flex;align-items:center;gap:6px}.rx-tour-dots{flex:1;font-size:12px;opacity:.65}' +
+      '.rx-tour-never{display:flex;align-items:center;gap:7px;margin:0 0 10px;font-size:12.5px;opacity:.8;cursor:pointer;user-select:none}.rx-tour-never input{width:16px;height:16px;accent-color:#009688;margin:0}' +
       '.rx-tour-card button{font:inherit;font-weight:600;border-radius:999px;padding:7px 14px;cursor:pointer;border:1px solid rgba(127,127,127,.3);background:transparent;color:inherit}' +
       '.rx-tour-card .rx-tour-next{background:#009688;border-color:#009688;color:#fff}.rx-tour-card .rx-tour-skip{border:0;padding:7px 6px;opacity:.7}';
     document.head.appendChild(s);
@@ -52,7 +56,8 @@
     if (!steps.length) { markSeen(tour.id); return; }
     css();
     const box = document.createElement('div'); box.className = 'rx-tour'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', tour.title + ' tips');
-    box.innerHTML = '<div class="rx-tour-hole"></div><div class="rx-tour-card" role="document"><h4></h4><p></p><div class="rx-tour-row"><span class="rx-tour-dots"></span>' +
+    box.innerHTML = '<div class="rx-tour-hole"></div><div class="rx-tour-card" role="document"><h4></h4><p></p>' +
+      '<label class="rx-tour-never"><input type="checkbox" class="rx-tour-off"> Skip all tips and don\'t show them again</label><div class="rx-tour-row"><span class="rx-tour-dots"></span>' +
       '<button class="rx-tour-skip" type="button">Skip</button><button class="rx-tour-back" type="button">Back</button><button class="rx-tour-next" type="button">Next</button></div></div>';
     document.body.appendChild(box);
     active = { tour, steps, i: 0, box, route: route() };
@@ -84,6 +89,13 @@
     box.querySelector('.rx-tour-next').onclick = next;
     box.querySelector('.rx-tour-back').onclick = () => { if (active.i > 0) { active.i--; show(); } };
     box.querySelector('.rx-tour-skip').onclick = end;
+    // "Don't show tips again": closes this tour and every future one (Settings can turn them back on)
+    box.querySelector('.rx-tour-off').onchange = (e) => {
+      if (!e.target.checked) return;
+      try { localStorage.setItem(OFF, '1'); } catch (err) { /* storage blocked */ }
+      end();
+      if (typeof window.showToast === 'function') window.showToast('Tips turned off. You can turn them back on in Settings.', 'info', 4500);
+    };
     hole.onclick = next;   // touch the lit control to go on
     box.addEventListener('keydown', (e) => { if (e.key === 'Escape') end(); });
     window.addEventListener('resize', place); window.addEventListener('scroll', place, true);
@@ -95,7 +107,7 @@
   // looks for a tour to show on the page on screen
   function check() {
     if (active) { if (active.route !== route()) active.end(); return; }
-    if (document.hidden || busy()) return;
+    if (document.hidden || tipsOff() || busy()) return;
     const r = route();
     const tour = TOURS.find((t) => t.route === r && !seen(t.id) && (!t.when || find(t.when)));
     if (tour) start(tour);
@@ -111,18 +123,21 @@
     if (!host) return;
     const card = document.createElement('div');
     card.className = 'glass-card'; card.style.cssText = 'margin-top:1rem;padding:1rem 1.2rem;border-radius:1.2rem;display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;background:var(--card-bg);border:1px solid var(--border-light)';
-    card.innerHTML = '<div style="flex:1;min-width:180px"><strong>Page tips</strong><div style="font-size:.85rem;color:var(--text-secondary)">The short guided tips shown the first time you open each page.</div></div>' +
-      '<button id="rxTourReset" class="btn btn-secondary" type="button">Show page tips again</button>';
-    host.appendChild(card);
+    card.innerHTML = '<div style="flex:1;min-width:180px"><strong>Tips</strong><div style="font-size:.85rem;color:var(--text-secondary)">Short guided tips that point out what is new.</div></div>' +
+      '<button id="rxTourReset" class="btn btn-secondary" type="button">Show tips again</button>';
+    // above Account / Danger Zone, so Log Out stays right before Delete Account
+    const before = document.getElementById('settingsAccountCard') || host.querySelector('.danger-card');
+    if (before && before.parentNode) before.parentNode.insertBefore(card, before); else host.appendChild(card);
     card.querySelector('#rxTourReset').onclick = () => {
       TOURS.forEach((t) => { try { localStorage.removeItem(SEEN + t.id); } catch (e) { /* storage blocked */ } });
-      if (typeof window.showToast === 'function') window.showToast('Tips will show again on each page.', 'success');
+      try { localStorage.removeItem(OFF); } catch (e) { /* storage blocked */ }
+      if (typeof window.showToast === 'function') window.showToast('Tips are back on.', 'success');
     };
   }
   document.addEventListener('rehablix:routechange', () => setTimeout(settingsButton, 400));
 
   window.RehablixTour = {
-    reset() { TOURS.forEach((t) => { try { localStorage.removeItem(SEEN + t.id); } catch (e) { /* storage blocked */ } }); },
+    reset() { TOURS.forEach((t) => { try { localStorage.removeItem(SEEN + t.id); } catch (e) { /* storage blocked */ } }); try { localStorage.removeItem(OFF); } catch (e) { /* storage blocked */ } },
     showNow(id) { const t = TOURS.find((x) => x.id === id); if (t && !active) start(t); },
     check,
   };

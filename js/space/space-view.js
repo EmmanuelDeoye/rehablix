@@ -43,7 +43,24 @@
     return true;
   }
   function bindGo() { root.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => go(b.dataset.go); }); }
-  const header = (title, sub) => '<div class="sp-head"><button class="sp-back" data-go="hub" aria-label="Back to Space">‹</button><div><h2>' + title + '</h2>' + (sub ? '<p class="sp-muted">' + sub + '</p>' : '') + '</div></div>';
+  // (2026-11-06) No in-page back button: the navbar's back arrow steps back
+  // (a live room or a duel / practice round -> its list -> the Space hub).
+  // header() records where that back goes; the list pages pass 'hub'.
+  let backTo = 'hub';
+  const header = (title, sub, back) => {
+    backTo = back || (screen === 'room' ? 'tests' : (screen === 'tests' || screen === 'duels') ? screen : 'hub');
+    return '<div class="sp-head"><div><h2>' + title + '</h2>' + (sub ? '<p class="sp-muted">' + sub + '</p>' : '') + '</div></div>';
+  };
+  // hide the bottom bar on every Space screen but the hub
+  const syncNav = () => { if (window.RehablixNav && window.RehablixNav.setSubscreen) window.RehablixNav.setSubscreen('space', screen !== 'hub'); };
+  function registerBack() {
+    if (!(window.RehablixNav && window.RehablixNav.registerInternalBack)) return;
+    window.RehablixNav.registerInternalBack('space', () => {
+      if (screen === 'hub') return false;
+      go(backTo || 'hub');
+      return true;
+    });
+  }
 
   // XP: the weekly league entry (only grows) and the player's own streak / totals.
   async function award(xp, game) {
@@ -298,7 +315,7 @@
   const testExplain = (q) => { const t = S.SPECIAL_TESTS.find((x) => x.id === q.id); return '<strong>' + esc(t.name) + '</strong> · ' + esc(t.region) + '<br>' + esc(t.how) + '<br><em>Positive: ' + esc(t.finding) + '</em>'; };
   function renderTests(arg) {
     if (arg && arg.join) return joinRoom(arg.join);
-    root.innerHTML = header('🩺 Special Test Showdown', 'Name the test from how it is done, or say what a positive result means') +
+    root.innerHTML = header('🩺 Special Test Showdown', 'Name the test from how it is done, or say what a positive result means', 'hub') +
       '<div class="sp-grid"><button class="sp-game" id="spPractice"><span class="sp-game-emoji">🎯</span><strong>Practice</strong><span class="sp-game-desc">10 questions, explained as you go.</span><span class="sp-tag">Solo</span></button>' +
       '<button class="sp-game" id="spHost"><span class="sp-game-emoji">📡</span><strong>Host a live room</strong><span class="sp-game-desc">Friends join with a code. Fastest right answer scores most.</span><span class="sp-tag">2–20 players</span></button></div>' +
       '<div class="sp-card"><h3>Join a room</h3><div class="sp-join"><input id="spCode" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters"><button class="sp-btn sp-primary" id="spJoin">Join</button></div></div>';
@@ -351,7 +368,7 @@
   }
   // One live room for host and players: everything follows the room's state.
   function room(code) {
-    stop(); screen = 'room';
+    stop(); screen = 'room'; syncNav();
     const u = user(), ref = db().ref('space/rooms/' + code);
     let r = null, revealTimer = null, awarded = false;
     const offRef = db().ref('.info/serverTimeOffset');
@@ -429,7 +446,7 @@
     if (needSignIn('duel')) return;
     if (arg && arg.duel) return openDuel(arg.duel);
     const u = user();
-    root.innerHTML = header('⚔️ Duels', 'Five questions. Same for both of you. Best score wins.') +
+    root.innerHTML = header('⚔️ Duels', 'Five questions. Same for both of you. Best score wins.', 'hub') +
       '<div class="sp-grid"><button class="sp-game" data-new="muscles"><span class="sp-game-emoji">💪</span><strong>Muscle duel</strong><span class="sp-game-desc">Nerves and actions.</span><span class="sp-tag">5 questions</span></button>' +
       '<button class="sp-game" data-new="tests"><span class="sp-game-emoji">🩺</span><strong>Special test duel</strong><span class="sp-game-desc">Name it, or read it.</span><span class="sp-tag">5 questions</span></button></div>' +
       '<div class="sp-card"><h3>Got a duel code?</h3><div class="sp-join"><input id="spDuelCode" maxlength="6" placeholder="CODE" autocomplete="off"><button class="sp-btn sp-primary" id="spDuelGo">Open</button></div></div>' +
@@ -586,7 +603,9 @@
   // ------------------------------------------------------------------ routing inside the tab
   function render(arg) {
     if (!root) return;
+    backTo = 'hub';
     ({ hub: renderHub, daily: renderDaily, goniometer: renderGoniometer, rush: renderRush, tests: renderTests, duels: renderDuels, league: renderLeague }[screen] || renderHub)(arg);
+    syncNav();
   }
   // deep links: #/space/join/CODE (live room), #/space/duel/CODE
   function fromHash() {
@@ -600,6 +619,7 @@
   window.RehablixViews.space = {
     mount() {
       root = document.getElementById('spaceRoot');
+      registerBack();
       if (!fromHash()) { screen = 'hub'; render(); }
       // signing in or out refreshes the page you are on
       try { firebase.auth().onAuthStateChanged(() => { if (screen === 'hub' || !user()) render(); }); } catch (e) { /* no auth yet */ }
@@ -607,6 +627,7 @@
     onShow() {
       root = document.getElementById('spaceRoot');
       if (!fromHash() && screen === 'hub') render();
+      syncNav();
     },
   };
 })();

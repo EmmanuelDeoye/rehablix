@@ -707,9 +707,8 @@ function initializeAuth() {
     });
   }
 
-  // ----- Logout Menu Item -----
-  if (logoutMenuItem) {
-    logoutMenuItem.addEventListener('click', async () => {
+  // ----- Logout (the Settings page's Log Out button calls window.rehablixLogout) -----
+  window.rehablixLogout = async () => {
       if (dropdownMenu) dropdownMenu.classList.remove('show');
       try {
         // Record logout time
@@ -726,8 +725,8 @@ function initializeAuth() {
         console.error('Logout error:', error);
         showToast('Error logging out. Please try again.', 3000, true);
       }
-    });
-  }
+  };
+  if (logoutMenuItem) logoutMenuItem.addEventListener('click', window.rehablixLogout);
 
   if (closeBtn) {
     closeBtn.addEventListener('click', closeModal);

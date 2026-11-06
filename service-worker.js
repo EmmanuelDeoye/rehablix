@@ -1,4 +1,4 @@
-﻿// service-worker.js Ã¢â‚¬â€ app-shell caching with an offline fallback.
+// service-worker.js Ã¢â‚¬â€ app-shell caching with an offline fallback.
 //
 // Cached: this site's own static files (HTML shell, JS, CSS, images, fonts)
 // and pinned library files from the public CDNs the app loads.
@@ -6,7 +6,7 @@
 // Firebase (auth, realtime database, functions), AI providers and proxies,
 // payment gateways, and IP/geo lookups Ã¢â‚¬â€ so no patient data, tokens, AI
 // output or payment state is ever stored by this worker.
-const CACHE_VERSION = 'rehablix-v39';
+const CACHE_VERSION = 'rehablix-v40';
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 

@@ -4248,11 +4248,13 @@
     const toolsDropdownBtn = document.getElementById('toolsDropdownBtn');
     const toolsDropdownMenu = document.getElementById('toolsDropdownMenu');
     if (toolsDropdownBtn && toolsDropdownWrap) {
+      // The spanner goes straight to Project Tools (the Reference Manager is the first tool there).
       toolsDropdownBtn.addEventListener('click', function (e) {
         e.stopPropagation();
-        const open = toolsDropdownWrap.classList.toggle('open');
-        toolsDropdownBtn.setAttribute('aria-expanded', String(open));
-        if (open && toolsDropdownMenu) positionDropdownMenu(toolsDropdownBtn, toolsDropdownMenu);
+        toolsDropdownWrap.classList.remove('open');
+        if (!currentProjectId) { showToast('Select or create a project first', 'error'); return; }
+        saveCurrentSection(); saveToFirebase();
+        switchScreen('tools');
       });
       document.addEventListener('click', function () {
         toolsDropdownWrap.classList.remove('open');

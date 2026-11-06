@@ -15,7 +15,7 @@ PLATFORMS
 
 GETTING AROUND
 - Bottom bar: "Lixa" (this chat) and "Workspace" (all tools as cards; the most used ones rise to the top).
-- Top bar: tools menu, back arrow, History, Login/profile. The profile menu opens Token usage (paid plans: tokens used this 4-hour window and today, Live minutes, how each model counts), Settings, Rehablix Partner and Logout. The light/dark theme button is on the Lixa and Workspace pages.
+- Top bar: tools menu, back arrow, History, Login/profile. The profile menu opens Token usage (paid plans: tokens used this 4-hour window and today, Live minutes, how each model counts), Settings and Rehablix Partner. Log Out is on the Settings page, just above Delete Account. The light/dark theme button is on the Lixa and Workspace pages.
 - History drawer: "Chats" lists past Lixa conversations (search, rename, delete); "Files" lists everything the user has generated across tools, with a filter by type, and each file can be opened or deleted.
 
 LIXA (this chat)

@@ -9,6 +9,7 @@
   const TOOLS = [
     { route: 'lixa', label: 'Lixa', icon: 'fa-comment-dots', color: '#0D9488' },
     { route: 'workspace', label: 'Workspace', icon: 'fa-th-large', color: '#6366F1' },
+    { route: 'space', label: 'Space', icon: 'fa-gamepad', color: '#14B8A6' },
     { route: 'emr', label: 'Smart EMR', icon: 'fa-notes-medical', color: '#E11D48' },
     { route: 'motion', label: 'Motion & Gait', icon: 'fa-walking', color: '#F59E0B' },
     { route: 'audio', label: 'Audio Transcription', icon: 'fa-microphone', color: '#F97316' },
@@ -23,7 +24,8 @@
     { route: 'exam', label: 'Exam Simulator', icon: 'fa-stopwatch', color: '#DC2626' },
   ];
   const COLS = 3;
-  const HIDDEN_ON = new Set(['lixa', 'workspace', '']);
+  // (2026-11-06: on every page, Lixa, Workspace and Space included: the owner's wish)
+  const HIDDEN_ON = new Set(['']);
 
   function init() {
     const navRight = document.getElementById('navRight');

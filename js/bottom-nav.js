@@ -18,7 +18,15 @@
   // finally exits the tool.
   const internalHandlers = {}; // routeName -> () => boolean (true = consumed a step)
   function registerInternalBack(routeName, handler) { internalHandlers[routeName] = handler; }
-  window.RehablixNav = { registerInternalBack };
+  // (2026-11-06) A primary tab with its own inner screens (Space's games) marks
+  // itself "in a sub-screen": the bottom nav then hides and the navbar back
+  // button shows, exactly as on a tool page.
+  const subscreens = {};       // routeName -> true while an inner screen is open
+  function setSubscreen(routeName, on) {
+    subscreens[routeName] = !!on;
+    if (currentRoute() === routeName) updateChrome(routeName);
+  }
+  window.RehablixNav = { registerInternalBack, setSubscreen };
 
   function currentRoute() {
     return document.body.dataset.route || document.body.dataset.page || '';
@@ -29,7 +37,7 @@
   // which never set data-route at all) hides the bottom nav in favor of a
   // back button injected into the shared navbar instead.
   function isPrimaryRoute(route) {
-    return route === 'lixa' || route === 'workspace' || route === 'space';
+    return (route === 'lixa' || route === 'workspace' || route === 'space') && !subscreens[route];
   }
 
   function setActive(nav, route) {
@@ -120,9 +128,12 @@
         </a>
         <a href="index.html#/space" data-route-tab="space" class="bottom-nav-tab${route === 'space' ? ' active' : ''}" aria-label="Space">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3.2"></circle>
-            <ellipse cx="12" cy="12" rx="10" ry="4.2" transform="rotate(-30 12 12)"></ellipse>
-            <circle cx="19.4" cy="6.6" r="1.1" fill="currentColor" stroke="none"></circle>
+            <!-- an orbit: a core with two moons on a broken ring -->
+            <circle cx="12" cy="12" r="3"></circle>
+            <circle cx="19" cy="5" r="2"></circle>
+            <circle cx="5" cy="19" r="2"></circle>
+            <path d="M10.4 21.9a10 10 0 0 0 9.941-15.416"></path>
+            <path d="M13.5 2.1a10 10 0 0 0-9.841 15.416"></path>
           </svg>
           <span>Space</span>
         </a>
@@ -130,6 +141,29 @@
     `;
     document.body.appendChild(nav);
     updateChrome(route);
+
+    // Lixa's floating message box: publish its height as --composer-h so the chat
+    // keeps exactly enough room at its end to scroll the last line clear of it.
+    let watchedBox = null, boxObserver = null;
+    function watchComposer() {
+      const box = document.querySelector('.ask-container .chat-input-area');
+      if (!box || box === watchedBox || typeof ResizeObserver === 'undefined') return;
+      if (boxObserver) boxObserver.disconnect();
+      watchedBox = box;
+      boxObserver = new ResizeObserver(measureComposer);
+      boxObserver.observe(box);
+      measureComposer();
+    }
+    function measureComposer() {
+      const h = watchedBox && watchedBox.offsetHeight;
+      if (h > 0 && document.body.style.getPropertyValue('--composer-h') !== h + 'px') document.body.style.setProperty('--composer-h', h + 'px');
+    }
+    window.addEventListener('resize', measureComposer);
+    document.addEventListener('input', (e) => { if (watchedBox && watchedBox.contains(e.target)) setTimeout(measureComposer, 0); });
+    watchComposer();
+    document.addEventListener('rehablix:routechange', () => setTimeout(watchComposer, 0));
+    // the Lixa view mounts (and can re-render its box) after this runs: follow the live box
+    setInterval(() => { if (!watchedBox || !watchedBox.isConnected) watchComposer(); else measureComposer(); }, 1000);
 
     document.addEventListener('rehablix:routechange', (e) => {
       const newRoute = (e.detail && e.detail.route) || '';

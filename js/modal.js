@@ -268,8 +268,8 @@ function createAuthModal() {
             <button class="dropdown-item" id="partnerMenuItem" style="display:none;">
               <span>💰</span> Rehablix Partner
             </button>
-            <div class="dropdown-divider"></div>
-            <button class="dropdown-item" id="logoutMenuItem">
+            <!-- Logout lives on the Settings page only (just before Danger Zone), as on Android -->
+            <button class="dropdown-item" id="logoutMenuItem" hidden style="display:none;">
               <span>🚪</span> Logout
             </button>
           </div>
