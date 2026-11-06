@@ -529,10 +529,14 @@
       if (!c) {
         box().innerHTML = '<p class="sp-muted">Writing today\'s case… (the first player of the day gets it fresh)</p>';
         const role = prof === 'general' ? 'rehabilitation professional' : ((window.RehablixSpecialty && window.RehablixSpecialty.describe && window.RehablixSpecialty.describe(specialty())) || 'rehabilitation professional').replace(/^an? /, '');
+        // (a reply cut short or not JSON is tried once more before giving up)
+        let clean = null;
+        for (let attempt = 0; attempt < 2 && !clean; attempt++) {
         const raw = await ai('corpus101', 'You write short, realistic clinical case vignettes for a daily reasoning challenge for rehabilitation professionals and students. Plain, professional language; no real names. Return ONLY JSON.',
           'Write the case for ' + day + ' for a ' + role + '. Topic area: ' + S.dailyTopic(day, prof) + '. The case must test clinical reasoning (assessment priorities, red flags, goals or the choice of intervention) and be answerable in a short paragraph.\n' +
-          'Return {"title":"<4-7 words>","case":"<120-170 words: the person, history, findings>","question":"<one clear question>","keyPoints":["<the 5 points a strong answer covers>"],"modelAnswer":"<a strong 80-130 word answer>"}', 1200);
-        const clean = S.cleanDailyCase(parseJson(raw));
+          'Return {"title":"<4-7 words>","case":"<120-170 words: the person, history, findings>","question":"<one clear question>","keyPoints":["<the 5 points a strong answer covers>"],"modelAnswer":"<a strong 80-130 word answer>"}', 2200);
+        clean = S.cleanDailyCase(parseJson(raw));
+        }
         if (!clean) throw new Error('The case could not be written. Please try again.');
         const t = await db().ref('space/dailyCase/' + day + '/' + prof).transaction((cur) => cur || Object.assign({ at: Date.now() }, clean));
         c = t.snapshot.val();
@@ -552,7 +556,7 @@
       try {
         const raw = await ai('basal100', 'You are a fair clinical educator scoring a short answer to a case. Score 0–100 for clinical reasoning, safety, completeness against the key points, and clarity. Be encouraging and honest. Return ONLY JSON.',
           'CASE: ' + c.case + '\nQUESTION: ' + c.question + '\nKEY POINTS: ' + (c.keyPoints || []).join('; ') + '\n\nANSWER: ' + answer.slice(0, 3000) +
-          '\n\nReturn {"score":<0-100>,"strengths":["<2-3 short points>"],"missed":["<2-3 short points>"],"feedback":"<2 sentences>"}', 600);
+          '\n\nReturn {"score":<0-100>,"strengths":["<2-3 short points>"],"missed":["<2-3 short points>"],"feedback":"<2 sentences>"}', 1000);
         const res = S.cleanDailyScore(parseJson(raw));
         if (!res) throw new Error('The answer could not be scored. Please try again.');
         const rec = Object.assign({ answer, at: Date.now() }, res);
