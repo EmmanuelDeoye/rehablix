@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Get Rehablix for Android</title>
+  <meta name="description" content="Download the Rehablix Android app: your clinical copilot for rehabilitation. Free, quick to install, and the same account as the web app.">
+  <meta name="theme-color" content="#0b3b36">
+  <link rel="icon" href="/img/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="/img/icon-192.png">
+  <meta property="og:title" content="Get Rehablix for Android">
+  <meta property="og:description" content="Your clinical copilot for rehabilitation. Free download, installs in a minute.">
+  <meta property="og:image" content="https://www.rehablix.com/img/icon-512.png">
+  <style>
+    @font-face { font-family: 'Rehablix Brand'; src: url('/fonts/outfit.ttf') format('truetype'); font-weight: 100 900; font-display: swap; }
+    :root {
+      --bg: #eef4f4;
+      --ink: #0f2e2b;
+      --ink-2: #4b6360;
+      --accent: #009688;
+      --accent-2: #2dd4bf;
+      --glass: rgba(255, 255, 255, 0.62);
+      --glass-strong: rgba(255, 255, 255, 0.82);
+      --rim: rgba(255, 255, 255, 0.75);
+      --line: rgba(15, 46, 43, 0.10);
+      --shadow: 0 18px 50px rgba(15, 46, 43, 0.14), 0 3px 10px rgba(15, 46, 43, 0.06);
+      --warn-bg: rgba(245, 158, 11, 0.12);
+      --warn-ink: #92400e;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #071a18;
+        --ink: #eaf6f4;
+        --ink-2: #a3bdb9;
+        --accent: #14b8a6;
+        --accent-2: #5eead4;
+        --glass: rgba(20, 40, 44, 0.58);
+        --glass-strong: rgba(24, 48, 52, 0.82);
+        --rim: rgba(255, 255, 255, 0.10);
+        --line: rgba(255, 255, 255, 0.08);
+        --shadow: 0 18px 50px rgba(0, 0, 0, 0.5), 0 3px 10px rgba(0, 0, 0, 0.3);
+        --warn-bg: rgba(245, 158, 11, 0.14);
+        --warn-ink: #fcd34d;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.55;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    /* the ambient light behind the glass, like the app */
+    body::before {
+      content: ""; position: fixed; inset: -20vmax; z-index: -1; pointer-events: none;
+      background:
+        radial-gradient(40vmax 40vmax at 85% 8%, rgba(45, 212, 191, 0.35), transparent 60%),
+        radial-gradient(38vmax 38vmax at 8% 92%, rgba(99, 102, 241, 0.22), transparent 60%),
+        radial-gradient(30vmax 30vmax at 50% 50%, rgba(0, 150, 136, 0.10), transparent 70%);
+    }
+    a { color: var(--accent); }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 16px 16px 56px; }
+
+    .glass {
+      background: var(--glass);
+      -webkit-backdrop-filter: blur(18px) saturate(160%);
+      backdrop-filter: blur(18px) saturate(160%);
+      border: 1px solid var(--rim);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+    }
+
+    /* top bar */
+    .top { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; margin-bottom: 22px; border-radius: 16px; }
+    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); }
+    .brand img { width: 30px; height: 30px; border-radius: 50%; background: #fff; }
+    .brand b { font-family: 'Rehablix Brand', system-ui, sans-serif; font-weight: 800; font-size: 1.2rem; letter-spacing: -0.01em; color: var(--accent); }
+    .top a.web { font-size: 0.88rem; font-weight: 600; text-decoration: none; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink); }
+
+    /* hero */
+    .hero { text-align: center; padding: 30px 20px 26px; }
+    .app-icon { width: 92px; height: 92px; border-radius: 24px; background: #fff; box-shadow: 0 10px 30px rgba(0, 150, 136, 0.25); padding: 10px; }
+    h1 { font-family: 'Rehablix Brand', system-ui, sans-serif; font-weight: 800; font-size: clamp(1.8rem, 6vw, 2.5rem); line-height: 1.12; letter-spacing: -0.02em; margin: 16px 0 8px; }
+    h1 span { color: var(--accent); }
+    .lead { color: var(--ink-2); font-size: 1.02rem; max-width: 520px; margin: 0 auto 22px; }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+      min-height: 58px; padding: 14px 30px; border-radius: 999px; border: 0; cursor: pointer;
+      font: inherit; font-weight: 700; font-size: 1.1rem; text-decoration: none; color: #fff;
+      background: linear-gradient(135deg, #0d9488, #14b8a6);
+      box-shadow: 0 10px 26px rgba(13, 148, 136, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      width: 100%; max-width: 380px;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn svg { width: 22px; height: 22px; flex: none; }
+    .btn.secondary { background: var(--glass-strong); color: var(--ink); border: 1px solid var(--line); box-shadow: none; font-size: 1rem; min-height: 50px; }
+    .meta { margin-top: 10px; font-size: 0.85rem; color: var(--ink-2); }
+    .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 18px; }
+    .chip { font-size: 0.8rem; font-weight: 600; padding: 6px 12px; border-radius: 999px; background: var(--glass-strong); border: 1px solid var(--line); color: var(--ink-2); }
+
+    /* after tapping download */
+    .next { display: none; margin-top: 18px; padding: 14px 16px; border-radius: 16px; background: rgba(13, 148, 136, 0.12); border: 1px solid rgba(13, 148, 136, 0.3); text-align: left; font-size: 0.95rem; }
+    .next.show { display: block; animation: pop 0.3s ease; }
+    @keyframes pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+    /* desktop: scan */
+    .scan { display: none; align-items: center; gap: 18px; text-align: left; margin: 6px auto 0; max-width: 520px; padding: 16px; border-radius: 18px; background: var(--glass-strong); border: 1px solid var(--line); }
+    .scan.show { display: flex; }
+    #qr { background: #fff; padding: 8px; border-radius: 12px; flex: none; width: 146px; height: 146px; }
+    #qr img, #qr canvas { width: 130px !important; height: 130px !important; display: block; }
+    .scan p { font-size: 0.95rem; color: var(--ink-2); }
+    .scan p b { color: var(--ink); }
+
+    /* iPhone */
+    .ios { display: none; }
+    .ios.show { display: block; }
+
+    section { margin-top: 22px; padding: 22px 20px; }
+    h2 { font-family: 'Rehablix Brand', system-ui, sans-serif; font-weight: 700; font-size: 1.3rem; letter-spacing: -0.01em; margin-bottom: 14px; }
+
+    /* steps */
+    .steps { display: grid; gap: 12px; counter-reset: s; }
+    .step { display: grid; grid-template-columns: 40px 1fr; gap: 12px; align-items: start; padding: 14px; border-radius: 16px; background: var(--glass-strong); border: 1px solid var(--line); }
+    .step::before { counter-increment: s; content: counter(s); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; color: #fff; background: linear-gradient(135deg, #0d9488, #2dd4bf); }
+    .step b { display: block; margin-bottom: 2px; }
+    .step p { color: var(--ink-2); font-size: 0.93rem; }
+    .pill { display: inline-block; font-size: 0.82rem; font-weight: 700; padding: 1px 9px; border-radius: 999px; background: rgba(13, 148, 136, 0.14); color: var(--accent); white-space: nowrap; }
+    .mock { margin-top: 10px; padding: 12px 14px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); font-size: 0.88rem; }
+    .mock .t { font-weight: 700; margin-bottom: 4px; }
+    .mock .row { display: flex; justify-content: flex-end; gap: 14px; margin-top: 8px; font-weight: 700; color: var(--accent); }
+    .mock .toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .mock .sw { width: 38px; height: 22px; border-radius: 22px; background: var(--accent); position: relative; flex: none; }
+    .mock .sw::after { content: ""; position: absolute; right: 3px; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+
+    .note { margin-top: 14px; padding: 12px 14px; border-radius: 14px; background: var(--warn-bg); color: var(--warn-ink); font-size: 0.92rem; }
+
+    /* help */
+    details { border-radius: 14px; background: var(--glass-strong); border: 1px solid var(--line); margin-bottom: 10px; overflow: hidden; }
+    summary { cursor: pointer; list-style: none; padding: 14px 16px; font-weight: 650; display: flex; justify-content: space-between; gap: 10px; }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "+"; font-weight: 800; color: var(--accent); }
+    details[open] summary::after { content: "–"; }
+    details div { padding: 0 16px 14px; color: var(--ink-2); font-size: 0.94rem; }
+    details ol, details ul { padding-left: 20px; margin-top: 4px; }
+    details li { margin: 3px 0; }
+
+    .why { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    .why div { padding: 14px; border-radius: 16px; background: var(--glass-strong); border: 1px solid var(--line); font-size: 0.92rem; color: var(--ink-2); }
+    .why b { display: block; color: var(--ink); margin-bottom: 2px; }
+
+    footer { text-align: center; margin-top: 30px; font-size: 0.85rem; color: var(--ink-2); }
+    footer a { margin: 0 6px; }
+
+    @media (max-width: 480px) {
+      .wrap { padding: 12px 16px 48px; }
+      .hero { padding: 24px 14px 22px; }
+      section { padding: 18px 14px; }
+      .scan { flex-direction: column; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top glass">
+      <a class="brand" href="/"><img src="/img/icon-192.png" alt=""><b>rehablix</b></a>
+      <a class="web" href="/index.html#/lixa">Open web app</a>
+    </header>
+
+    <main>
+      <div class="hero glass">
+        <img class="app-icon" src="/img/icon-512.png" alt="Rehablix app icon">
+        <h1>Rehablix for <span>Android</span></h1>
+        <p class="lead">Your clinical copilot in your pocket: Lixa, Smart EMR, Motion &amp; Gait, notes, study tools and Space. Same account as the web app.</p>
+
+        <!-- Android phone (and the default) -->
+        <div id="androidCta">
+          <a class="btn" id="dl" href="https://rehablix-ai.web.app/rehablix.apk" download="Rehablix.apk">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+            Download for Android
+          </a>
+          <div class="meta" id="meta">Free · Android 8 or newer</div>
+          <div class="next" id="next">
+            <b>Downloading…</b> When it finishes, tap <b>Open</b> on the download message (or open <b>Downloads</b>), then tap <b>Install</b>. Stuck? The 3 steps below show every screen.
+          </div>
+        </div>
+
+        <!-- computer: scan with the phone -->
+        <div class="scan" id="scan">
+          <div id="qr" aria-label="QR code for rehablix.com/download"></div>
+          <p><b>On a computer?</b> Point your Android phone's camera at this code to open this page there, then tap <b>Download</b>.<br><br>Or send yourself the link: <b>rehablix.com/download</b></p>
+        </div>
+
+        <!-- iPhone / iPad -->
+        <div class="ios" id="ios">
+          <a class="btn" href="/index.html#/lixa">Open Rehablix in Safari</a>
+          <div class="meta">The iPhone app is on its way. Until then, the web app does everything the app does.</div>
+          <div class="next show" style="margin-top:14px">
+            <b>Put it on your Home Screen:</b> open Rehablix in <b>Safari</b>, tap the <b>Share</b> button (square with an arrow), then <b>Add to Home Screen</b>. It opens like an app.
+          </div>
+        </div>
+
+        <div class="chips">
+          <span class="chip">Free</span>
+          <span class="chip">Signed by Rehabverve</span>
+          <span class="chip">Updates itself</span>
+          <span class="chip">Same account as the web</span>
+        </div>
+      </div>
+
+      <section class="glass" id="how">
+        <h2>Install in 3 steps</h2>
+        <div class="steps">
+          <div class="step">
+            <div>
+              <b>Tap “Download for Android”</b>
+              <p>If Chrome asks <i>“Do you want to download Rehablix.apk anyway?”</i>, tap <span class="pill">Download</span>. That message appears for every app downloaded outside the Play Store.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div>
+              <b>Open the file</b>
+              <p>When it finishes, tap <span class="pill">Open</span> on the message at the bottom of the screen. Missed it? Pull down your notifications and tap <b>Rehablix.apk</b>, or open the <b>Files / Downloads</b> app.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div>
+              <b>Tap “Install”</b>
+              <p>The first time only, your phone asks for permission to install apps from Chrome:</p>
+              <div class="mock">
+                <div class="t">For your security, your phone is not allowed to install unknown apps from this source.</div>
+                <div class="row"><span>CANCEL</span><span>SETTINGS</span></div>
+              </div>
+              <p style="margin-top:8px">Tap <span class="pill">Settings</span>, switch on <b>Allow from this source</b>, then go back:</p>
+              <div class="mock">
+                <div class="toggle"><span>Allow from this source</span><span class="sw" aria-hidden="true"></span></div>
+              </div>
+              <p style="margin-top:8px">Tap <span class="pill">Install</span>, then <span class="pill">Open</span>. Sign in with your Rehablix email (or Google) and everything you made on the web is there.</p>
+            </div>
+          </div>
+        </div>
+        <div class="note">
+          <b>If you see “Google Play Protect” / “Unsafe app blocked”:</b> this appears because the app didn't come from the Play Store. Tap <b>More details</b>, then <b>Install anyway</b>. Rehablix is signed by its maker, Rehabverve, and never asks for anything beyond the camera and microphone when you use those features.
+        </div>
+      </section>
+
+      <section class="glass">
+        <h2>Having trouble?</h2>
+        <details>
+          <summary>“App not installed” or “conflicts with an existing package”</summary>
+          <div>You still have an older <b>test version</b> of Rehablix. Uninstall it first (press and hold the Rehablix icon, then <b>Uninstall</b>), then open the downloaded file again. Your account, chats and work are saved online, so nothing is lost.</div>
+        </details>
+        <details>
+          <summary>I can't find the “Allow from this source” switch</summary>
+          <div>
+            <ul>
+              <li><b>Samsung:</b> Settings → Apps → <b>Chrome</b> → Install unknown apps → <b>Allowed</b>.</li>
+              <li><b>Tecno / Infinix / itel:</b> Settings → Apps → Special app access → <b>Install unknown apps</b> → Chrome → Allow.</li>
+              <li><b>Xiaomi / Redmi:</b> Settings → Privacy protection → Special permissions → <b>Install unknown apps</b> → Chrome → Allow.</li>
+              <li><b>Others:</b> search Settings for <b>“unknown apps”</b>, choose the browser you used, and allow it.</li>
+            </ul>
+            If you downloaded with another browser (Opera, Phoenix, a file manager), allow that app instead of Chrome.
+          </div>
+        </details>
+        <details>
+          <summary>The download is slow or stopped</summary>
+          <div>The app is a one-time download (size shown under the button). On weak mobile data, try Wi-Fi, or tap Download again: it starts over safely. Updates later are the same size, and the app tells you when one is ready.</div>
+        </details>
+        <details>
+          <summary>“There was a problem parsing the package”</summary>
+          <div>The download didn't finish. Delete <b>Rehablix.apk</b> from Downloads and tap Download again. Your phone needs <b>Android 8 or newer</b>.</div>
+        </details>
+        <details>
+          <summary>Not enough storage</summary>
+          <div>Rehablix needs about 200 MB free to install. Clear some space (old videos, WhatsApp media), then tap the file again.</div>
+        </details>
+        <details>
+          <summary>Is it safe to install apps from a website?</summary>
+          <div>Only from makers you trust. This file comes straight from Rehablix's own servers and is signed by Rehabverve; Android checks that signature on every update, so nobody else can replace it. After installing you can switch “Allow from this source” off again; updates still work.</div>
+        </details>
+        <details>
+          <summary>How do updates work?</summary>
+          <div>When a new version is out, the app shows an <b>Update</b> button. It brings you back to this page; tap Download and Install. Your data stays.</div>
+        </details>
+      </section>
+
+      <section class="glass">
+        <h2>Why the app?</h2>
+        <div class="why">
+          <div><b>Talk to Lixa</b>Tap the big logo and speak; Lixa answers aloud and works the app for you.</div>
+          <div><b>Motion &amp; Gait</b>Camera-based range of motion and gait checks, right on your phone.</div>
+          <div><b>Record sessions</b>Audio Transcription keeps recording when your screen is off.</div>
+          <div><b>Space</b>Daily cases, quick games, duels and a weekly league.</div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <a href="/index.html#/lixa">Web app</a> · <a href="/terms_and_condition.html#privacy">Privacy</a> · <a href="/terms_and_condition.html#terms">Terms</a>
+      <div style="margin-top:6px">© Rehabverve Enterprise</div>
+    </footer>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script>
+    (function () {
+      var APK = 'https://rehablix-ai.web.app/rehablix.apk';
+      var ua = navigator.userAgent || '';
+      var isAndroid = /Android/i.test(ua);
+      var isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      var $ = function (id) { return document.getElementById(id); };
+
+      // Version and size under the button (from the download host)
+      fetch('https://rehablix-ai.web.app/version.json', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (v) {
+          if (!v) return;
+          $('meta').textContent = 'Free · Version ' + v.versionName + ' · ' + v.sizeMb + ' MB · Android 8 or newer';
+        })
+        .catch(function () { /* the default line stays */ });
+
+      if (isIOS) {
+        $('androidCta').style.display = 'none';
+        $('ios').classList.add('show');
+        $('how').style.display = 'none';
+      } else if (!isAndroid) {
+        // a computer: scan with the phone (the direct link stays for anyone who wants the file)
+        $('scan').classList.add('show');
+        $('dl').classList.add('secondary');
+        $('dl').lastChild.textContent = ' Download the file (.apk)';
+        try { new QRCode($('qr'), { text: 'https://www.rehablix.com/download', width: 130, height: 130, colorDark: '#0f2e2b', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M }); }
+        catch (e) { $('qr').style.display = 'none'; }
+      }
+
+      $('dl').addEventListener('click', function () {
+        $('next').classList.add('show');
+        if (isAndroid) setTimeout(function () { $('how').scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 2500);
+      });
+      $('dl').href = APK;
+    })();
+  </script>
+</body>
+</html>

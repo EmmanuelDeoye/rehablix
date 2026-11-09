@@ -19,6 +19,9 @@ body.has-bottom-nav {
 
 .back-btn[hidden] { display: none !important; }
 
+/* (2026-11-06) No bottom bar while the Lixa Agent screen is showing; it returns when she is minimised or closed */
+body.lxa-open .app-bottom-nav { display: none !important; }
+
 .app-bottom-nav {
   position: fixed;
   left: 50%;
