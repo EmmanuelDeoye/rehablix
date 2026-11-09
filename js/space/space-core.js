@@ -145,8 +145,15 @@
     if (kind === 'nerve') return finish(r, kind, m.id, 'Which nerve supplies ' + m.name + '?', m.nerve, threeWrong(r, others.filter((x) => !overlap(x.nerves, m.nerves)).map((x) => x.nerve), m.nerve));
     if (kind === 'action') return finish(r, kind, m.id, 'What is the main action of ' + m.name + '?', m.action, threeWrong(r, others.filter((x) => !overlap(x.tags, m.tags)).map((x) => x.action), m.action));
     if (kind === 'muscleOfNerve') return finish(r, kind, m.id, 'Which muscle is supplied by the ' + m.nerve.charAt(0).toLowerCase() + m.nerve.slice(1) + '?', m.name, threeWrong(r, others.filter((x) => !overlap(x.nerves, m.nerves)).map((x) => x.name), m.name));
-    return finish(r, 'muscleOfAction', m.id, 'Which muscle\'s main action is ' + m.action.charAt(0).toLowerCase() + m.action.slice(1) + '?', m.name, threeWrong(r, others.filter((x) => !overlap(x.tags, m.tags)).map((x) => x.name), m.name));
+    return finish(r, 'muscleOfAction', m.id, S.actionPrompt(m.action), m.name, threeWrong(r, others.filter((x) => !overlap(x.tags, m.tags)).map((x) => x.name), m.name));
   }
+  // "Which muscle's main action is …?", reworded for the actions written as phrases (Android: SpaceCore.actionPrompt)
+  S.actionPrompt = (action) => {
+    const a = action.charAt(0).toLowerCase() + action.slice(1);
+    if (/^Main muscle/.test(action)) return 'Which muscle is the ' + a + '?';
+    if (/^(Starts|Unlocks) /.test(action)) return 'Which muscle ' + a + '?';
+    return 'Which muscle\'s main action is ' + a + '?';
+  };
   S.muscleQuestion = muscleQuestion;
 
   S.TEST_KINDS = ['testName', 'testFinding'];

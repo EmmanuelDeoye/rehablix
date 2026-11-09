@@ -120,3 +120,31 @@
 #spAnswer { width: 100%; box-sizing: border-box; font: inherit; font-size: 0.95rem; line-height: 1.5; padding: 12px; border-radius: 14px; border: 1.5px solid var(--border-light); background: var(--surface, var(--card-bg)); color: var(--text-primary); resize: vertical; margin: 6px 0; }
 .space-wrap details { margin: 12px 0; } .space-wrap summary { cursor: pointer; font-weight: 600; color: var(--accent); }
 @media (max-width: 480px) { .sp-two { grid-template-columns: 1fr; } .sp-code { font-size: 2.1rem; } }
+
+/* ---------- (2026-11-09) the colourful 3D hub (the cards themselves: js/space/arcade/arcade.css .rxa-hub-card) ---------- */
+.sp-hub { margin: 4px 0 18px; }
+/* (2026-11-09) the hub has no panel of its own: the app's background shows through; text uses the app's theme colours */
+.rxa.sp-hub { background: transparent; box-shadow: none; padding: 4px 2px 18px; border-radius: 0; overflow: visible; --ink: var(--text-primary); --ink-2: var(--text-secondary); }
+.rxa.sp-hub::before { display: none; }
+.rxa-nocm .rxa.sp-hub { background: transparent; }
+.sp-hub-hero { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px; margin: 6px 2px 14px; }
+.sp-hub .sp-chip { background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--glass-border, var(--border-light)); }
+.sp-hub .sp-hub-h { font-family: 'Rehablix Brand', system-ui, sans-serif; font-size: 1.05rem; font-weight: 800; margin: 22px 2px 10px; color: var(--text-primary) !important; }
+.sp-daily-3d {
+  position: relative; width: 100%; display: flex; align-items: center; gap: 14px; padding: 16px; border: 0; border-radius: 22px; cursor: pointer; text-align: left; color: #fff; font: inherit;
+  background: linear-gradient(135deg, #f43f5e 0%, #d946ef 50%, #6366f1 100%);
+  box-shadow: 0 8px 0 #4c1d95, 0 18px 34px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition: transform 0.12s;
+}
+.sp-daily-3d:active { transform: translateY(5px); box-shadow: 0 3px 0 #4c1d95, 0 8px 16px rgba(0, 0, 0, 0.3); }
+.sp-daily-3d .emo { font-size: 2.6rem; filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.35)); animation: rxa-bob 3s ease-in-out infinite; }
+.sp-daily-3d .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.sp-daily-3d .txt b { font-family: 'Rehablix Brand', system-ui, sans-serif; font-size: 1.15rem; }
+.sp-daily-3d .txt span { font-size: 0.82rem; opacity: 0.92; }
+.sp-daily-3d .sp-daily-badge { position: absolute; top: -9px; left: 16px; padding: 2px 10px; border-radius: 999px; font-size: 0.7rem; font-weight: 900; letter-spacing: 0.08em; background: #fbbf24; color: #3b2405; }
+.sp-daily-3d .sp-arrow { font-size: 1.6rem; opacity: 0.9; }
+.sp-hub-league { margin-top: 20px; padding: 14px 16px; }
+.sp-hub .sp-hub-league.rxa-glass { background: var(--card-bg); border: 1px solid var(--glass-border, var(--border-light)); box-shadow: var(--shadow-sm); }
+.sp-hub-league h3 { color: var(--text-primary); }
+.sp-hub-league .sp-link { color: var(--accent); }
+.sp-hub .sp-board li { color: var(--text-primary); }

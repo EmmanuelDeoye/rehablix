@@ -1,0 +1,292 @@
+/* js/space/arcade/arcade.css — Rehablix Space arcade: one vivid 3D look for every game (web and Android).
+   A deep, glowing backdrop; crystal-glass panels; glossy 3D tiles and pieces with real depth (translateZ, layered
+   shadows); colour per game (--game). Works on small phones first. */
+@font-face { font-family: 'Rehablix Brand'; src: url('../../../fonts/outfit.ttf') format('truetype'); font-weight: 100 900; font-display: swap; }
+
+.rxa {
+  --game: #14b8a6;
+  --game-2: #6366f1;
+  --ink: #f4fbff;
+  --ink-2: rgba(230, 245, 255, 0.72);
+  --glass: rgba(255, 255, 255, 0.09);
+  --glass-2: rgba(255, 255, 255, 0.16);
+  --rim: rgba(255, 255, 255, 0.22);
+  --good: #22c55e;
+  --bad: #f43f5e;
+  --gold: #fbbf24;
+  position: relative;
+  min-height: 100%;
+  color: var(--ink);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  border-radius: 24px;
+  overflow: hidden;
+  isolation: isolate;
+  padding: 14px 14px 22px;
+  background:
+    radial-gradient(120% 70% at 85% -10%, color-mix(in srgb, var(--game) 55%, transparent), transparent 60%),
+    radial-gradient(110% 70% at -10% 110%, color-mix(in srgb, var(--game-2) 55%, transparent), transparent 60%),
+    linear-gradient(160deg, #0b1026 0%, #101a3c 45%, #0a2a33 100%);
+  box-shadow: 0 20px 60px rgba(4, 10, 30, 0.45);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.rxa * { box-sizing: border-box; }
+.rxa::before { /* drifting stars */
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: 0.55;
+  background-image:
+    radial-gradient(1.5px 1.5px at 12% 22%, #fff, transparent), radial-gradient(1px 1px at 72% 12%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 42% 68%, #fff, transparent), radial-gradient(1px 1px at 86% 54%, #fff, transparent),
+    radial-gradient(1px 1px at 22% 84%, #fff, transparent), radial-gradient(1.5px 1.5px at 58% 34%, #fff, transparent),
+    radial-gradient(1px 1px at 92% 88%, #fff, transparent), radial-gradient(1px 1px at 32% 44%, #fff, transparent);
+  animation: rxa-drift 60s linear infinite;
+}
+@keyframes rxa-drift { from { transform: translateY(0); } to { transform: translateY(-40px); } }
+
+.rxa-title { font-family: 'Rehablix Brand', system-ui, sans-serif; font-weight: 800; letter-spacing: -0.02em; }
+.rxa-muted { color: var(--ink-2); font-size: 0.88rem; }
+.rxa-glass {
+  background: linear-gradient(145deg, var(--glass-2), var(--glass));
+  border: 1px solid var(--rim);
+  border-radius: 18px;
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+/* top bar: back, title, score */
+.rxa-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.rxa-icon-btn {
+  width: 40px; height: 40px; flex: none; border-radius: 14px; border: 1px solid var(--rim); cursor: pointer;
+  background: var(--glass-2); color: var(--ink); font-size: 1.1rem; display: grid; place-items: center;
+}
+.rxa-bar .rxa-title { flex: 1; min-width: 0; font-size: 1.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rxa-score {
+  flex: none; padding: 7px 12px; border-radius: 999px; font-weight: 800; font-size: 0.95rem;
+  background: linear-gradient(135deg, var(--game), color-mix(in srgb, var(--game) 55%, #000));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--game) 45%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.rxa-score.pop { animation: rxa-pop 0.35s ease; }
+@keyframes rxa-pop { 50% { transform: scale(1.18); } }
+
+/* progress dots */
+.rxa-dots { display: flex; gap: 5px; justify-content: center; margin: 2px 0 12px; }
+.rxa-dots i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.2); }
+.rxa-dots i.done { background: var(--good); }
+.rxa-dots i.miss { background: var(--bad); }
+.rxa-dots i.now { background: var(--gold); box-shadow: 0 0 10px var(--gold); }
+
+/* big glossy buttons */
+.rxa-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 50px; padding: 12px 22px;
+  border: 0; border-radius: 16px; cursor: pointer; font: inherit; font-weight: 800; font-size: 1rem; color: #fff;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--game) 85%, #fff), var(--game) 45%, color-mix(in srgb, var(--game) 70%, #000));
+  box-shadow: 0 6px 0 color-mix(in srgb, var(--game) 50%, #000), 0 12px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+.rxa-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 color-mix(in srgb, var(--game) 50%, #000), 0 6px 14px rgba(0, 0, 0, 0.3); }
+.rxa-btn.ghost { background: var(--glass-2); box-shadow: none; border: 1px solid var(--rim); }
+.rxa-btn.small { min-height: 40px; padding: 8px 14px; font-size: 0.9rem; border-radius: 13px; }
+.rxa-btn[disabled] { opacity: 0.45; pointer-events: none; }
+.rxa-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+/* explanation / feedback card */
+.rxa-explain { margin-top: 12px; padding: 14px 16px; border-radius: 16px; font-size: 0.95rem; line-height: 1.45; animation: rxa-rise 0.3s ease; }
+.rxa-explain b { display: block; font-size: 1.02rem; margin-bottom: 4px; }
+.rxa-explain.ok { background: linear-gradient(135deg, rgba(34, 197, 94, 0.28), rgba(34, 197, 94, 0.1)); border: 1px solid rgba(34, 197, 94, 0.45); }
+.rxa-explain.no { background: linear-gradient(135deg, rgba(244, 63, 94, 0.26), rgba(244, 63, 94, 0.08)); border: 1px solid rgba(244, 63, 94, 0.45); }
+.rxa-explain.info { background: var(--glass-2); border: 1px solid var(--rim); }
+@keyframes rxa-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.rxa-shake { animation: rxa-shake 0.4s ease; }
+@keyframes rxa-shake { 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }
+
+/* floating "+12" */
+.rxa-float { position: absolute; z-index: 30; pointer-events: none; font-weight: 900; font-size: 1.4rem; color: var(--gold); text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); animation: rxa-floatup 1s ease forwards; }
+@keyframes rxa-floatup { to { transform: translateY(-60px) scale(1.2); opacity: 0; } }
+
+/* confetti canvas */
+.rxa-confetti { position: absolute; inset: 0; z-index: 40; pointer-events: none; }
+
+/* modal (knowledge check, results) */
+.rxa-modal { position: absolute; inset: 0; z-index: 50; display: grid; place-items: center; padding: 14px; background: rgba(5, 8, 25, 0.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); animation: rxa-fade 0.2s ease; }
+@keyframes rxa-fade { from { opacity: 0; } }
+.rxa-modal-card { width: min(460px, 100%); max-height: 100%; overflow: auto; padding: 18px; border-radius: 22px; animation: rxa-zoom 0.28s cubic-bezier(.2, 1.4, .4, 1); }
+@keyframes rxa-zoom { from { transform: scale(0.85) translateY(10px); opacity: 0; } }
+.rxa-q { font-size: 1.08rem; font-weight: 700; line-height: 1.4; margin: 6px 0 14px; }
+.rxa-options { display: grid; gap: 10px; }
+.rxa-opt {
+  text-align: left; padding: 13px 14px; border-radius: 14px; cursor: pointer; font: inherit; font-weight: 650; font-size: 0.95rem; color: var(--ink);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08)); border: 1px solid var(--rim);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3); transition: transform 0.08s ease;
+}
+.rxa-opt:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); }
+.rxa-opt.right { background: linear-gradient(180deg, #34d399, #059669); border-color: #6ee7b7; }
+.rxa-opt.wrong { background: linear-gradient(180deg, #fb7185, #e11d48); border-color: #fda4af; }
+.rxa-opt[disabled] { cursor: default; }
+
+/* results */
+.rxa-result { text-align: center; }
+.rxa-result .big { font-family: 'Rehablix Brand', system-ui, sans-serif; font-weight: 900; font-size: 3.2rem; line-height: 1; background: linear-gradient(180deg, #fff, var(--gold)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.rxa-result .xp { display: inline-block; margin: 10px 0 4px; padding: 6px 14px; border-radius: 999px; font-weight: 800; background: rgba(251, 191, 36, 0.18); border: 1px solid rgba(251, 191, 36, 0.5); color: var(--gold); }
+.rxa-trophy { font-size: 3.4rem; filter: drop-shadow(0 8px 18px rgba(251, 191, 36, 0.5)); animation: rxa-bob 2.4s ease-in-out infinite; }
+@keyframes rxa-bob { 50% { transform: translateY(-8px) rotate(-4deg); } }
+
+/* ---------- 3D letter tiles (Word Lab) ---------- */
+.rxa-tile {
+  --tile: 46px;
+  position: relative; width: var(--tile); height: var(--tile); flex: none; border-radius: 10px; cursor: grab; touch-action: none;
+  display: grid; place-items: center; font-family: 'Rehablix Brand', system-ui, sans-serif; font-weight: 900; font-size: calc(var(--tile) * 0.5); color: #3b2405;
+  background: linear-gradient(160deg, #fff7d6 0%, #fde68a 40%, #f59e0b 100%);
+  box-shadow: 0 5px 0 #b45309, 0 9px 16px rgba(0, 0, 0, 0.4), inset 0 2px 0 rgba(255, 255, 255, 0.9), inset 0 -3px 6px rgba(180, 83, 9, 0.35);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s;
+}
+.rxa-tile sub { position: absolute; right: 4px; bottom: 2px; font-size: calc(var(--tile) * 0.22); font-weight: 800; color: #92400e; }
+.rxa-tile:active { cursor: grabbing; }
+.rxa-tile.used { opacity: 0; pointer-events: none; }
+.rxa-tile.ghost { position: fixed; z-index: 1000; pointer-events: none; transform: scale(1.15) rotate(-6deg); box-shadow: 0 16px 30px rgba(0, 0, 0, 0.45), 0 5px 0 #b45309; }
+.rxa-tile.gold { background: linear-gradient(160deg, #fffbe6, #fcd34d 45%, #d97706); animation: rxa-flip 0.6s ease both; }
+@keyframes rxa-flip { 0% { transform: rotateY(0); } 50% { transform: rotateY(90deg) scale(1.1); } 100% { transform: rotateY(0); } }
+
+.rxa-board { perspective: 900px; margin: 6px 0 16px; }
+.rxa-board-plane {
+  transform: rotateX(18deg); transform-origin: center bottom; padding: 14px 10px 18px; border-radius: 20px;
+  background: linear-gradient(180deg, rgba(20, 83, 45, 0.55), rgba(6, 78, 59, 0.75));
+  border: 1px solid rgba(110, 231, 183, 0.35);
+  box-shadow: 0 30px 50px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.rxa-slots { display: flex; gap: 5px; justify-content: center; flex-wrap: nowrap; }
+.rxa-slot {
+  --tile: 46px;
+  position: relative; width: var(--tile); height: var(--tile); flex: none; border-radius: 10px; display: grid; place-items: center;
+  background: rgba(255, 255, 255, 0.1); border: 2px dashed rgba(255, 255, 255, 0.3);
+  transition: background 0.15s, transform 0.15s;
+}
+.rxa-slot.over { background: rgba(251, 191, 36, 0.35); transform: translateZ(10px) scale(1.06); }
+.rxa-slot .b { position: absolute; top: -9px; left: 50%; transform: translateX(-50%); font-size: 0.6rem; font-weight: 900; padding: 1px 5px; border-radius: 6px; color: #fff; letter-spacing: 0.04em; }
+.rxa-slot .b.DL { background: #0ea5e9; }
+.rxa-slot .b.DW { background: #e11d48; }
+.rxa-slot .rxa-tile { cursor: pointer; }
+.rxa-rack {
+  display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; padding: 14px 10px; border-radius: 18px; min-height: 76px;
+  background: linear-gradient(180deg, #7c4a1e, #5b3412); box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.5), 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+.rxa-clue { padding: 14px 16px; border-radius: 18px; margin-bottom: 8px; }
+.rxa-clue .cat { display: inline-block; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); margin-bottom: 4px; }
+.rxa-clue p { font-size: 1.02rem; line-height: 1.45; font-weight: 600; }
+
+/* ---------- Muscle Match ---------- */
+.rxa-deck { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; min-height: 90px; margin: 4px 0 18px; perspective: 800px; }
+.rxa-card {
+  position: relative; padding: 12px 14px; min-width: 120px; max-width: 46%; border-radius: 16px; cursor: grab; touch-action: none; text-align: center;
+  font-weight: 800; font-size: 0.95rem; color: #fff;
+  background: linear-gradient(150deg, color-mix(in srgb, var(--game) 80%, #fff) 0%, var(--game) 45%, color-mix(in srgb, var(--game) 55%, #000) 100%);
+  box-shadow: 0 6px 0 color-mix(in srgb, var(--game) 40%, #000), 0 12px 22px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transform: rotateX(8deg); transition: transform 0.2s, opacity 0.25s;
+  animation: rxa-deal 0.45s cubic-bezier(.2, 1.3, .4, 1) both;
+}
+@keyframes rxa-deal { from { transform: translateY(-30px) rotateX(60deg); opacity: 0; } }
+.rxa-card.selected { transform: translateY(-6px) rotateX(0) scale(1.05); box-shadow: 0 0 0 3px var(--gold), 0 14px 26px rgba(0, 0, 0, 0.45); }
+.rxa-card.ghost { position: fixed; z-index: 1000; pointer-events: none; transform: scale(1.08) rotate(-4deg); animation: none; }
+.rxa-card.gone { opacity: 0; transform: scale(0.3); pointer-events: none; }
+.rxa-card.used { visibility: hidden; }
+.rxa-bins { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.rxa-bin {
+  position: relative; min-height: 120px; padding: 12px 8px 10px; border-radius: 20px; text-align: center; cursor: pointer;
+  background: radial-gradient(120% 90% at 50% 100%, color-mix(in srgb, var(--c) 55%, transparent), rgba(255, 255, 255, 0.06) 70%);
+  border: 2px solid color-mix(in srgb, var(--c) 70%, #fff);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--c) 40%, transparent), inset 0 -10px 24px color-mix(in srgb, var(--c) 35%, transparent);
+  transition: transform 0.15s;
+}
+.rxa-bin b { display: block; font-size: 0.82rem; line-height: 1.25; }
+.rxa-bin .n { margin-top: 8px; font-size: 1.4rem; font-weight: 900; color: var(--gold); }
+.rxa-bin.over { transform: scale(1.06); box-shadow: 0 0 34px var(--c); }
+.rxa-bin.yes { animation: rxa-pop 0.35s ease; }
+
+/* ---------- quiz arena (Muscle Rush, Special Tests) ---------- */
+.rxa-arena { perspective: 1000px; }
+.rxa-qcard { padding: 18px 16px; border-radius: 22px; min-height: 120px; display: grid; align-content: center; text-align: center; transform-style: preserve-3d; animation: rxa-card-in 0.4s cubic-bezier(.2, 1.2, .4, 1); }
+@keyframes rxa-card-in { from { transform: rotateY(-70deg) translateZ(-60px); opacity: 0; } }
+.rxa-qcard .q { font-size: 1.12rem; font-weight: 750; line-height: 1.4; }
+.rxa-pads { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+.rxa-pad {
+  min-height: 74px; padding: 10px; border-radius: 18px; border: 0; cursor: pointer; font: inherit; font-weight: 750; font-size: 0.88rem; line-height: 1.3; color: #fff;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 80%, #fff), var(--c) 50%, color-mix(in srgb, var(--c) 65%, #000));
+  box-shadow: 0 6px 0 color-mix(in srgb, var(--c) 45%, #000), 0 12px 20px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition: transform 0.08s;
+}
+.rxa-pad:active { transform: translateY(4px); }
+.rxa-pad.right { --c: #10b981 !important; box-shadow: 0 0 0 3px #a7f3d0, 0 6px 0 #065f46; }
+.rxa-pad.wrong { --c: #e11d48 !important; }
+.rxa-pad.dim { opacity: 0.45; }
+.rxa-timer { position: relative; height: 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.12); overflow: hidden; margin-bottom: 12px; }
+.rxa-timer i { position: absolute; inset: 0; transform-origin: left; background: linear-gradient(90deg, #f97316, #fbbf24); transition: transform 0.25s linear; }
+.rxa-flame { display: inline-block; margin-left: 6px; font-weight: 900; color: #fb923c; text-shadow: 0 0 10px #f97316; }
+
+/* ---------- Goniometer 3D ---------- */
+.rxa-canvas-wrap { position: relative; border-radius: 20px; overflow: hidden; background: radial-gradient(90% 70% at 50% 35%, #1e3a8a 0%, #0b1026 75%); box-shadow: inset 0 0 0 1px var(--rim), 0 14px 30px rgba(0, 0, 0, 0.4); }
+.rxa-canvas-wrap canvas { display: block; width: 100%; height: auto; touch-action: none; }
+.rxa-canvas-wrap .tag { position: absolute; left: 10px; top: 10px; padding: 5px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; background: rgba(0, 0, 0, 0.35); }
+.rxa-dial { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.rxa-dial input[type=range] { flex: 1; accent-color: var(--game); height: 36px; }
+.rxa-deg { font-family: 'Rehablix Brand', system-ui, sans-serif; font-size: 2.4rem; font-weight: 900; text-align: center; margin-top: 8px; text-shadow: 0 0 18px color-mix(in srgb, var(--game) 60%, transparent); }
+
+/* ---------- Clinical Chess ---------- */
+.rxa-chess-wrap { perspective: 1100px; margin: 8px auto 12px; width: min(calc(100% - 28px), 440px); }
+.rxa-chess {
+  position: relative; display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 1; border-radius: 10px; overflow: visible;
+  transform: rotateX(24deg); transform-origin: center 60%; transform-style: preserve-3d;
+  box-shadow: 0 0 0 10px #3b2412, 0 0 0 12px #6b4423, 0 34px 50px rgba(0, 0, 0, 0.55);
+}
+.rxa-sq { position: relative; display: grid; place-items: center; touch-action: none; transform-style: preserve-3d; }
+.rxa-sq.l { background: linear-gradient(135deg, #f8e7c9, #e9cf9f); }
+.rxa-sq.d { background: linear-gradient(135deg, #a8774d, #8a5a35); }
+.rxa-sq.last { box-shadow: inset 0 0 0 100px rgba(250, 204, 21, 0.35); }
+.rxa-sq.sel { box-shadow: inset 0 0 0 100px rgba(56, 189, 248, 0.45); }
+.rxa-sq.check { box-shadow: inset 0 0 18px 6px #ef4444; }
+.rxa-sq .dot { width: 26%; height: 26%; border-radius: 50%; background: rgba(15, 23, 42, 0.35); }
+.rxa-sq .ring { position: absolute; inset: 6%; border-radius: 50%; border: 4px solid rgba(15, 23, 42, 0.38); }
+.rxa-sq.over { box-shadow: inset 0 0 0 4px #38bdf8; }
+.rxa-piece { width: 92%; height: 92%; transform: rotateX(-24deg) translateY(-14%); transform-origin: bottom center; filter: drop-shadow(0 6px 4px rgba(0, 0, 0, 0.45)); cursor: grab; transition: transform 0.15s; pointer-events: none; }
+.rxa-piece svg { width: 100%; height: 100%; display: block; }
+.rxa-piece.ghost { position: fixed; z-index: 1000; width: 64px; height: 64px; transform: scale(1.15); pointer-events: none !important; }
+.rxa-tile.ghost, .rxa-card.ghost { pointer-events: none !important; }
+.rxa-coord { position: absolute; font-size: 9px; font-weight: 800; opacity: 0.6; color: #3b2412; }
+.rxa-coord.f { right: 3px; bottom: 1px; }
+.rxa-coord.r { left: 3px; top: 1px; }
+.rxa-tray { display: flex; flex-wrap: wrap; gap: 2px; min-height: 26px; align-items: center; }
+.rxa-tray svg { width: 22px; height: 22px; }
+.rxa-chess-info { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.9rem; font-weight: 700; margin: 6px 0; }
+.rxa-level { display: grid; gap: 10px; margin-top: 14px; }
+
+/* ---------- hub cards (used by the web hub) ---------- */
+.rxa-hub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; perspective: 1000px; }
+.rxa-hub-card {
+  position: relative; min-height: 150px; padding: 14px; border-radius: 22px; cursor: pointer; text-align: left; border: 0; font: inherit; color: #fff; overflow: hidden;
+  background: linear-gradient(155deg, color-mix(in srgb, var(--c) 85%, #fff) 0%, var(--c) 40%, color-mix(in srgb, var(--c) 45%, #000) 100%);
+  box-shadow: 0 8px 0 color-mix(in srgb, var(--c) 40%, #000), 0 18px 30px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); transition: transform 0.15s ease, box-shadow 0.15s ease; transform-style: preserve-3d;
+}
+.rxa-hub-card:active { transform: translateY(5px); box-shadow: 0 3px 0 color-mix(in srgb, var(--c) 40%, #000), 0 8px 16px rgba(0, 0, 0, 0.3); }
+.rxa-hub-card .emo { font-size: 2.6rem; line-height: 1; filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.35)); transform: translateZ(30px); display: inline-block; }
+.rxa-hub-card b { display: block; margin-top: 10px; font-family: 'Rehablix Brand', system-ui, sans-serif; font-size: 1.08rem; font-weight: 800; }
+.rxa-hub-card span { display: block; margin-top: 3px; font-size: 0.78rem; opacity: 0.9; line-height: 1.3; }
+.rxa-hub-card .new { position: absolute; top: 10px; right: 10px; padding: 2px 8px; border-radius: 999px; font-size: 0.66rem; font-weight: 900; letter-spacing: 0.06em; background: #fff; color: var(--c); }
+.rxa-hub-card::after { content: ""; position: absolute; width: 140px; height: 140px; right: -40px; bottom: -50px; border-radius: 50%; background: rgba(255, 255, 255, 0.14); }
+
+@media (max-width: 420px) {
+  .rxa { padding: 12px 10px 18px; border-radius: 18px; }
+  .rxa-pads { gap: 8px; }
+  .rxa-pad { min-height: 66px; font-size: 0.84rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rxa *, .rxa::before { animation: none !important; transition: none !important; }
+}
+
+/* ---------- older WebViews without color-mix(): the same look in plain colours (arcade-kit.js adds .rxa-nocm) ---------- */
+.rxa-nocm .rxa { background: radial-gradient(120% 70% at 85% -10%, rgba(20, 184, 166, 0.45), transparent 60%), linear-gradient(160deg, #0b1026 0%, #101a3c 45%, #0a2a33 100%); }
+.rxa-nocm .rxa-score, .rxa-nocm .rxa-btn:not(.ghost) { background: var(--game); box-shadow: 0 6px 0 rgba(0, 0, 0, 0.35), 0 12px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.45); }
+.rxa-nocm .rxa-card { background: var(--game); box-shadow: 0 6px 0 rgba(0, 0, 0, 0.35), 0 12px 22px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
+.rxa-nocm .rxa-pad { background: var(--c); box-shadow: 0 6px 0 rgba(0, 0, 0, 0.35), 0 12px 20px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.45); }
+.rxa-nocm .rxa-hub-card { background: var(--c); box-shadow: 0 8px 0 rgba(0, 0, 0, 0.3), 0 18px 30px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
+.rxa-nocm .rxa-bin { background: rgba(255, 255, 255, 0.08); border-color: var(--c); box-shadow: 0 0 22px var(--c); }
+.rxa-nocm .rxa-deg { text-shadow: 0 0 18px var(--game); }

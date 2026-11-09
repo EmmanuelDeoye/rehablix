@@ -344,9 +344,62 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // ==============================================================
-  // ADMIN AUTHENTICATION (PASS-BASED)
+  // ADMIN AUTHENTICATION: the admin Google account, no passcode (2026-11-09)
+  // Signed in as MASTER_ADMIN_EMAIL -> the dashboard opens by itself. The database rules allow admin reads and
+  // writes only for that signed-in account, so the page cannot be used by anyone else even if this check is bypassed.
   // ==============================================================
-  
+  const adminSignIn = document.getElementById('adminSignIn');
+  const googleSignInBtn = document.getElementById('googleSignInBtn');
+  const switchAccountBtn = document.getElementById('switchAccountBtn');
+
+  function unlockAdmin(user) {
+    adminAuthScreen.style.display = 'none';
+    adminDashboard.style.display = 'block';
+    isLoggedIn = true;
+    isMasterAdmin = true;
+    currentAdminEmail = user.email;
+    if (adminEmailDisplay) adminEmailDisplay.textContent = user.email;
+    showToast('🔓 Welcome back!');
+    updateDashboardStats();
+    loadUsers();
+    updateSettingsUI();
+    updateVisitChart('today');
+  }
+  function lockAdmin(user) {
+    adminDashboard.style.display = 'none';
+    adminAuthScreen.style.display = 'flex';
+    isLoggedIn = false; isMasterAdmin = false; currentAdminEmail = null;
+    if (visitChart) { visitChart.destroy(); visitChart = null; }
+    if (adminSignIn) adminSignIn.style.display = 'block';
+    if (user) {
+      authStatusMsg.textContent = 'You are signed in as ' + user.email + ', which is not the admin account.';
+      if (googleSignInBtn) googleSignInBtn.style.display = 'none';
+      if (switchAccountBtn) switchAccountBtn.style.display = 'block';
+    } else {
+      authStatusMsg.textContent = 'Sign in with the admin Google account to continue.';
+      if (googleSignInBtn) googleSignInBtn.style.display = 'block';
+      if (switchAccountBtn) switchAccountBtn.style.display = 'none';
+    }
+  }
+  auth.onAuthStateChanged((user) => {
+    if (user && user.email === MASTER_ADMIN_EMAIL) { if (!isLoggedIn) unlockAdmin(user); }
+    else lockAdmin(user);
+  });
+  if (googleSignInBtn) {
+    googleSignInBtn.addEventListener('click', async () => {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account', login_hint: MASTER_ADMIN_EMAIL });
+      loginError.textContent = '';
+      try { await auth.signInWithPopup(provider); }
+      catch (e) {
+        // (a blocked pop-up, common on phones: go by redirect instead)
+        if (e && (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment')) { try { await auth.signInWithRedirect(provider); } catch (e2) { loginError.textContent = 'Sign-in failed. Please try again.'; } }
+        else if (!(e && e.code === 'auth/popup-closed-by-user')) loginError.textContent = 'Sign-in failed. Please try again.';
+      }
+    });
+  }
+  if (switchAccountBtn) switchAccountBtn.addEventListener('click', () => auth.signOut());
+
   async function checkAdminPassword() {
     try {
       const snapshot = await database.ref('admin/pass').once('value');
@@ -458,18 +511,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Logout
   if (adminLogoutBtn) {
-    adminLogoutBtn.addEventListener('click', () => {
-      adminDashboard.style.display = 'none';
-      adminAuthScreen.style.display = 'flex';
-      loginPassword.value = '';
-      loginError.textContent = '';
-      isLoggedIn = false;
-      isMasterAdmin = false;
-      currentAdminEmail = null;
-      if (visitChart) {
-        visitChart.destroy();
-        visitChart = null;
-      }
+    adminLogoutBtn.addEventListener('click', async () => {
+      // signs the admin account out of this browser (the auth listener then shows the sign-in card)
+      try { await auth.signOut(); } catch (e) { lockAdmin(null); }
       showToast('👋 Logged out.');
     });
   }
@@ -490,10 +534,9 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     }
     
+    // (no admin passcode any more: the admin Google account signs in)
     const passCard = document.getElementById('changePasswordCard');
-    if (passCard) {
-      passCard.style.display = isMasterAdmin ? 'block' : 'none';
-    }
+    if (passCard) passCard.style.display = 'none';
   }
 
   // ==============================================================
@@ -2466,7 +2509,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // INITIALIZATION
   // ==============================================================
   async function init() {
-    await checkAdminPassword();
+    // (sign-in is handled by auth.onAuthStateChanged above: no passcode any more)
     console.log('Admin.js ready');
   }
 

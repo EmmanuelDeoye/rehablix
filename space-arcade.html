@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <title>Space Arcade</title>
+  <!-- The Space arcade on its own: the Android app shows this page inside the app (assets/space-arcade, with
+       window.RxHost for XP and leaving); the web app runs the same games inside its Space page (js/space/space-view.js). -->
+  <link rel="stylesheet" href="js/space/arcade/arcade.css">
+  <style>
+    html, body { margin: 0; min-height: 100%; background: #0b1026; }
+    body { padding: 0; }
+    #arcade { min-height: 100vh; }
+    #arcade > .rxa { border-radius: 0; min-height: 100vh; padding-top: calc(14px + env(safe-area-inset-top)); padding-bottom: calc(22px + env(safe-area-inset-bottom)); }
+  </style>
+</head>
+<body>
+  <div id="arcade"></div>
+  <script src="js/space/space-core.js"></script>
+  <script src="js/space/arcade/arcade-content.js"></script>
+  <script src="js/space/arcade/chess-engine.js"></script>
+  <script src="js/space/arcade/arcade-kit.js"></script>
+  <script src="js/space/arcade/game-wordlab.js"></script>
+  <script src="js/space/arcade/game-match.js"></script>
+  <script src="js/space/arcade/game-quiz.js"></script>
+  <script src="js/space/arcade/game-gonio.js"></script>
+  <script src="js/space/arcade/game-chess.js"></script>
+  <script>
+    (function () {
+      var game = (new URLSearchParams(location.search).get('game')) || 'wordlab';
+      // Android: window.RxHost (the app's JavaScript interface). Elsewhere: a test host that saves nothing.
+      var native = window.RxHost;
+      var info = {};
+      try { info = native ? JSON.parse(native.info()) : {}; } catch (e) { info = {}; }
+      var host = {
+        signedIn: native ? !!info.signedIn : false,
+        name: info.name || '',
+        award: function (xp, id) { if (native) native.award(Math.round(xp), String(id)); },
+        exit: function () { if (native) native.exit(); else history.back(); },
+        vibrate: function (ms) { if (native) native.vibrate(Array.isArray(ms) ? ms[0] : ms); else if (navigator.vibrate) navigator.vibrate(ms); },
+      };
+      window.RxArcadeHost = host;
+      RxArcade.start(document.getElementById('arcade'), RxArcade.games[game] ? game : 'wordlab', host);
+    })();
+  </script>
+</body>
+</html>

@@ -116,24 +116,43 @@
   }
 
   // ------------------------------------------------------------------ hub
+  // (2026-11-09) The arcade: 3D, colourful games for learning (js/space/arcade/*, shared with the Android app).
+  // `arcade` = the game id run by RxArcade; the others are this page's own online screens.
   const GAMES = [
-    { id: 'goniometer', emoji: '📐', name: 'Goniometer Guess', desc: 'Read the joint angle by eye. Within 3° is a bullseye.', tag: 'Solo · 5 rounds' },
-    { id: 'rush', emoji: '💪', name: 'Muscle Rush', desc: 'Nerves and actions, 60 seconds, streak bonuses.', tag: 'Solo · 60 s' },
-    { id: 'tests', emoji: '🩺', name: 'Special Test Showdown', desc: 'Name the test, or what a positive means. Practise, or race friends live.', tag: 'Solo · Live room' },
-    { id: 'duels', emoji: '⚔️', name: 'Duels', desc: 'Challenge a colleague: the same 5 questions, best score wins.', tag: '1 v 1' },
+    { id: 'wordlab', arcade: 'wordlab', emoji: '🔤', name: 'Word Lab', desc: 'Clinical Scrabble: drag letter tiles to spell the term.', color: '#f59e0b', isNew: true },
+    { id: 'chess', arcade: 'chess', emoji: '♟️', name: 'Clinical Chess', desc: 'Real chess. Answer a clinical question to capture.', color: '#8b5cf6', isNew: true },
+    { id: 'match', arcade: 'match', emoji: '🧲', name: 'Muscle Match', desc: 'Drag each muscle to the nerve that supplies it.', color: '#ec4899', isNew: true },
+    { id: 'goniometer', arcade: 'gonio', emoji: '📐', name: 'Goniometer 3D', desc: 'Judge the joint angle on a 3D patient.', color: '#06b6d4' },
+    { id: 'rush', arcade: 'rush', emoji: '💪', name: 'Muscle Rush', desc: '60 seconds of nerves and actions. Build a streak.', color: '#f97316' },
+    { id: 'testsPlay', arcade: 'tests', emoji: '🩺', name: 'Special Tests', desc: 'Ten scenarios: name the test or what it means.', color: '#10b981' },
   ];
-  const LATER = [['🚶', 'Gait Detective'], ['🧭', 'Patient Journey'], ['🧩', 'ICF Sort'], ['🔎', 'Spot the Error'], ['🏟️', 'Quiz Arena']];
+  const FRIENDS = [
+    { id: 'duels', emoji: '⚔️', name: 'Duels', desc: 'The same 5 questions; best score wins.', color: '#e11d48' },
+    { id: 'tests', emoji: '📡', name: 'Live room', desc: 'Friends join with a code. Fastest right answer wins.', color: '#0ea5e9' },
+  ];
+  const card = (g) => '<button class="rxa-hub-card" data-go="' + g.id + '" style="--c:' + g.color + '">' + (g.isNew ? '<span class="new">NEW</span>' : '') +
+    '<span class="emo">' + g.emoji + '</span><b>' + esc(g.name) + '</b><span>' + esc(g.desc) + '</span></button>';
+  // A gentle 3D tilt toward the finger / pointer on the hub cards.
+  function tilt(el) {
+    el.querySelectorAll('.rxa-hub-card').forEach((c) => {
+      c.addEventListener('pointermove', (e) => { const r = c.getBoundingClientRect(); c.style.setProperty('--ry', ((e.clientX - r.left) / r.width - 0.5) * 14 + 'deg'); c.style.setProperty('--rx', -((e.clientY - r.top) / r.height - 0.5) * 14 + 'deg'); });
+      c.addEventListener('pointerleave', () => { c.style.setProperty('--rx', '0deg'); c.style.setProperty('--ry', '0deg'); });
+    });
+  }
 
   async function renderHub() {
     const u = user();
-    root.innerHTML = '<div class="sp-hero"><div><h1>Space</h1><p>Learn by playing. A new case every day, quick games, and a weekly league.</p></div>' +
+    root.innerHTML = '<div class="rxa sp-hub">' +
+      '<div class="sp-hub-hero"><div><div class="rxa-title" style="font-size:2rem">Space</div><p class="rxa-muted">Learn by playing: a case a day, 3D games and a weekly league.</p></div>' +
       '<div class="sp-chips" id="spChips">' + (u ? '<span class="sp-chip">🔥 …</span><span class="sp-chip">⚡ …</span>' : '<span class="sp-chip">Sign in to save your streak and XP</span>') + '</div></div>' +
-      '<button class="sp-daily" data-go="daily"><span class="sp-daily-badge">TODAY</span><span class="sp-daily-emoji">🧠</span><span class="sp-daily-text"><strong>Daily Case Challenge</strong>' +
+      '<button class="sp-daily-3d" data-go="daily"><span class="sp-daily-badge">TODAY</span><span class="emo">🧠</span><span class="txt"><b>Daily Case Challenge</b>' +
       '<span>' + esc(professionLabel()) + ' · answer in your own words, Lixa scores it</span></span><span class="sp-arrow">›</span></button>' +
-      '<div class="sp-grid">' + GAMES.map((g) => '<button class="sp-game" data-go="' + g.id + '"><span class="sp-game-emoji">' + g.emoji + '</span><strong>' + g.name + '</strong><span class="sp-game-desc">' + g.desc + '</span><span class="sp-tag">' + g.tag + '</span></button>').join('') + '</div>' +
-      '<div class="sp-card"><div class="sp-row-between"><h3>🏆 Weekly league</h3><button class="sp-link" data-go="league">See all ›</button></div><div id="spLeaguePeek" class="sp-muted">Loading…</div></div>' +
-      '<div class="sp-card sp-soon"><h3>Coming soon</h3><div class="sp-soon-list">' + LATER.map((x) => '<span>' + x[0] + ' ' + x[1] + '</span>').join('') + '</div></div>';
+      '<h3 class="sp-hub-h">🎮 Arcade</h3><div class="rxa-hub-grid">' + GAMES.map(card).join('') + '</div>' +
+      '<h3 class="sp-hub-h">👥 With friends</h3><div class="rxa-hub-grid">' + FRIENDS.map(card).join('') + '</div>' +
+      '<div class="rxa-glass sp-hub-league"><div class="sp-row-between"><h3>🏆 Weekly league</h3><button class="sp-link" data-go="league">See all ›</button></div><div id="spLeaguePeek" class="rxa-muted">Loading…</div></div>' +
+      '</div>';
     bindGo();
+    tilt(root);
     if (u) {
       const [st, xp] = await Promise.all([myStats(), myWeekXp()]);
       if (screen !== 'hub') return;
@@ -146,6 +165,20 @@
       if (!el || screen !== 'hub') return;
       el.innerHTML = rows === null ? 'Sign in to see the league.' : rows.length ? leagueRows(rows.slice(0, 5)) : 'No one has played this week yet. Be first!';
     });
+  }
+
+  // ------------------------------------------------------------------ the arcade (js/space/arcade)
+  const STAT_KEY = { gonio: 'goniometer' };   // (the same league/stat names as the old games)
+  function renderArcade(gameId) {
+    root.innerHTML = '';
+    window.RxArcade.start(root, gameId, {
+      signedIn: !!user(),
+      name: displayName(),
+      award: (xp, id) => { if (user()) award(xp, STAT_KEY[id] || id); },
+      exit: () => go('hub'),
+    });
+    // leaving by the navbar's back arrow (or another page) stops the game's timers
+    cleanup.push(() => window.RxArcade.dispose());
   }
 
   // ------------------------------------------------------------------ league
@@ -320,7 +353,7 @@
       '<button class="sp-game" id="spHost"><span class="sp-game-emoji">📡</span><strong>Host a live room</strong><span class="sp-game-desc">Friends join with a code. Fastest right answer scores most.</span><span class="sp-tag">2–20 players</span></button></div>' +
       '<div class="sp-card"><h3>Join a room</h3><div class="sp-join"><input id="spCode" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters"><button class="sp-btn sp-primary" id="spJoin">Join</button></div></div>';
     bindGo();
-    root.querySelector('#spPractice').onclick = () => practice();
+    root.querySelector('#spPractice').onclick = () => (window.RxArcade ? go('testsPlay') : practice());
     root.querySelector('#spHost').onclick = hostRoom;
     const code = root.querySelector('#spCode');
     code.oninput = () => { code.value = S.cleanCode(code.value); };
@@ -604,7 +637,10 @@
   function render(arg) {
     if (!root) return;
     backTo = 'hub';
-    ({ hub: renderHub, daily: renderDaily, goniometer: renderGoniometer, rush: renderRush, tests: renderTests, duels: renderDuels, league: renderLeague }[screen] || renderHub)(arg);
+    // the arcade games (3D, shared with the Android app) run inside this page
+    const g = GAMES.find((x) => x.id === screen);
+    if (g && window.RxArcade && window.RxArcade.games[g.arcade]) { renderArcade(g.arcade); syncNav(); return; }
+    ({ hub: renderHub, daily: renderDaily, tests: renderTests, duels: renderDuels, league: renderLeague }[screen] || renderHub)(arg);
     syncNav();
   }
   // deep links: #/space/join/CODE (live room), #/space/duel/CODE

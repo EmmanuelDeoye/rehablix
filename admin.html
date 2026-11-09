@@ -434,38 +434,25 @@
 <body class="admin-page">
 
     <!-- ============================================================= -->
-    <!--  ADMIN AUTH SCREEN  (pass-based)                              -->
+    <!--  ADMIN AUTH SCREEN: the admin Google account (tolexar.ted@gmail.com), no passcode.        -->
+    <!--  The database rules only let that signed-in account read or change admin data.            -->
     <!-- ============================================================= -->
     <div id="adminAuthScreen" class="admin-auth-overlay">
         <div class="admin-auth-card glass-card">
             <div class="auth-card-header">
                 <span class="auth-logo">🛡️</span>
                 <h2>Admin Access</h2>
-                <p id="authStatusMsg">Enter the admin password to continue.</p>
+                <p id="authStatusMsg">Checking your sign-in…</p>
             </div>
 
-            <!-- Setup form (no password set yet) -->
-            <div id="setupForm" style="display:none;">
-                <p class="setup-hint">No admin password found. Create one now.</p>
-                <div class="auth-input-group">
-                    <input type="password" id="setupPassword" placeholder="New password" />
-                    <input type="password" id="setupPasswordConfirm" placeholder="Confirm password" />
-                </div>
-                <button id="setupBtn" class="admin-btn primary">Set Password</button>
-                <div id="setupError" class="auth-error"></div>
-            </div>
-
-            <!-- Login form -->
-            <div id="loginForm" style="display:none;">
-                <div class="auth-input-group">
-                    <input type="password" id="loginPassword" placeholder="Enter password" />
-                </div>
-                <button id="loginBtn" class="admin-btn primary">Unlock Dashboard</button>
+            <div id="adminSignIn" style="display:none;">
+                <button id="googleSignInBtn" class="admin-btn primary" type="button">Sign in with Google</button>
+                <button id="switchAccountBtn" class="admin-btn" type="button" style="display:none;margin-top:10px">Sign out and use the admin account</button>
                 <div id="loginError" class="auth-error"></div>
             </div>
 
             <div class="auth-footer">
-                <span>🔐 secured with Firebase</span>
+                <span>🔐 Only the admin Google account can open this page</span>
             </div>
         </div>
     </div>
@@ -1032,6 +1019,32 @@
                         <p class="view-subtitle">Admin configuration &amp; access management</p>
                     </div>
 
+                    <!-- Android app releases (appConfig/android, read by the Android app at start-up) -->
+                    <div class="settings-card glass-card" id="androidReleaseCard">
+                        <h3>📱 Android app releases</h3>
+                        <p class="settings-hint">What the Android app checks when it opens. Raise the latest version after publishing a new app file and users see an <b>Update</b> button.</p>
+                        <div id="relLive" class="settings-hint" style="margin:8px 0;padding:10px 12px;border-radius:10px;background:rgba(0,150,136,0.08)">Checking the live download…</div>
+                        <button id="relUseLive" class="admin-btn" type="button" style="margin-bottom:12px">Fill in from the live download</button>
+                        <div class="settings-form" style="display:grid;gap:10px">
+                            <label>Latest version code <small>(a whole number, e.g. 4)</small><input type="number" id="relCode" min="1" step="1" /></label>
+                            <label>Latest version name <small>(e.g. 1.2.0)</small><input type="text" id="relName" maxlength="20" /></label>
+                            <label>Release notes <small>(shown in the update message)</small><textarea id="relNotes" rows="3" maxlength="500"></textarea></label>
+                            <label>Download page for website installs<input type="url" id="relUrl" placeholder="https://www.rehablix.com/download" /></label>
+                            <label>Must-update below version <small>(optional: older versions cannot be used until they update; leave 0 for none)</small><input type="number" id="relMin" min="0" step="1" /></label>
+                            <details style="margin-top:4px"><summary style="cursor:pointer;font-weight:600">Old test versions notice</summary>
+                                <div style="display:grid;gap:10px;margin-top:10px">
+                                    <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="relTesterOn" /> Ask old test copies to switch to the new app</label>
+                                    <label>Only for versions below <input type="number" id="relTesterBelow" min="0" step="1" /></label>
+                                    <label>Title<input type="text" id="relTesterTitle" maxlength="80" /></label>
+                                    <label>Message<textarea id="relTesterMsg" rows="3" maxlength="400"></textarea></label>
+                                    <label>Link<input type="url" id="relTesterUrl" /></label>
+                                </div>
+                            </details>
+                            <button id="relSave" class="admin-btn primary" type="button">Save release settings</button>
+                        </div>
+                        <div id="relMsg" class="settings-msg"></div>
+                    </div>
+
                     <!-- Change Password (only for master admin) -->
                     <div class="settings-card glass-card" id="changePasswordCard">
                         <h3>Change Admin Password</h3>
@@ -1250,6 +1263,7 @@
 <script src="js/admin-extra.js" defer></script>
 <script src="js/plan-config.js" defer></script>
 <script src="js/admin-plans.js" defer></script>
+<script src="js/admin-releases.js" defer></script>
 
 </body>
 </html>

@@ -116,6 +116,24 @@ body.has-bottom-nav[data-route="lixa"] .chat-input-area {
   pointer-events: none;            /* the clear margin around the box lets taps reach the chat */
 }
 body.has-bottom-nav[data-route="lixa"] .chat-input-area > * { pointer-events: auto; }
+/* (2026-11-09) one frosted-glass panel across the bottom of the screen, behind the message box and the bar: the
+   chat sliding under them turns to frosted glass. It fades in over its top 28px (mask), so there is no hard edge. */
+body.has-bottom-nav[data-route="lixa"] .ask-container::after {
+  content: "";
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(var(--composer-h, 96px) + var(--bottom-nav-h) + 28px);
+  z-index: 4;                       /* above the chat, below the message box (5) and the bar (900) */
+  pointer-events: none;
+  background: rgba(245, 247, 249, 0.3);                       /* (browsers without color-mix) */
+  background: color-mix(in srgb, var(--bg-page) 30%, transparent);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+}
 body.has-bottom-nav[data-route="lixa"] .chat-messages {
   padding-bottom: calc(var(--composer-h, 96px) + var(--bottom-nav-h) + 16px);
   scroll-padding-bottom: calc(var(--composer-h, 96px) + var(--bottom-nav-h) + 16px);
